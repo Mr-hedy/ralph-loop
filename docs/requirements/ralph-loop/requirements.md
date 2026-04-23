@@ -1,0 +1,387 @@
+# Ralph Loop 需求文档
+
+## 摘要
+
+Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh oneshot 循环驱动长任务执行。它把任务状态、运行日志、退出原因和 provider 原生 session 证据沉淀在使用者 workspace 的 `.ralph/` 下，让长任务可观察、可恢复、可复盘。
+
+## 背景
+
+单会话连续执行长任务会让上下文持续膨胀，模型注意力下降；用户长时间会话里的失败复盘依赖临时对话记录，缺乏可回溯证据。Ralph 把长任务组织成多轮 fresh oneshot，每轮退出时把证据写盘，下一轮重新冷启动，从根本上避免上下文飘逸，并让复盘有明确的文件级事实。
+
+## 目标
+
+- 用 provider CLI 的 oneshot 能力驱动长任务，避免单会话上下文膨胀。
+- 让 agent 每轮从 `.ralph/TASKS.md` 挑一个未完成任务，执行到完成并勾选 `[x]`，然后退出。
+- 由 harness 负责循环控制、超时、退出原因、日志和 provider 原生 session 采集。
+- 支持 Claude Code、Codex CLI、Gemini CLI 三个 provider，统一 adapter 接口。
+- 通过 `ralph status` 和 `ralph watch` 观察当前 run 状态。
+- shell-first Bash 实现，降低部署和运行环境成本。
+
+## 非目标
+
+- 不实现自有 agent 推理、任务规划或代码生成。
+- 不提供 `ralph init` 或任何模板生成；使用者自行创建 `.ralph/PROMPT.md`、`.ralph/TASKS.md`、`.ralph/.env`。
+- 不把 provider session 当作任务完成事实源；任务完成只以 `.ralph/TASKS.md` 勾选为准。
+- 不默认 resume provider session；每轮都是 fresh oneshot。
+- 不支持全局 `ralph` 命令；只支持 per-workspace 部署。
+- 不接受 `--cwd` 参数；workspace 根由脚本路径决定。
+- 不引入数据库，不依赖完整 Markdown parser。
+- 不做复杂 TUI；`watch` 只做最小可用的状态刷新。
+- 不在本仓库内做任何 `ralph-loop` 自举（本仓库是开发工程，不自用 ralph）。
+
+## 受众
+
+- 维护者：在真实 workspace 中跑长任务，并据此复盘。
+- coding agent 协作者：通过 Bash 工具调用 `ralph run` 驱动长任务。
+- ralph 工具开发者：本仓库维护者，对照本需求迭代工具本身。
+
+## 澄清记录
+
+### 轮次 1（结构与边界）
+
+- 关键议题：参考来源定位、默认值来源、任务协议、并发与 resume、provider 覆盖范围、子命令命名、`.env` 位置、cwd 策略、部署形态。
+- 用户裁决：独立演进 trantor-skills 和 ralph-claude-code 仅为输入参考；`.ralph/` 仅承载工具代码与运行态产物；本仓库不自用 ralph；三 provider 都做；无 `ralph init`；子命令只用 `run/status/watch`；per-workspace 部署。
+
+### 轮次 2（运行参数与协议）
+
+- 关键议题：max_iter / timeout / stagnation 默认、任务解析规则、changed_files base、一个 oneshot 覆盖几个 task、PROMPT 协议、退出原因。
+- 用户裁决：max_iter 默认 0、timeout 默认 0、stagnation_limit 默认 5；任务解析沿用 trantor 的 `^\s*-\s+\[([ xX])\]` 不限缩进；changed_files = `git diff --name-only <start_sha>..HEAD` ∪ `git status --porcelain`；**一个 task 一个 oneshot**（PROMPT 协议硬约束）；退出状态 6 条（含 `locked` 不产生 run）。
+
+### 轮次 3（配置与 cwd）
+
+- 关键议题：provider/model/effort 来源与默认值策略、cwd 如何不被 agent 幻觉污染。
+- 用户裁决：`.env` 路径写死 `.ralph/.env`（相对脚本位置），只需 `RALPH_PROVIDER` 必填，其他字段留空 → 不拼 flag、走 provider 内置默认；`--effort=low|medium|high|none` 抽象，adapter 翻译；**不接受 `--cwd`**，workspace 根由脚本路径（`$script_dir/../..`）决定，ralph 启动时内部 `cd` 到 workspace 根。
+
+## 澄清结论
+
+- 项目背景与目标：Ralph 是 shell harness，不参与推理；用 fresh oneshot 驱动长任务，TASKS.md 是任务完成事实源。
+- 目标用户与角色：维护者手敲或让 agent 通过 Bash 工具调用；ralph 工具开发者基于本需求迭代。
+- 核心范围：`run/status/watch` 三子命令、TASKS.md 协议、PROMPT.md 协议、三 provider adapter、per-workspace 部署、`.env` 驱动默认值。
+- 明确排除范围：init 模板生成、全局安装、`--cwd` 参数、resume、自有 agent 推理、复杂 TUI、数据库。
+- 关键假设：provider CLI 在不指定 model / effort 时能用自身默认正常运行；git 可用；UUID 可通过 `uuidgen`、`/proc/sys/kernel/random/uuid`、`python3 -c uuid.uuid4()` 三者之一生成。
+- 遗留风险：Gemini 的 session id 在 `-p` 模式下不稳定输出，需退化定位；Claude 的 cwd 哈希规则需随官方版本验证。
+
+## 需求清单
+
+| 需求编号 | 名称 | 描述 | 优先级 | 类型 | 来源 |
+|---|---|---|---|---|---|
+| REQ-001 | Fresh oneshot 循环 | `ralph run` 反复调用 provider CLI 的 fresh oneshot，每轮读 TASKS.md 挑一个未完成任务执行，直到全部完成或触发明确退出条件 | P0-必须 | 功能 | 澄清轮次 1-2 |
+| REQ-002 | TASKS.md 任务协议 | `.ralph/TASKS.md` 顶层 `- [ ]` / `- [x]` checklist 是任务完成事实源；Ralph 按状态变化判断进度 | P0-必须 | 功能 | 澄清轮次 2 |
+| REQ-003 | 一个 task 一个 oneshot | PROMPT.md 硬约束：每轮 oneshot 只能完成**恰好一个**未勾选任务，完成后勾 `[x]` 并退出 | P0-必须 | 协作 | 澄清轮次 2 |
+| REQ-004 | 三 provider 支持 | 支持 Claude Code、Codex CLI、Gemini CLI 三个 provider 的 oneshot 命令、session 采集和错误诊断 | P0-必须 | 功能 | 澄清轮次 1 |
+| REQ-005 | Adapter 抽象 | 用统一 shell 函数契约抽象 provider 差异，便于独立实现和替换 | P0-必须 | 协作 | 澄清轮次 2 |
+| REQ-006 | 运行证据沉淀 | 每轮保存 stdout/stderr 原始 log、provider 原生 session 副本、派生 chat/tools 视图、changed_files 和 meta | P0-必须 | 功能 | 澄清轮次 1 |
+| REQ-007 | 状态观察 | 提供 `ralph status` 和 `ralph watch` 两个子命令读取当前 run 状态和任务进度 | P1-重要 | 功能 | 澄清轮次 1 |
+| REQ-008 | Per-workspace 部署 | 每个使用者 workspace 自带 `.ralph/bin/ralph` + `.ralph/lib/*`；不支持全局 `ralph` 命令 | P0-必须 | 约束 | 澄清轮次 3 |
+| REQ-009 | .env 驱动默认值 | 从 `.ralph/.env` 读取 `RALPH_*` 前缀的默认参数；`RALPH_PROVIDER` 必需，其他留空即不传 flag | P0-必须 | 功能 | 澄清轮次 3 |
+| REQ-010 | 工作目录自定位 | workspace 根由 ralph 脚本路径决定（`$script_dir/../..`），ralph 启动时内部 `cd` 到该目录；不接受 `--cwd` 参数 | P0-必须 | 约束 | 澄清轮次 3 |
+| REQ-011 | 快速失败校验 | 启动时校验 `.ralph/PROMPT.md`、`.ralph/TASKS.md`、`.ralph/.env`（含 `RALPH_PROVIDER`）、git 仓库、provider CLI 可执行；当 `RALPH_PROVIDER=claude` 时同时校验 UUID 生成器可用（TC-INT-003 三路至少一路成功）；任一缺失立即退出 | P0-必须 | 功能 | 澄清轮次 3 |
+| REQ-012 | 明确退出原因 | 每次 `ralph run` 退出必须写明退出原因，共 7 种：`done` / `provider_failed` / `timeout` / `max_iterations` / `stagnated` / `locked` / `interrupted`（`locked` 不产生 run 目录，不写 `result.json`；`interrupted` 在 lock 获取前触发时同样不产生 run 目录） | P0-必须 | 功能 | 澄清轮次 2 |
+| REQ-013 | Stagnation 保护 | 连续 N 轮 TASKS 勾选数不变且 changed_files 为空时触发 `stagnated` 退出，默认 N=5 | P1-重要 | 功能 | 澄清轮次 2 |
+| REQ-014 | Effort 抽象 | `--effort=low\|medium\|high\|none` 由 adapter 翻译到各 provider 原生参数；留空不传 | P1-重要 | 功能 | 澄清轮次 3 |
+| REQ-015 | Provider 绑定 | `--provider` 或 `RALPH_PROVIDER` 在 `ralph run` 启动时绑定，运行中不切换；写入 `status.json` 和 `provider.meta` | P0-必须 | 约束 | 澄清轮次 1 |
+| REQ-016 | Skill 封装（后置） | 后续封装 `ralph-loop` skill，负责在使用者 workspace 初始化 `.ralph/` 结构并正确构造 `ralph run`；不进入 v0.1 范围 | P2-期望 | 协作 | 澄清轮次 3 |
+
+## 优先级说明
+
+| 优先级 | 含义 |
+|---|---|
+| P0-必须 | 缺失则 v0.1 不可用 |
+| P1-重要 | v0.1 强烈建议实现 |
+| P2-期望 | v0.1 之后纳入 |
+| P3-可选 | 资源允许时考虑 |
+
+## 用户场景
+
+### US-001：维护者手动跑一轮长任务
+
+- 触发：维护者准备好 `.ralph/PROMPT.md`、`.ralph/TASKS.md`、`.ralph/.env`，在 workspace 内 shell 执行 `.ralph/bin/ralph run`。
+- 输入：TASKS.md 含多条未勾选任务、PROMPT.md 含协议说明、.env 指定 `RALPH_PROVIDER=codex`。
+- 预期结果：ralph 循环调用 codex oneshot，每轮 agent 勾选一条任务并退出；直到全部勾选，ralph 以 `done` 退出，`.ralph/runs/<id>/result.json` 写入结果。
+- 验收：TASKS.md 全部 `[x]`；`result.json` 的 `exit_reason=done`；`iterations/` 下有每轮的 log 和 session 副本。
+
+### US-002：coding agent 通过 Bash 工具驱动 ralph
+
+- 触发：coding agent（如 Claude Code）用 Bash 工具执行 `/abs/path/.ralph/bin/ralph run`。
+- 输入：agent 可能在任意 cwd 调用（agent 用过 `cd` 子目录）。
+- 预期结果：ralph 根据脚本路径自动定位 workspace，内部 `cd` 到 workspace 根，和手动调用行为一致。
+- 验收：`status.json` 中 `workspace` 字段等于脚本父目录的父目录；run 能正常产生。
+
+### US-003：run 中途失败复盘
+
+- 触发：某轮 provider 退出码非 0，或连续 5 轮无进展。
+- 输入：已产生的 `iterations/iter-xxx/` 目录。
+- 预期结果：`result.json.exit_reason` 明确（`provider_failed` / `stagnated`），`last_error.type` 给出分类（`quota` / `auth` / `rate_limit` / `network` / `unknown`）；`session.<provider>.*` 保留原生证据。
+- 验收：人工打开 `result.json` 即能判断退出类型；打开 `session.claude.jsonl` 或派生 `chat.log` 即能读到对话流。
+
+### US-004：并发冲突
+
+- 触发：同一 workspace 已有 `ralph run` 运行中，维护者再次调用 `ralph run`。
+- 输入：`.ralph/lock` 文件存在。
+- 预期结果：第二次调用以 `locked` 退出，不创建新 run 目录，不影响已有 run。
+- 验收：第二次退出码对应 `locked`；`.ralph/runs/` 没有新产物。
+
+### US-005：启动校验失败
+
+- 触发：workspace 缺少 `.ralph/PROMPT.md` 或 `.ralph/TASKS.md` 或 `.ralph/.env` 或不是 git 仓库。
+- 输入：不完整的 workspace。
+- 预期结果：立即退出，stderr 明确指出缺哪个文件或条件。
+- 验收：没有 run 目录产生；退出信息可机读（有固定错误前缀）。
+
+## 成功标准
+
+| 标准编号 | 绑定需求 | 标准描述 | 度量方式 | 目标值 | 验证方法 |
+|---|---|---|---|---|---|
+| SC-001-1 | REQ-001 | `ralph run` 在全部顶层 checklist 勾选后以 `done` 退出 | `result.json.exit_reason` | `done` | 集成测试：预置 TASKS.md + fake provider，跑 `ralph run` |
+| SC-001-2 | REQ-001 | 每一轮都是 fresh oneshot，不传 resume flag | provider CLI 调用参数 | 不含 `--resume` / `--continue` / `codex resume` | 审计 adapter 命令构造代码 |
+| SC-002-1 | REQ-002 | TASKS.md 顶层 checklist 解析匹配 `^\s*-\s+\[([ xX])\]` 不限缩进 | 解析函数单元测试 | 用例全通过 | 单元测试（对应 trantor parseTasks 用例） |
+| SC-003-1 | REQ-003 | PROMPT.md 模板包含"一个 task 一个 oneshot"协议段落 | PROMPT.md 示例文本 | 含"恰好一个未勾选任务" | 文档 + 示例 review |
+| SC-004-1 | REQ-004 | 三 provider 各自跑通一次 smoke run（至少一条 task 完成） | 真实 provider CLI | 三个 `exit_reason=done` | 手工集成验证，结果附在 T2/T3/T4 完成 PR |
+| SC-005-1 | REQ-005 | adapter 契约稳定为三函数：`provider_oneshot` / `provider_collect_session` / `provider_diagnose` | 接口文档 + fake adapter | 三函数签名一致 | fake provider smoke test |
+| SC-006-1 | REQ-006 | 每轮产出 `iter-xxx/log`、`session.<provider>.*`、`meta.json`；session 采集失败时 `capture_status=warning` 但 loop 继续 | `iterations/iter-xxx/` 目录 | 每轮齐全 | 集成测试 |
+| SC-007-1 | REQ-007 | `ralph status` 输出 run_id、provider、iteration、state、exit_reason、任务完成比 | stdout | 含上述字段 | 手工验证 |
+| SC-008-1 | REQ-008 | ralph 通过 `${BASH_SOURCE[0]}` 解析出 workspace 根为 `.ralph/` 的父目录 | 启动日志 + `status.json.workspace` | 路径匹配 | 单元测试 + 集成测试 |
+| SC-009-1 | REQ-009 | `.env` 中未设或留空的 `RALPH_MODEL` / `RALPH_EFFORT` / `RALPH_MAX_ITER` / `RALPH_TIMEOUT`，对应 flag 不拼进 oneshot 命令 | 构造出的命令行字符串 | flag 缺席 | 单元测试 |
+| SC-010-1 | REQ-010 | 在任意 cwd 执行 `/abs/path/.ralph/bin/ralph run`，ralph 进程最终 cwd 为 `/abs/path` | `pwd` 或 `status.json` | 路径一致 | 集成测试 |
+| SC-011-1 | REQ-011 | 缺 PROMPT.md / TASKS.md / .env / 非 git 仓库 / provider CLI 不可执行任一条件，ralph 立即退出且不创建 run 目录；`RALPH_PROVIDER=claude` 且三路 UUID 生成全失败时同样快速失败 | 退出码 + `.ralph/runs/` 状态 | 快速失败 | 集成测试 6 个用例（5 个核心条件 + Claude UUID 路径） |
+| SC-012-1 | REQ-012 | 6 种退出原因（`done` / `provider_failed` / `timeout` / `max_iterations` / `stagnated` / `interrupted`）都能写入 `result.json.exit_reason`；`locked` 不产生 run 目录、不写 `result.json`，合计 7 种 | `result.json` + `.ralph/runs/` 状态 | 全覆盖 | 集成测试（各触发一次） |
+| SC-013-1 | REQ-013 | 连续 5 轮无勾选变化且 changed_files 空 → `stagnated` 退出 | `result.json.exit_reason` | `stagnated` | 集成测试：用 fake provider 模拟空转 |
+| SC-014-1 | REQ-014 | `--effort=low\|medium\|high` 翻译为各 provider 原生参数；`none` 或留空不传 | 构造的命令行 | flag 匹配或缺席 | 单元测试 |
+| SC-015-1 | REQ-015 | `status.json` 和 `provider.meta` 都记录本轮 provider；run 生命周期内不变更 | 文件字段 | 一致 | 集成测试 |
+
+## 业务流程
+
+### BPF-001：典型 run 循环
+
+- 关联需求：REQ-001、REQ-002、REQ-003、REQ-006、REQ-011、REQ-012、REQ-013
+- 涉及角色：维护者 / coding agent、ralph harness、provider CLI、coding agent 循环
+- 触发条件：维护者或 coding agent 执行 `.ralph/bin/ralph run`
+- 主流程：
+  1. 解析 `${BASH_SOURCE[0]}` 得到 workspace 根，`cd` 到根
+  2. 读 `.ralph/.env`，解析 `RALPH_*` 字段
+  3. 校验 PROMPT.md / TASKS.md / .env / git 仓库 / provider CLI 可执行
+  4. 获取 `.ralph/lock`（`flock` 或等价机制），冲突则退出 `locked`
+  5. 生成 `run_id`，创建 `.ralph/runs/<run_id>/`，记录 `start_sha`
+  6. 写 `status.json` 初始状态
+  7. 进入循环：
+     - 解析 TASKS.md；全部勾选 → 退出 `done`
+     - 拼 oneshot 命令：`provider_oneshot <prompt_file> <log> <meta_dir>`
+     - 执行 provider CLI，捕获 stdout/stderr 到 `iter-xxx/log`
+     - `provider_collect_session` 采集原生 session，派生 chat/tools 视图
+     - `provider_diagnose` 分析错误类别
+     - 收集 `changed_files`，写 `iter-xxx/meta.json`
+     - 判断 stagnation、max_iterations、timeout、provider 失败、中断等退出条件
+  8. 写 `result.json` 和 TASKS.md 快照
+  9. 释放 lock
+- 异常分支：
+  - 启动校验失败 → REQ-011 快速失败
+  - lock 冲突 → 退出 `locked`，不产生 run 目录
+  - provider CLI 退出码非 0 → 退出 `provider_failed`，记录错误诊断
+  - 单轮超时 → 退出 `timeout`
+  - 用户 Ctrl-C → 退出 `interrupted`
+  - session capture 失败 → 只记录 warning，loop 继续
+- 输入：`.ralph/PROMPT.md`、`.ralph/TASKS.md`、`.ralph/.env`、git 状态
+- 输出：`.ralph/runs/<run_id>/*`、更新后的 `.ralph/TASKS.md`、`.ralph/status.json`
+- 业务规则：
+  - TASKS.md 是任务完成唯一事实源
+  - session 只是复盘证据，不参与完成判定
+  - stagnation 双重判据：TASKS 勾选数不变 ∧ changed_files 空
+
+### BPF-002：快速失败启动校验
+
+- 关联需求：REQ-011
+- 涉及角色：ralph harness
+- 触发条件：`ralph run` 启动
+- 主流程：依次检查 `.ralph/PROMPT.md` / `.ralph/TASKS.md` / `.ralph/.env`（解析后 `RALPH_PROVIDER` 非空） / `.git/`（git 仓库） / `command -v <provider>` / 当 `RALPH_PROVIDER=claude` 时追加 UUID 生成器可用性（`uuidgen` → `/proc/sys/kernel/random/uuid` → `python3 -c uuid.uuid4()` 三路之一可用） → 任一失败立即 stderr 报错、非零退出码、不进入 run 流程
+- 异常分支：多个缺失时报告第一个
+- 输入：workspace 文件状态
+- 输出：stderr 错误信息、退出码
+- 业务规则：启动校验失败不产生 run 目录
+
+## 功能需求
+
+### FR-001：`ralph run` 命令
+
+- 来源需求：REQ-001、REQ-009、REQ-010、REQ-012、REQ-013、REQ-015
+- 关联流程：BPF-001、BPF-002
+- 用户故事：作为维护者，我希望用 `.ralph/bin/ralph run` 驱动一轮长任务循环，以便让 agent 按 TASKS.md 顺序处理任务并沉淀证据。
+- 输入：
+  - CLI flag：`--provider=<claude|codex|gemini>`、`--model=<name>`、`--effort=<low|medium|high|none>`、`--max-iter=N`、`--timeout=SEC`（均可选）
+  - 环境变量：`RALPH_PROVIDER` / `RALPH_MODEL` / `RALPH_EFFORT` / `RALPH_MAX_ITER` / `RALPH_TIMEOUT`
+  - 文件：`.ralph/.env`（`RALPH_*` 字段）
+- 输出：
+  - `.ralph/runs/<run_id>/{context.json, result.json, TASKS.md, iterations/*}`
+  - 更新后的 `.ralph/TASKS.md`
+  - `.ralph/status.json`
+  - 退出码映射退出原因
+- 业务规则：
+  - 优先级：CLI flag > 进程 env > `.env` > adapter 内置默认
+  - `--provider` 缺失且 `.env` `RALPH_PROVIDER` 为空 → 启动校验失败
+  - 其他字段缺失 → 不传 flag，provider 走自身默认
+  - `--max-iter=0` 表示不限，`--timeout=0` 表示单轮不限时
+
+### FR-002：`ralph status` 命令
+
+- 来源需求：REQ-007
+- 关联流程：BPF-001（读取）
+- 用户故事：作为维护者，我希望一次性查看当前 run 状态，以便判断 agent 现在在做什么。
+- 输入：`.ralph/status.json`（若存在）
+- 输出：单次打印到 stdout，至少包含：`run_id`、`run_dir`、`provider`、`iteration`、`state`、`started_at`、`updated_at`、任务完成比（已勾选 / 总数）、`exit_reason`（若已结束）、`last_error`
+- 业务规则：
+  - 无 run 时输出"无运行中/已结束的 run"，退出码 0
+  - 不做 session 解析，不做诊断
+
+### FR-003：`ralph watch` 命令
+
+- 来源需求：REQ-007
+- 关联流程：BPF-001（读取）
+- 用户故事：作为维护者，我希望边跑边看当前 run 的状态和最新日志尾部。
+- 输入：`.ralph/status.json`、`.ralph/runs/<run_id>/iterations/iter-xxx/log`
+- 输出：TTY 上周期刷新（默认 2 秒），展示 status + 当前 iteration 的日志 tail；退出时清理屏幕
+- 业务规则：
+  - 最小可用即可，sticky bottom bar 用 ANSI/tput 实现
+  - 不做复杂 TUI、不做 session 解析、不做变更诊断
+  - Ctrl-C 退出返回普通 shell 状态
+
+### FR-004：TASKS.md 解析
+
+- 来源需求：REQ-002
+- 关联流程：BPF-001
+- 用户故事：作为 ralph，我需要从 TASKS.md 稳定识别顶层 checklist 状态。
+- 输入：TASKS.md 文本
+- 输出：顶层任务列表，每项含 `{ line, checked: bool, title }`
+- 业务规则：
+  - 正则 `^\s*-\s+\[([ xX])\]`，`space` 为未完成，`x` / `X` 为完成
+  - 不限缩进（深层缩进也视为顶层任务；解析子项不在 v0.1 范围）
+  - 全部勾选 → `done`
+
+### FR-005：Claude adapter
+
+- 来源需求：REQ-004、REQ-005、REQ-006、REQ-014
+- 关联流程：BPF-001
+- 用户故事：作为 ralph，我需要把 oneshot 调用翻译成 Claude CLI 命令，并采集 session 证据。
+- 输入：prompt 文本、runtime 参数
+- 输出：oneshot 退出码、`iter-xxx/log`、`iter-xxx/session.claude.jsonl`、派生 `chat.log` / `tools.log`、错误诊断类别
+- 业务规则：
+  - 固定 flag：`--dangerously-skip-permissions`、`--allowedTools "Bash,Read,Edit,Write,Glob,Grep"`、`--output-format json`、`--session-id <预分配 UUID>`
+  - 可选 flag（有值才拼）：`--model`、`--thinking-budget`（从 effort 翻译）
+  - session 路径定位：`~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`，encoded-cwd = realpath 后非 `[A-Za-z0-9-]` 字符替换为 `-`
+  - 错误诊断：`is_error: true` → 按 `result` 关键字分 `auth` / `quota` / `concurrency` / `api`
+
+### FR-006：Codex adapter
+
+- 来源需求：REQ-004、REQ-005、REQ-006、REQ-014
+- 关联流程：BPF-001
+- 输入/输出：同上
+- 业务规则：
+  - 命令：`codex exec --json -C <workspace> --sandbox workspace-write <prompt>`
+  - 可选 flag：`--model`、`--reasoning-effort=<low|medium|high>`（effort 直接映射）
+  - session 定位：从 stdout JSONL 取 `thread.started.thread_id`，在 `~/.codex/sessions/` 下匹配 `rollout-*-<thread_id>.jsonl`
+  - 同时把 stdout JSONL 保存为 `session.codex.stdout.jsonl`
+  - 错误诊断：`turn.failed.error.message` 优先，关键字匹配 `auth` / `quota` / `rate_limit` / `api`
+
+### FR-007：Gemini adapter
+
+- 来源需求：REQ-004、REQ-005、REQ-006、REQ-014
+- 关联流程：BPF-001
+- 输入/输出：同上
+- 业务规则：
+  - 命令：`gemini -p <prompt> --yolo`
+  - 可选 flag：`--model`、`--thinking-budget`（从 effort 翻译）
+  - session 定位：优先从输出取 session id 精确匹配；退化按 mtime 取 `~/.gemini/tmp/<basename>[-N]/chats/*.json` 中最新文件
+  - 错误诊断：依赖 exit code + stderr 关键字
+
+### FR-008：错误诊断
+
+- 来源需求：REQ-006
+- 关联流程：BPF-001
+- 用户故事：provider 退出码 0 不代表成功，需要二次诊断。
+- 输入：stdout / stderr / session 文件
+- 输出：`{ type: auth|quota|rate_limit|network|concurrency|api|unknown, message: <原始 message> }`，写入 `iter-xxx/meta.json.error` 和 `result.json.last_error`
+- 业务规则：诊断不中断循环，但带错轮次计入 stagnation
+
+## 非功能需求
+
+| 编号 | 类别 | 描述 | 指标或目标值 | 测量方法 | 来源 |
+|---|---|---|---|---|---|
+| NFR-REL-001 | 可靠性 | 同一 workspace 内 `ralph run` 不可并发；第二次以 `locked` 退出 | 只有一个活跃 run | 并发测试 | REQ-012 |
+| NFR-REL-002 | 可靠性 | session capture 失败不得中断 run；只写 warning | `capture_status=warning` 但 loop 继续 | 集成测试：删除 session 目录模拟失败 | REQ-006 |
+| NFR-REL-003 | 可靠性 | 启动校验失败不产生 run 目录，不改写 TASKS.md | `.ralph/runs/` 目录无新增 | 集成测试 | REQ-011 |
+| NFR-SEC-001 | 安全 | 不把 API key、完整 token 或敏感配置写入 log、session、meta、result | 产物文件内容审查 | 人工 review + grep 关键字 | 全局风险 |
+| NFR-SEC-002 | 安全 | 每个 provider 的 approval/sandbox 策略写死在 adapter 里，不做开关 | adapter 源代码 | code review | 澄清轮次 2 |
+| NFR-OBS-001 | 可观察性 | 每轮 provider stdout/stderr 全量落盘；不丢失 | `iter-xxx/log` 非空 | 集成测试 | REQ-006 |
+
+## 约束
+
+| 编号 | 类别 | 约束描述 | 来源依据 | 是否可协商 |
+|---|---|---|---|---|
+| TC-STK-001 | 技术选型 | shell-first Bash 实现；不引入包管理器、编译步骤、数据库或额外 runtime | 澄清轮次 1 | 否（v0 阶段） |
+| TC-STK-002 | 技术选型 | Per-workspace 部署；每个 workspace 自带 `.ralph/bin/ralph` + `.ralph/lib/*`；不支持全局安装 | 澄清轮次 3 | 否 |
+| TC-STK-003 | 技术选型 | `.env` 路径写死 `.ralph/.env`（相对 ralph 脚本位置），不接受其他路径 | 澄清轮次 3 | 否 |
+| TC-STK-004 | 技术选型 | `--cwd` 参数不暴露；workspace 根由脚本路径决定，ralph 启动时内部 `cd` 到根 | 澄清轮次 3 | 否（v0 阶段） |
+| TC-STK-005 | 技术选型 | adapter 契约 = shell 函数契约（`provider_oneshot` / `provider_collect_session` / `provider_diagnose`），三文件实现，`source` 动态载入 | 澄清轮次 2 | 是（新增 provider 时扩展） |
+| TC-INT-001 | 集成 | 依赖 git CLI；workspace 必须是 git 仓库 | 澄清轮次 2（changed_files 依赖） | 否 |
+| TC-INT-002 | 集成 | 依赖 Claude Code / Codex CLI / Gemini CLI 原生二进制；不封装 provider API | REQ-004 | 否 |
+| TC-INT-003 | 集成 | UUID 生成按 `uuidgen` → `/proc/sys/kernel/random/uuid` → `python3 -c uuid.uuid4()` 顺序 fallback；三者全失败则报错 | `docs/architecture/integrations.md#uuid-依赖` | 否 |
+| TC-REG-001 | 合规/安全 | `.ralph/runs/`、`.ralph/lock`、`.ralph/status.json` 不入仓；`.ralph/PROMPT.md` / `.ralph/TASKS.md` / `.ralph/.env` 由使用者决定是否入仓（默认由 `.ralph/.gitignore` 控制） | 使用者 workspace 约定 | 是 |
+
+## 假设
+
+- provider CLI 在不指定 `--model` / `--effort` 时能用自身默认跑 oneshot 正常退出（Claude `claude -p`、Codex `codex exec`、Gemini `gemini -p` 均如此）。
+- agent 在 oneshot 内会遵守 PROMPT.md 约定"一个 task 一个 oneshot"；stagnation 和 max_iter 是兜底。
+- Claude `~/.claude/projects/` 的 cwd 哈希规则在当前官方版本稳定；若未来变更，按版本分支处理。
+- Gemini `-p` 模式下 session id 不稳定输出，退化按 mtime 定位最新 session 文件。
+
+## 边缘情况
+
+- TASKS.md 为空或无顶层 checklist → 启动立即 `done` 退出（无任务可做视为完成）。
+- TASKS.md 所有项已勾选 → 启动立即 `done` 退出，不产生 iteration。
+- `.env` 中 `RALPH_PROVIDER` 拼写错误（如 `claud`）→ adapter 加载失败，快速失败退出。
+- provider CLI 在 PATH 中不可执行 → REQ-011 启动校验失败。
+- 单轮 agent 勾选多条任务（违反 PROMPT 协议）→ ralph 不惩罚；下一轮继续，session 记录留痕。
+- 单轮 agent 未勾选任何任务 → 本轮计入 stagnation。
+- git 仓库存在但 `HEAD` 为裸初始化（无提交）→ `start_sha` 为空，`changed_files` 退化为仅 `git status --porcelain`。
+- `.ralph/lock` 存在但持有进程已死（stale lock）→ v0.1 直接视为冲突退出 `locked`；使用者手动清理（后续版本可做 stale 检测）。
+
+## 待澄清
+
+- `ralph watch` 的 sticky bar 细节（刷新频率、彩色支持、窄终端降级）在 T5 实施前细化。
+- 是否要支持 dry-run（校验通过但不真正调 provider）以便 CI 使用，排到 v0.2 讨论。
+
+## 追踪矩阵
+
+| 上游 | 下游覆盖 | 验证 | 状态 |
+|---|---|---|---|
+| REQ-001 | SC-001-1, SC-001-2, BPF-001, FR-001 | 集成测试 | 完整 |
+| REQ-002 | SC-002-1, BPF-001, FR-004 | 单元测试 | 完整 |
+| REQ-003 | SC-003-1, BPF-001 | 文档 review + 示例 | 完整 |
+| REQ-004 | SC-004-1, FR-005, FR-006, FR-007 | 手工 smoke | 完整 |
+| REQ-005 | SC-005-1, TC-STK-005 | fake adapter smoke | 完整 |
+| REQ-006 | SC-006-1, BPF-001, FR-005-007, FR-008, NFR-OBS-001, NFR-REL-002 | 集成测试 | 完整 |
+| REQ-007 | SC-007-1, FR-002, FR-003 | 手工验证 | 待补（watch TUI 细节） |
+| REQ-008 | SC-008-1, TC-STK-002 | 单元 + 集成测试 | 完整 |
+| REQ-009 | SC-009-1, FR-001, TC-STK-003 | 单元测试 | 完整 |
+| REQ-010 | SC-010-1, TC-STK-004 | 集成测试 | 完整 |
+| REQ-011 | SC-011-1, BPF-002, NFR-REL-003 | 集成测试 5 用例 | 完整 |
+| REQ-012 | SC-012-1, BPF-001, FR-001, NFR-REL-001 | 集成测试各触发一次 | 完整 |
+| REQ-013 | SC-013-1, BPF-001 | 集成测试 | 完整 |
+| REQ-014 | SC-014-1, FR-005-007 | 单元测试 | 完整 |
+| REQ-015 | SC-015-1, FR-001 | 集成测试 | 完整 |
+| REQ-016 | — | 延后到 v0.1 之后 | 延后 |
+
+## 变更影响
+
+- 上游需求变更时必须同步检查 `docs/architecture/overview.md`（PROMPT 协议、adapter 契约、退出码表）、`docs/architecture/integrations.md`（provider 细节）、`docs/architecture/security.md`（approval/sandbox 与 secrets 边界）、`docs/roadmap.md`（阶段划分）、`task.md`（当前任务）。
+- adapter 接口签名变更 → 三个 provider 实现 + fake adapter + T1 集成测试同步。
+- 退出码或 `result.json` schema 变更 → `FR-002/FR-003` 消费端、`scripts/check.sh`、复盘用文档同步。
+
+## 质量检查
+
+- [x] 没有实现方案泄漏到需求正文（adapter 具体 bash 结构落在 `docs/architecture/overview.md`）。
+- [x] 每个目标至少对应一个 `REQ-*` 或用户场景。
+- [x] P0/P1 `REQ-*` 至少有一个 `SC-*`。
+- [x] `SC-*` 有度量方式、目标值和验证方法。
+- [x] `BPF-*` 覆盖核心流程、角色、输入、输出和异常分支。
+- [x] `FR-*`、`NFR-*`、`TC-*` 都有来源依据。
+- [x] 成功标准技术无关（SC 层只描述行为和文件产物）。
+- [x] 高影响待澄清项已延后（watch TUI 细节、dry-run 排到后续）。

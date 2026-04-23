@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RALPH_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+RALPH_ROOT="$(cd "$RALPH_BIN_DIR/.." && pwd -P)"
+
+# shellcheck source=../lib/common.sh
+source "$RALPH_ROOT/lib/common.sh"
+
+ralph_usage() {
+  cat <<'EOF'
+Usage:
+  ralph help
+
+Commands:
+  help    Show this help.
+
+Subcommands `run`, `status`, `watch` are not implemented yet.
+EOF
+}
+
+ralph_main() {
+  local command="${1:-help}"
+
+  case "$command" in
+    help | -h | --help)
+      ralph_usage
+      ;;
+    *)
+      ralph_usage >&2
+      ralph_usage_error "unknown command: $command"
+      ;;
+  esac
+}
+
+ralph_main "$@"

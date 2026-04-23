@@ -1,0 +1,9 @@
+{
+  "name": "ralph-loop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ralph": "bash .ralph/bin/ralph",
+    "check": "bash scripts/check.sh"
+  }
+}
