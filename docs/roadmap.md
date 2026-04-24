@@ -37,11 +37,12 @@
 - `.ralph/lib/run.sh`：`ralph run` 主循环（伪代码见 `docs/architecture/overview.md#运行时伪代码`）
 - `.ralph/lib/tasks.sh`：TASKS.md 解析（parse_tasks、count_checked）
 - `.ralph/lib/session.sh`：session 采集通用入口、派生视图基础设施
-- `.ralph/lib/adapter-fake.sh`：三函数契约的参考实现
-  - 第 1 轮：勾第 1 条未勾选任务 → 正常退出
-  - 第 2 轮：退出码 0 但注入 `is_error:true` → `error.type=api`
-  - 第 3 轮（stagnation 触发）：不改 TASKS、不改 git，连续 5 轮后触发 `stagnated`
-  - 额外接 `RALPH_FAKE_SCENARIO` 环境变量选场景
+- `.ralph/lib/adapter-fake.sh`：三函数契约 + `RALPH_PROVIDER_CLI` 变量，`RALPH_FAKE_SCENARIO` 五场景：
+  - `happy` → 勾第 1 条未勾选任务，`exit=0`（驱动 `done` / `max_iterations`）
+  - `stagnation` → 不改 TASKS、不改 git，`exit=0`（驱动 `stagnated`）
+  - `crash` → `exit=非零`，诊断为 `unknown`（驱动 `provider_failed`）
+  - `api-error` → `exit=非零` + stderr 含 api 错误关键字，诊断为 `api`（驱动 `provider_failed` + `last_error.type=api`）
+  - `slow` → `sleep` 远超 `--timeout`（驱动 `timeout`）
 - `.ralph/bin/ralph` 增加 `run` 路由（当前只有 `help`）
 - `.ralph/lib/common.sh`：扩展 `.env` 解析、uuid 生成、锁获取、git diff 收集
 - 集成测试脚本：覆盖 7 个退出原因 + 6 个启动校验失败用例 = 13 个用例（清单见 `task.md` T1 范围段）

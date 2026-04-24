@@ -192,7 +192,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - 关联需求：REQ-011
 - 涉及角色：ralph harness
 - 触发条件：`ralph run` 启动
-- 主流程：依次检查 `.ralph/PROMPT.md` / `.ralph/TASKS.md` / `.ralph/.env`（解析后 `RALPH_PROVIDER` 非空） / `.git/`（git 仓库） / `command -v <provider>` / 当 `RALPH_PROVIDER=claude` 时追加 UUID 生成器可用性（`uuidgen` → `/proc/sys/kernel/random/uuid` → `python3 -c uuid.uuid4()` 三路之一可用） → 任一失败立即 stderr 报错、非零退出码、不进入 run 流程
+- 主流程：依次检查 `.ralph/PROMPT.md` / `.ralph/TASKS.md` / `.ralph/.env`（解析后 `RALPH_PROVIDER` 非空） / `.git/`（git 仓库） / `command -v <provider-cli>`（CLI 名由 adapter 暴露的 `RALPH_PROVIDER_CLI` 变量提供） / 当 `RALPH_PROVIDER=claude` 时追加 UUID 生成器可用性（`uuidgen` → `/proc/sys/kernel/random/uuid` → `python3 -c uuid.uuid4()` 三路之一可用） → 任一失败立即 stderr 报错、非零退出码、不进入 run 流程
 - 异常分支：多个缺失时报告第一个
 - 输入：workspace 文件状态
 - 输出：stderr 错误信息、退出码
