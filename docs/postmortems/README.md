@@ -13,4 +13,8 @@
 - postmortem 必须包含可执行或可复核的预防检查。
 - postmortem 结论只有被提炼到 skill、`.spec/`、脚本或测试后才成为规则或预防机制。
 
-暂无正式 postmortem 条目。
+## 条目
+
+| ID | 文件 | 标题 | 状态 |
+|----|------|------|------|
+| PM-0001 | [pm-shell-macos-compat.md](pm-shell-macos-compat.md) | Shell 脚本 macOS 兼容性 bug 在实施阶段未发现，集中在 adversarial review 阶段暴露 | active |

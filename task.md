@@ -17,8 +17,11 @@
   - 变更：`docs/requirements.md`、`docs/requirements/ralph-loop/requirements.md`、`docs/architecture/overview.md`、`docs/architecture/integrations.md`、`docs/architecture/security.md`、`docs/roadmap.md`、`task.md`。
   - 验证：`bash scripts/check.sh` 通过。
 
-- [ ] T1：实现 ralph run 骨架 + adapter 契约 + fake adapter。
-  - 预期：`ralph run` 能在 per-workspace 部署下运行主循环，通过 fake adapter 跑通 13 个集成用例（7 退出原因 + 6 启动校验失败）。
+- [x] T1：实现 ralph run 骨架 + adapter 契约 + fake adapter。
+  - 完成：`ralph run` 在 per-workspace 部署下运行主循环；fake adapter 五场景全实现；14 个集成用例（7 退出原因 + 6 启动校验 + api-error 变体）全通过。
+  - 变更：`.ralph/lib/common.sh`（workspace 自定位、load_env、UUID、时间戳、run_id、lock、changed_files、JSON emit）、`.ralph/lib/tasks.sh`（parse_tasks / count_checked / count_total）、`.ralph/lib/session.sh`（meta.json 骨架 + 派生视图 stub）、`.ralph/lib/adapter-fake.sh`（五场景 + RALPH_PROVIDER_CLI）、`.ralph/lib/run.sh`（启动校验 → lock → 主循环 → 退出分派 → result.json）、`.ralph/bin/ralph`（run 路由 + flag 解析）、`scripts/integration-test.sh`（mock workspace + 14 用例）、`scripts/check.sh`（新 lib 文件 bash -n + integration-test 存在性）。
+  - 验证：`bash scripts/check.sh` → pass；`bash scripts/integration-test.sh` → PASS=14 FAIL=0。
+  - 注意：macOS 上 `kill -INT` 对等待子进程的 bash 无效（信号被 deferred）；interrupted 用例改用 `kill -TERM`，trap 同时处理 INT/TERM。`flock` 命令在 macOS 不可用，改用 noclobber + PID 文件锁。
   - 参考：`docs/requirements/ralph-loop/requirements.md`（REQ-001/002/005/006/008/009/010/011/012/013/015）、`docs/architecture/overview.md`（伪代码、CLI、运行目录、adapter 契约、退出原因、stagnation）、`docs/architecture/integrations.md`（provider 细节参考，T1 不落地真实 adapter）、`docs/architecture/security.md`（approval/sandbox 写死策略）、`docs/roadmap.md#t1-范围当前阶段`。
   - 范围：
     - `.ralph/bin/ralph`：增加 `run` 子命令路由；解析 CLI flag（`--provider` / `--model` / `--effort` / `--max-iter` / `--timeout`），按 `CLI flag > 进程 env > .env > 默认` 合并；`status` / `watch` 继续不实现。

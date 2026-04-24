@@ -3,8 +3,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
-bash -n "$ROOT/.ralph/bin/ralph" "$ROOT/.ralph/lib/common.sh"
+bash -n "$ROOT/.ralph/bin/ralph" \
+  "$ROOT/.ralph/lib/common.sh" \
+  "$ROOT/.ralph/lib/tasks.sh" \
+  "$ROOT/.ralph/lib/session.sh" \
+  "$ROOT/.ralph/lib/adapter-fake.sh" \
+  "$ROOT/.ralph/lib/run.sh"
 "$ROOT/.ralph/bin/ralph" help >/dev/null
+test -f "$ROOT/scripts/integration-test.sh"
 
 ! grep -q "AGENTS.md" "$ROOT/README.md"
 ! grep -q "npm run check" "$ROOT/README.md"

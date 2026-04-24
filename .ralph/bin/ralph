@@ -10,21 +10,56 @@ source "$RALPH_ROOT/lib/common.sh"
 ralph_usage() {
   cat <<'EOF'
 Usage:
-  ralph help
+  ralph <command> [options]
 
 Commands:
+  run     Start the run loop.
   help    Show this help.
 
-Subcommands `run`, `status`, `watch` are not implemented yet.
+Subcommands `status`, `watch` are not implemented yet.
+
+Options for `run`:
+  --provider <claude|codex|gemini>   Provider (env: RALPH_PROVIDER)
+  --model <name>                     Model name (env: RALPH_MODEL)
+  --effort <low|medium|high|none>    Effort level (env: RALPH_EFFORT)
+  --max-iter <n>                     Max iterations, 0=unlimited (env: RALPH_MAX_ITER)
+  --timeout <sec>                    Per-iteration timeout, 0=unlimited (env: RALPH_TIMEOUT)
 EOF
+}
+
+ralph_run_cmd() {
+  # flag 解析：CLI flag > 进程 env > .env > 默认
+  # 先把 CLI flag 写入变量，然后 run.sh 里 load_env 会补充 .env 中未设的值
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --provider)   export RALPH_PROVIDER="$2"; shift 2 ;;
+      --model)      export RALPH_MODEL="$2";    shift 2 ;;
+      --effort)     export RALPH_EFFORT="$2";   shift 2 ;;
+      --max-iter)   export RALPH_MAX_ITER="$2"; shift 2 ;;
+      --timeout)    export RALPH_TIMEOUT="$2";  shift 2 ;;
+      --*)          ralph_usage_error "unknown flag: $1" ;;
+      *)            ralph_usage_error "unexpected argument: $1" ;;
+    esac
+  done
+
+  # shellcheck source=../lib/run.sh
+  source "$RALPH_ROOT/lib/run.sh"
+  ralph_run
 }
 
 ralph_main() {
   local command="${1:-help}"
+  shift || true
 
   case "$command" in
+    run)
+      ralph_run_cmd "$@"
+      ;;
     help | -h | --help)
       ralph_usage
+      ;;
+    status | watch)
+      ralph_usage_error "'$command' is not implemented yet"
       ;;
     *)
       ralph_usage >&2
