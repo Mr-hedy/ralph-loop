@@ -82,6 +82,10 @@
 - approval/sandbox 写死在 adapter（NFR-SEC-002）
 - `--effort=low\|medium\|high\|none` 抽象（REQ-014）
 
+## Deferred (post-v0.1)
+
+- `ralph doctor` 子命令 + provider 版本兼容性矩阵：T2.0 引入的依赖校验框架（`ralph_require_cmd`）已预留 `min_version` 参数位，doctor 实现按需补充，不需要重构现有调用。后置到 v0.2 或并入 T7 skill 封装。
+
 ## Known Risks
 
 | 风险 | 影响 | 缓解 |

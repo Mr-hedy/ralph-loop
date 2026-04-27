@@ -25,6 +25,25 @@
 - Gemini CLI session management: <https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/session-management.md>
 - Gemini CLI reference: <https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/cli-reference.md>
 
+## Session 文件命名约定
+
+iter 目录下所有 provider 衍生文件统一前缀 `session.<provider>.`，避免日后引入新 provider 时命名分裂：
+
+| 文件 | 含义 | 出现条件 |
+|---|---|---|
+| `session.<provider>.<ext>` | provider 原生 session 文件副本（jsonl / json，按 provider 而定） | session 采集成功（精确匹配或 mtime fallback） |
+| `session.<provider>.stdout.<ext>` | provider CLI stdout 原文（结构化输出，供 diagnose 解析） | provider stdout 是结构化数据时（Claude `--output-format json` / Codex `--json`） |
+| `log` | provider stdout + stderr 合流原始输出（tee） | 始终 |
+| `chat.log` / `tools.log` | 派生视图，schema 见 [`overview.md#派生视图`](./overview.md#派生视图) | 始终（capture 失败时为空文件） |
+
+各 provider 当前实例：
+
+- Claude：`session.claude.jsonl`（native）、`session.claude.stdout.json`（`--output-format json` 单 JSON 对象）
+- Codex：`session.codex.jsonl`（native rollout）、`session.codex.stdout.jsonl`（`--json` 事件流）
+- Gemini：`session.gemini.json`（native；无独立 stdout 结构化文件，因 `-p` 模式输出不稳定）
+
+新增 provider 必须遵循此约定；偏离需通过新需求或文档 PR 显式覆盖。
+
 ## 总体原则
 
 Ralph 默认使用 provider 的 fresh oneshot 执行，不默认 resume。session 采集只用于复盘分析，不作为任务完成事实源。

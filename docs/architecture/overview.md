@@ -28,7 +28,8 @@ ralph run
   workspace = dirname(dirname(realpath($BASH_SOURCE)))      # .ralph/bin/ralph → workspace
   cd "$workspace"
   load .ralph/.env (only RALPH_* keys)
-  validate: .ralph/PROMPT.md, .ralph/TASKS.md, RALPH_PROVIDER, .git/, command -v "$RALPH_PROVIDER_CLI"  # RALPH_PROVIDER_CLI 来自 adapter 载入时
+  check_dependencies (git + provider_check_deps from sourced adapter)  # 缺失依赖一次性聚合输出后退出，见 ralph_require_cmd / ralph_report_missing_deps
+  validate: .ralph/PROMPT.md, .ralph/TASKS.md, RALPH_PROVIDER, .git/                # workspace 完整性（不再含 command -v RALPH_PROVIDER_CLI，已合并入依赖框架）
   acquire .ralph/lock     # flock; conflict → exit `locked`, do NOT create run dir
   run_id = YYYYMMDD-HHMMSS-<shortsha>
   mkdir .ralph/runs/$run_id/iterations/
