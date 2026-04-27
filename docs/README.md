@@ -31,7 +31,7 @@
 | Database | `architecture/database.md` | 当前不适用 | 无持久化业务实体；运行期状态在 `.ralph/runs/` |
 | UI | `architecture/ui.md` | 当前不适用 | 仅 `ralph watch` 的终端 UI，细节待 T5 细化 |
 | Security | `architecture/security.md` | 已确认 | approval / sandbox、secrets、allowedTools 白名单 |
-| Testing | `architecture/testing.md` | 待补齐 | T1 集成测试脚本成形后沉淀长期规范 |
+| Testing | `architecture/testing.md` | 已建立（T2 阶段持续扩展） | 测试入口、基础设施、隔离规则、单一来源、运行平台、当前覆盖范围 |
 | Deployment | `architecture/deployment.md` | 当前不适用 | per-workspace 部署在 `overview.md#部署形态` 覆盖 |
 | Integrations | `architecture/integrations.md` | 已确认 | Provider CLI 原生 session、oneshot 命令、错误诊断关键字 |
 

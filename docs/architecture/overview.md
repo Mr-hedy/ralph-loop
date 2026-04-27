@@ -480,7 +480,7 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 | Database | `database.md` | 当前不适用 | 无持久化业务实体；运行期状态在 `.ralph/runs/` 文件中 |
 | UI | `ui.md` | 当前不适用 | 仅 `ralph watch` 的终端 UI，细节待 T5 细化 |
 | Security | [`security.md`](./security.md) | 已确认 | approval / sandbox 策略、secrets 边界、 allowedTools 白名单 |
-| Testing | `testing.md` | 待补齐 | T1 完成后按 `scripts/integration-test.sh` 成形再沉淀 |
+| Testing | [`testing.md`](./testing.md) | 已建立（T2 阶段持续扩展） | 测试入口、基础设施、隔离规则、单一来源、运行平台、当前覆盖范围 |
 | Deployment | `deployment.md` | 当前不适用 | per-workspace 部署方式已在本文 [部署形态](#部署形态per-workspacereq-008) 段落覆盖 |
 | Integrations | [`integrations.md`](./integrations.md) | 已确认 | Claude / Codex / Gemini 原生 session 路径、采集命令、退化策略、UUID 依赖 |
 

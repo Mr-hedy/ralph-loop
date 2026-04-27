@@ -19,7 +19,7 @@ T2 阶段（本轮已沉淀，下一轮不重新讨论）：
 - **Session 文件命名约定**：统一 `session.<provider>.*` 前缀，Claude stdout 命名 `session.claude.stdout.json`（沉淀于 `docs/architecture/integrations.md` 「Session 文件命名约定」段）。
 - **meta.json 复杂字段写入**：用 jq `update_meta_jq` 原地重写，禁用 sed 拼装对象（避免引号/嵌套边界问题）。
 - **mock-claude 单一来源**：`tests/fixtures/mock-claude` 由 T2.1 建立骨架 + happy 场景，T2.5 在同一文件扩展全场景，不另起炉灶。
-- **测试基础设施单一来源 + 隔离**：`setup_claude_workspace` helper 由 T2.2 建立，T2.5 扩展不重建；强制 HOME 隔离（避免污染 `~/.claude/projects/`）+ PATH 隔离（修改限定在 `ralph run` 子进程，harness 外层不变）；规则沉淀于 `.spec/rules/testing.md` 「测试隔离规则」+「测试基础设施单一来源」两段。
+- **测试基础设施单一来源 + 隔离**：`setup_claude_workspace` helper 由 T2.2 建立，T2.5 扩展不重建；强制 HOME 隔离（避免污染 `~/.claude/projects/`）+ PATH 隔离（修改限定在 `ralph run` 子进程，harness 外层不变）；规则沉淀于 `docs/architecture/testing.md` 「测试隔离规则」+「测试基础设施单一来源」两段。
 - **cwd_hash 严格步骤顺序**：先 `realpath` 解 symlink → 再字符替换为 `-`；写反对 symlink workspace 算错且无报错（PM-0002 防偏离锚点）。
 - **Provider 默认值约定**：当前开发阶段 `.ralph/.env` 默认 `RALPH_PROVIDER=fake`；T2.0 / T2.1 测试用例显式 `RALPH_PROVIDER=fake`；T2.2-T2.5 用 `RALPH_PROVIDER=claude` + mock-claude；T2.6 真实 Claude smoke。
 - **状态/手册命令未实现行为统一**：`ralph status` / `ralph watch` 无 flag 时改为输出占位 help + 退出 0（不再 exit 1 报错），统一专业行为；`ralph --version` / `-v` 由 T2.6 新增。
@@ -33,7 +33,7 @@ T2 阶段（本轮已沉淀，下一轮不重新讨论）：
 - `task.md` 全量重写：T2.0–T2.6 共 7 个任务，每个含目标 / 范围 / 实施步骤 / 验证计划 / 不做 / 参考；顶部规则段加跨任务决策沉淀强制。
 - `docs/architecture/overview.md`：运行时伪代码段把 `command -v RALPH_PROVIDER_CLI` 替换为 `check_dependencies`。
 - `docs/architecture/integrations.md`：新增「Session 文件命名约定」段（沉淀跨 provider 命名规则）。
-- `.spec/rules/testing.md`：新增「测试隔离规则」+「测试基础设施单一来源」两段。
+- `docs/architecture/testing.md`：新增「测试隔离规则」+「测试基础设施单一来源」两段。
 - `docs/postmortems/pm-cross-task-decision-sedimentation.md`：新建 PM-0002，记录"跨任务决策未沉淀到稳定文档"meta-pattern + 4 类典型表现 + 预防机制。
 - `docs/postmortems/README.md`：加 PM-0002 索引行。
 - `docs/roadmap.md`（前序已落地）：新增 Deferred 段，登记 `ralph doctor` + provider 版本检查后置 v0.2/T7。
@@ -56,10 +56,10 @@ T2 阶段（本轮已沉淀，下一轮不重新讨论）：
 
 # 工作区状态
 
-- 分支：`main`，**有未提交变更**（待用户 `/checkpoint` 提交）：
-  - 修改：`.spec/rules/testing.md`、`docs/architecture/integrations.md`、`docs/architecture/overview.md`、`docs/postmortems/README.md`、`docs/roadmap.md`、`task.md`
-  - 新增：`docs/postmortems/pm-cross-task-decision-sedimentation.md`
-- 最近 commit：`1f74b69 Clean session close: refresh handoff for T2 start`（上一会话结束）。
+- 分支：`main`，工作区干净。
+- 最近 commit：
+  - `77d1108 T2 prep: task breakdown, cross-task sedimentation, PM-0002`（T2 准备主体）
+  - 后续 fixup commit：纠正 testing 规范沉淀位置（从 `.spec/rules/testing.md` 迁到 `docs/architecture/testing.md`）+ PM-0002 增补归属边界条款
 - 无额外 worktree。
 
 # 建议下一步
@@ -70,4 +70,4 @@ T2 阶段（本轮已沉淀，下一轮不重新讨论）：
 
 # 交接摘要
 
-T2 准备阶段（任务拆解 + 横切设计 + adversarial review + 沉淀文档 + PM-0002）已完成并验证；工作区有 7 个未提交文件等待 checkpoint。下一轮**先 `/checkpoint` 落仓**，然后从 T2.0「依赖校验框架」开工，严格按 `task.md` 7 任务顺序，所有跨任务约定通过 `docs/architecture/*` 和 `.spec/rules/testing.md` 锚点找回，不在对话里重新讨论。
+T2 准备阶段（任务拆解 + 横切设计 + adversarial review + 沉淀文档 + PM-0002）已完成并验证；工作区有 7 个未提交文件等待 checkpoint。下一轮**先 `/checkpoint` 落仓**，然后从 T2.0「依赖校验框架」开工，严格按 `task.md` 7 任务顺序，所有跨任务约定通过 `docs/architecture/*` 和 `docs/architecture/testing.md` 锚点找回，不在对话里重新讨论。
