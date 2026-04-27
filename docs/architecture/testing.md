@@ -73,6 +73,7 @@ tests/
 | T2.1 完成期 | +≥1 | claude adapter 骨架 happy |
 | T2.2 完成期 | +≥3 | session 采集 happy / mtime fallback / missing |
 | T2.3 完成期 | +≥6 | 错误诊断 6 种类别 |
+| T2.4 完成期 | +0（复用 T2.1/T2.2 用例加派生视图断言） | chat.log/tools.log 内容与格式符合 overview.md schema |
 | T2.5 完成期 | +≥2 | dep_missing_jq + 补缺 |
 | T2.6 完成期 | +≥4 | --version + --help × 3 |
 | T2 总目标 | ≥33 | 上述累计 |
