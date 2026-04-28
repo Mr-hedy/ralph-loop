@@ -20,7 +20,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 ## 非目标
 
 - 不实现自有 agent 推理、任务规划或代码生成。
-- 不提供 `ralph init` 或任何模板生成；使用者自行创建 `.ralph/PROMPT.md`、`.ralph/TASKS.md`、`.ralph/.env`。
+- 不提供 `ralph init` 或任何模板生成行为；ralph 工具运行时**不**写 `.ralph/PROMPT.md` / `.ralph/TASKS.md` / `.ralph/.env`，**不**读取它们做内核控制流。使用者通过部署单元 `.ralph/`（含 PROMPT/TASKS 参考样板，见 REQ-017）`cp -r` 起手，再自行裁剪/补 `.env` 等私有配置。"用户自行创建"指 user-driven，不是"必须从空白起手"。
 - 不把 provider session 当作任务完成事实源；任务完成只以 `.ralph/TASKS.md` 勾选为准。
 - 不默认 resume provider session；每轮都是 fresh oneshot。
 - 不支持全局 `ralph` 命令；只支持 per-workspace 部署。
@@ -52,6 +52,13 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - 关键议题：provider/model/effort 来源与默认值策略、cwd 如何不被 agent 幻觉污染。
 - 用户裁决：`.env` 路径写死 `.ralph/.env`（相对脚本位置），只需 `RALPH_PROVIDER` 必填，其他字段留空 → 不拼 flag、走 provider 内置默认；`--effort=low|medium|high|none` 抽象，adapter 翻译；**不接受 `--cwd`**，workspace 根由脚本路径（`$script_dir/../..`）决定，ralph 启动时内部 `cd` 到 workspace 根。
 
+### 轮次 4（交付单元 / 部署形态，2026-04-28）
+
+- 关键议题：ralph-loop 的最终产物边界（只是脚本工具，还是含起手样板的完整部署单元）；本仓库 `.ralph/` 是否入仓 `PROMPT.md` / `TASKS.md`；如果入仓如何与原"无 ralph init"约束并存。
+- 用户裁决：**ralph-loop 最终产物 = `.ralph/` 整个目录**（含 `bin/` + `lib/` + `PROMPT.md` 样板 + `TASKS.md` 样板）；部署 = `cp -r .ralph/ <workspace>/.ralph/` 一次性带走全部，使用者按需裁剪样板再补 `.env`；`.ralph/.gitignore` 删除（部署单元自身不带运行期忽略规则）；运行期产物 `runs/` / `lock` / `status.json` 与私有配置 `.env` 由使用者外层 `.gitignore` 管理；**本仓库不自跑 ralph**（轮次 1 ruling 延续），故本仓库 `.ralph/` 不会出现 runtime artifacts。
+- 与轮次 1"无 ralph init"边界澄清：约束的是 ralph 工具运行时**不**写 PROMPT/TASKS/.env、**不**读取它们做内核控制流。样板入仓由人工维护、由用户驱动 `cp -r` 部署，不是 ralph init 路径，两者并存。
+- 沉淀：本轮决策形式化为 REQ-017，并对 §非目标 line 23 / REQ-008 做相应澄清补丁。
+
 ## 澄清结论
 
 - 项目背景与目标：Ralph 是 shell harness，不参与推理；用 fresh oneshot 驱动长任务，TASKS.md 是任务完成事实源。
@@ -72,7 +79,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-005 | Adapter 抽象 | 用统一 shell 函数契约抽象 provider 差异，便于独立实现和替换 | P0-必须 | 协作 | 澄清轮次 2 |
 | REQ-006 | 运行证据沉淀 | 每轮保存 stdout/stderr 原始 log、provider 原生 session 副本、派生 chat/tools 视图、changed_files 和 meta | P0-必须 | 功能 | 澄清轮次 1 |
 | REQ-007 | 状态观察 | 提供 `ralph status` 和 `ralph watch` 两个子命令读取当前 run 状态和任务进度 | P1-重要 | 功能 | 澄清轮次 1 |
-| REQ-008 | Per-workspace 部署 | 每个使用者 workspace 自带 `.ralph/bin/ralph` + `.ralph/lib/*`；不支持全局 `ralph` 命令 | P0-必须 | 约束 | 澄清轮次 3 |
+| REQ-008 | Per-workspace 部署 | 每个使用者 workspace 自带完整 `.ralph/` 部署单元（构成见 REQ-017：`bin/ralph` + `lib/*` + 参考样板 `PROMPT.md` + `TASKS.md`）；不支持全局 `ralph` 命令 | P0-必须 | 约束 | 澄清轮次 3 |
 | REQ-009 | .env 驱动默认值 | 从 `.ralph/.env` 读取 `RALPH_*` 前缀的默认参数；`RALPH_PROVIDER` 必需，其他留空即不传 flag | P0-必须 | 功能 | 澄清轮次 3 |
 | REQ-010 | 工作目录自定位 | workspace 根由 ralph 脚本路径决定（`$script_dir/../..`），ralph 启动时内部 `cd` 到该目录；不接受 `--cwd` 参数 | P0-必须 | 约束 | 澄清轮次 3 |
 | REQ-011 | 快速失败校验 | 启动时校验 `.ralph/PROMPT.md`、`.ralph/TASKS.md`、`.ralph/.env`（含 `RALPH_PROVIDER`）、git 仓库、provider CLI 可执行；当 `RALPH_PROVIDER=claude` 时同时校验 UUID 生成器可用（TC-INT-003 三路至少一路成功）；任一缺失立即退出 | P0-必须 | 功能 | 澄清轮次 3 |
@@ -81,6 +88,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-014 | Effort 抽象 | `--effort=low\|medium\|high\|none` 由 adapter 翻译到各 provider 原生参数；留空不传 | P1-重要 | 功能 | 澄清轮次 3 |
 | REQ-015 | Provider 绑定 | `--provider` 或 `RALPH_PROVIDER` 在 `ralph run` 启动时绑定，运行中不切换；写入 `status.json` 和 `provider.meta` | P0-必须 | 约束 | 澄清轮次 1 |
 | REQ-016 | Skill 封装（后置） | 后续封装 `ralph-loop` skill，负责在使用者 workspace 初始化 `.ralph/` 结构并正确构造 `ralph run`；不进入 v0.1 范围 | P2-期望 | 协作 | 澄清轮次 3 |
+| REQ-017 | 交付单元 = `.ralph/` 整个目录 | ralph-loop 项目的最终产物是 `.ralph/` 整个目录，含 `bin/ralph`、`lib/*.sh`、参考样板 `PROMPT.md` 和 `TASKS.md`。部署方式 = `cp -r .ralph/ <workspace>/.ralph/` 一次性带走全部。运行期产物（`runs/`、`lock`、`status.json`）和私有配置（`.env`）由使用者外层 `.gitignore` 管理（建议忽略 `.ralph/runs/`、`.ralph/lock`、`.ralph/status.json`、`.ralph/.env`）。本仓库 `.ralph/` 不含 runtime artifacts（仓库不自用 ralph，见 §非目标 line 30）。| P0-必须 | 约束 | 澄清轮次 4（2026-04-28） |
 
 ## 优先级说明
 
@@ -148,6 +156,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | SC-013-1 | REQ-013 | 连续 5 轮无勾选变化且 changed_files 空 → `stagnated` 退出 | `result.json.exit_reason` | `stagnated` | 集成测试：用 fake provider 模拟空转 |
 | SC-014-1 | REQ-014 | `--effort=low\|medium\|high` 翻译为各 provider 原生参数；`none` 或留空不传 | 构造的命令行 | flag 匹配或缺席 | 单元测试 |
 | SC-015-1 | REQ-015 | `status.json` 和 `provider.meta` 都记录本轮 provider；run 生命周期内不变更 | 文件字段 | 一致 | 集成测试 |
+| SC-017-1 | REQ-017 | `.ralph/` 整个目录可通过 `cp -r .ralph/ <workspace>/.ralph/` 一次性部署到独立 workspace 并跑通 `ralph run` 到 `exit_reason=done` | 部署后 workspace 的 `.ralph/runs/<id>/result.json` | `done` 且无依赖外部脚本 | T6.3 真实多轮 smoke |
 
 ## 业务流程
 
@@ -368,6 +377,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-014 | SC-014-1, FR-005-007 | 单元测试 | 完整 |
 | REQ-015 | SC-015-1, FR-001 | 集成测试 | 完整 |
 | REQ-016 | — | 延后到 v0.1 之后 | 延后 |
+| REQ-017 | SC-017-1 | T6.0 落样板入仓 + T6.3 真实 smoke 验证 `cp -r` 部署链路 | 完整（待 T6 闭环验证） |
 
 ## 变更影响
 

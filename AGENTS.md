@@ -7,7 +7,8 @@
 ## Project Identity
 
 - `ralph-loop` 是 shell-first CLI harness，用 provider CLI fresh oneshot 循环执行使用者 workspace `.ralph/TASKS.md` 中的长任务。
-- 本仓库是 ralph-loop 工具的开发工程，工具代码位于 `.ralph/bin/` 和 `.ralph/lib/`；当前专项从需求澄清、run loop、provider adapter、status/watch 和 session capture 逐步推进。
+- **项目最终产物 = `.ralph/` 整个目录**。使用者通过 `cp -r .ralph/ <workspace>/.ralph/` 部署到自己的 project，单一目录单元，不依赖外部安装器。
+- 本仓库是 ralph-loop 工具的开发工程；当前专项从需求澄清、run loop、provider adapter、status/watch 和 session capture 逐步推进。
 - 项目事实沉淀在 `README.md`、`docs/requirements.md`、`docs/requirements/`、`docs/architecture/`、`task.md` 和邻近代码中。
 
 ## Top Rules
@@ -15,8 +16,8 @@
 - 保持 `.spec/`、`docs/`、`.ralph/` 和 `.agents/skills/` 的职责分离。
 - `.spec/` 承载协作模型、事实源边界、文档结构、非动作方法、流程质量门和模板。
 - `docs/` 承载项目事实、专题设计和运行过程文档。
-- 根 `task.md` 是当前开发任务事实源；`.ralph/TASKS.md` 是使用者 workspace 的运行时任务源，不与 `task.md` 混淆，也不在本仓库内持久化。
-- `.ralph/` 在本仓库内只承载工具代码（`bin/`、`lib/`）；`runs/`、`lock`、`status.json`、`PROMPT.md`、`TASKS.md` 是运行期产物或使用者输入，不入仓。
+- 根 `task.md` 是**本仓库**的开发任务事实源（给开发 ralph-loop 的人 + Claude Code 用）；`.ralph/TASKS.md` 是**部署后使用者** workspace 的运行时任务源（给 ralph 外层循环 + provider agent 用）。两者职责不同，本仓库 `.ralph/TASKS.md` 仅作为参考样板存在，不混淆。
+- `.ralph/` 是部署单元，**整个目录入仓**：`bin/` + `lib/`（工具代码）、`PROMPT.md` + `TASKS.md`（参考样板，部署时随 `cp -r` 一并到使用者 workspace，可按需裁剪）。`runs/` / `lock` / `status.json` / `.env` 是运行期产物或私有配置，**本仓库不运行 ralph 故不会出现**；使用者 workspace 中需自行在外层 `.gitignore` 处理（如 `.ralph/runs/`、`.ralph/lock`、`.ralph/status.json`、`.ralph/.env`）。
 - `.agents/skills/` 承载带明确运行产物或状态迁移的动作 workflow。
 - 不要把模板占位当成已确认项目事实。
 

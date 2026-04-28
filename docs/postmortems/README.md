@@ -19,3 +19,4 @@
 |----|------|------|------|
 | PM-0001 | [pm-shell-macos-compat.md](pm-shell-macos-compat.md) | Shell 脚本 macOS 兼容性 bug 在实施阶段未发现，集中在 adversarial review 阶段暴露 | active |
 | PM-0002 | [pm-cross-task-decision-sedimentation.md](pm-cross-task-decision-sedimentation.md) | 跨任务稳定决策只在对话/任务文档中提及，未沉淀到稳定文档，下一轮容易偏离 | active |
+| PM-0003 | [pm-task-closure-req-traceability.md](pm-task-closure-req-traceability.md) | 任务收口 adversarial review 缺乏 REQ traceability + 现实条件外推，导致 P0 缺陷漏到下阶段 | active |
