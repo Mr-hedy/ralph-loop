@@ -113,7 +113,11 @@
   - 不做：Codex / Gemini effort 翻译（T3/T4 各自处理）；effort 自动调优；超出 low/medium/high/none 的自定义值。
   - 参考：REQ-014、SC-014-1、`docs/architecture/integrations.md` Claude 节、`docs/architecture/overview.md` effort 抽象段、**PM-0003（本 bug 是 PM-0003 触发证据之一，T6.2 完成后回查 PM-0003 验证修复有效）**。
 
-- [ ] T6.3：3+ 条 task 真实多轮 smoke + 证据保全。
+- [x] T6.3：3+ 条 task 真实多轮 smoke + 证据保全。
+  - 完成：workspace `/tmp/ralph-t6-multi-smoke/` 部署 `cp -r .ralph/`，3 条任务 4 轮完成（done），所有断言通过；证据保全到 checkpoint。
+  - 变更：`docs/checkpoints/2026-04-28-04-t6.3-multi-smoke.md`（新增）
+  - 验证：exit_reason=done；iterations=4；changed_files_iter 各轮仅含本轮变更（T6.1 修正实证）；capture_status=ok；stagnation_count=0；RALPH_EFFORT=low 无异常（T6.2 实证）；SC-017-1 cp -r 部署链路跑通。
+  - 注意：Claude CLI v2.1.121；workspace 已清理。
   - 目标：在临时 workspace 用真实 Claude CLI 跑通一个含 ≥3 条独立任务的 TASKS.md，全程 `exit_reason=done`，验证 T6.0 模板有效 + T6.1 stagnation 修正 + T6.2 effort 接入在真实链路下不出回归。
   - 前置：T6.0 / T6.1 / T6.2 必须完成。
   - 范围：
