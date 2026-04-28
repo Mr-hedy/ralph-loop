@@ -31,7 +31,8 @@ init_meta() {
   "exit_code": ${exit_code},
   "duration_ms": ${duration_ms},
   "error": null,
-  "changed_files": [],
+  "changed_files_total": [],
+  "changed_files_iter": [],
   "tasks_before": null,
   "tasks_after": null,
   "stagnation_count": 0

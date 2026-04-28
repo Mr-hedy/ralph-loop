@@ -164,7 +164,7 @@ ralph_run() {
   local effort="${RALPH_EFFORT:-}"
   local max_iter="${RALPH_MAX_ITER:-0}"
   local timeout_sec="${RALPH_TIMEOUT:-0}"
-  local stagnation_limit=5
+  local stagnation_limit="${RALPH_STAGNATION_LIMIT:-5}"
 
   # workspace 定位
   local workspace
@@ -304,6 +304,11 @@ EOF
     local iter_start_ts
     iter_start_ts=$(( $(date -u +%s) * 1000 ))
 
+    # 捕获本轮开始时的 worktree 状态（方案 B：in-memory hash，不写 .git/refs）
+    local fingerprint_before before_iter_head
+    fingerprint_before="$(ralph_worktree_fingerprint)"
+    before_iter_head="$(git rev-parse HEAD 2>/dev/null)" || before_iter_head=""
+
     # 准备 prompt（PROMPT.md 全文 + runtime 块）
     local prompt_file="$iter_dir/prompt.md"
     {
@@ -377,24 +382,33 @@ EOF
     provider_collect_session "$iter_dir" || true
     provider_diagnose "$iter_dir" || true
 
-    # changed_files + stagnation 判定
+    # changed_files + stagnation 判定（方案 B：本轮 vs 上轮 fingerprint 对比）
     local checked_after
     checked_after="$(count_checked "$tasks_md")"
     _RALPH_TASKS_CHECKED_END="$checked_after"
 
-    local changed_files_list
-    changed_files_list="$(ralph_changed_files "$start_sha")"
+    local fingerprint_after
+    fingerprint_after="$(ralph_worktree_fingerprint)"
 
-    if [[ "$checked_after" -eq "$checked_before" && -z "$changed_files_list" ]]; then
+    if [[ "$checked_after" -eq "$checked_before" && "$fingerprint_after" == "$fingerprint_before" ]]; then
       stagnation_count=$(( stagnation_count + 1 ))
     else
       stagnation_count=0
     fi
 
+    # changed_files_total（cumulative since start_sha，诊断用）
+    local changed_files_total_list
+    changed_files_total_list="$(ralph_changed_files "$start_sha")"
+
+    # changed_files_iter（本轮 vs 上轮；fingerprint 相同则为空）
+    local changed_files_iter_list=""
+    if [[ "$fingerprint_after" != "$fingerprint_before" ]]; then
+      changed_files_iter_list="$(ralph_changed_files "$before_iter_head")"
+    fi
+
     # 更新 meta.json
     local tasks_before_json="{\"total\":${tasks_total},\"checked\":${checked_before}}"
     local tasks_after_json="{\"total\":${tasks_total},\"checked\":${checked_after}}"
-    # 简单追加字段（sed 更新）
     sed -i.bak \
       -e "s|\"tasks_before\": null|\"tasks_before\": ${tasks_before_json}|" \
       -e "s|\"tasks_after\": null|\"tasks_after\": ${tasks_after_json}|" \
@@ -402,15 +416,22 @@ EOF
       "$iter_dir/meta.json" 2>/dev/null || true
     rm -f "$iter_dir/meta.json.bak"
 
-    # changed_files 写入 meta.json（需要 jq；fake adapter 路径静默跳过）
+    # changed_files_total + changed_files_iter 写入 meta.json（需要 jq）
     if command -v jq >/dev/null 2>&1; then
-      local cf_json
-      if [[ -n "$changed_files_list" ]]; then
-        cf_json="$(printf '%s\n' "$changed_files_list" | jq -R . | jq -s . 2>/dev/null)" || cf_json="[]"
+      local cf_total_json cf_iter_json
+      if [[ -n "$changed_files_total_list" ]]; then
+        cf_total_json="$(printf '%s\n' "$changed_files_total_list" | jq -R . | jq -s . 2>/dev/null)" || cf_total_json="[]"
       else
-        cf_json="[]"
+        cf_total_json="[]"
       fi
-      update_meta_jq "$iter_dir" '.changed_files = $cf' --argjson cf "$cf_json" || true
+      if [[ -n "$changed_files_iter_list" ]]; then
+        cf_iter_json="$(printf '%s\n' "$changed_files_iter_list" | jq -R . | jq -s . 2>/dev/null)" || cf_iter_json="[]"
+      else
+        cf_iter_json="[]"
+      fi
+      update_meta_jq "$iter_dir" \
+        '.changed_files_total = $cf_total | .changed_files_iter = $cf_iter' \
+        --argjson cf_total "$cf_total_json" --argjson cf_iter "$cf_iter_json" || true
     fi
 
     # status.json 刷新

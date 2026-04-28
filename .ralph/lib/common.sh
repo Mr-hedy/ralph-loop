@@ -121,15 +121,33 @@ ralph_lock_release() {
 }
 
 # ── changed_files 收集 ──────────────────────────────────────────────────────
-# 返回自 start_sha 以来变更的文件列表（已提交 ∪ 未提交），过滤 .ralph/ 路径
+# 返回自 since_sha 以来变更的文件列表（已提交 ∪ 未提交），过滤 .ralph/ 路径
 ralph_changed_files() {
-  local start_sha="$1"
+  local since_sha="$1"
   {
-    if [[ -n "$start_sha" ]]; then
-      git diff --name-only "$start_sha" HEAD 2>/dev/null || true
+    if [[ -n "$since_sha" ]]; then
+      git diff --name-only "$since_sha" HEAD 2>/dev/null || true
     fi
     git status --porcelain 2>/dev/null | awk '{print $NF}' || true
   } | grep -v '^\.ralph/' | sort -u || true
+}
+
+# ── Worktree fingerprint（stagnation 判据用）────────────────────────────────
+# 返回 git ls-files -s + git status -z 的 sha256 摘要，用于本轮 vs 上轮对比。
+# 跨平台：sha256sum（Linux/coreutils）→ shasum -a 256（macOS 内置）→ 无 sha 时返回唯一随机值（无 sha 可用时 stagnation 检测安全降级：永不误判）。
+ralph_worktree_fingerprint() {
+  {
+    git ls-files -s 2>/dev/null || true
+    git status -z 2>/dev/null | tr '\0' '\n' || true
+  } | {
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+      shasum -a 256 | cut -d' ' -f1
+    else
+      echo "nosha-$$-$RANDOM"
+    fi
+  }
 }
 
 # ── 依赖校验框架 ────────────────────────────────────────────────────────────────

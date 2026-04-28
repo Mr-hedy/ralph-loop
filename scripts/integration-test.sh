@@ -206,6 +206,58 @@ cleanup_ws "$ws"
 
 # ────────────────────────────────
 echo ""
+echo "-- Stagnation: partial_progress triggers stagnated (stagnation_limit=2)"
+ws=$(setup_workspace)
+git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=partial_progress bash "$ws/.ralph/bin/ralph" run \
+  --provider fake --stagnation-limit 2 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+if [[ "$reason" == "stagnated" && "$rc" -eq 5 ]]; then
+  _pass "partial_progress stagnation: exit_reason=stagnated, rc=5"
+else
+  _fail "partial_progress stagnation: expected stagnated/rc=5, got $reason/$rc"
+fi
+if command -v jq >/dev/null 2>&1; then
+  sc1="$(jq '.stagnation_count // 0' "$run_dir/iterations/iter-001/meta.json" 2>/dev/null)" || sc1=0
+  sc2="$(jq '.stagnation_count // 0' "$run_dir/iterations/iter-002/meta.json" 2>/dev/null)" || sc2=0
+  sc3="$(jq '.stagnation_count // 0' "$run_dir/iterations/iter-003/meta.json" 2>/dev/null)" || sc3=0
+  if [[ "$sc1" -eq 0 && "$sc2" -eq 1 && "$sc3" -eq 2 ]]; then
+    _pass "partial_progress stagnation_count: iter1=0 iter2=1 iter3=2"
+  else
+    _fail "partial_progress stagnation_count: expected 0/1/2, got $sc1/$sc2/$sc3"
+  fi
+fi
+cleanup_ws "$ws"
+
+# ────────────────────────────────
+echo ""
+echo "-- Stagnation: full happy run has stagnation_count=0"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+if [[ "$(get_exit_reason "$run_dir")" == "done" ]]; then
+  if command -v jq >/dev/null 2>&1; then
+    sc1="$(jq '.stagnation_count // 0' "$run_dir/iterations/iter-001/meta.json" 2>/dev/null)" || sc1=0
+    if [[ "$sc1" -eq 0 ]]; then
+      _pass "happy stagnation_count: exit_reason=done, stagnation_count=0"
+    else
+      _fail "happy stagnation_count: expected sc=0, got $sc1"
+    fi
+  else
+    _pass "happy stagnation_count: exit_reason=done (no jq, skipping sc check)"
+  fi
+else
+  _fail "happy stagnation_count: expected exit_reason=done"
+fi
+cleanup_ws "$ws"
+
+# ────────────────────────────────
+echo ""
 echo "-- Exit reason: locked"
 ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true

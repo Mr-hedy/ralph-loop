@@ -57,6 +57,8 @@ Options:
                            Default: 0
   --timeout <sec>          Per-iteration timeout in seconds; 0 = unlimited
                            (env: RALPH_TIMEOUT). Default: 0
+  --stagnation-limit <n>   Consecutive no-progress iterations before stagnated
+                           (env: RALPH_STAGNATION_LIMIT). Default: 5
   --help                   Show this help and exit.
 
 Option priority (highest to lowest): CLI flag > process env > .ralph/.env > default
@@ -122,7 +124,8 @@ ralph_run_cmd() {
       --model)        export RALPH_MODEL="$2";    shift 2 ;;
       --effort)       export RALPH_EFFORT="$2";   shift 2 ;;
       --max-iter)     export RALPH_MAX_ITER="$2"; shift 2 ;;
-      --timeout)      export RALPH_TIMEOUT="$2";  shift 2 ;;
+      --timeout)           export RALPH_TIMEOUT="$2";          shift 2 ;;
+      --stagnation-limit)  export RALPH_STAGNATION_LIMIT="$2"; shift 2 ;;
       --*)            ralph_usage_error "unknown flag: $1" ;;
       *)              ralph_usage_error "unexpected argument: $1" ;;
     esac

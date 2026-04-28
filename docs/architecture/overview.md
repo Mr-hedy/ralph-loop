@@ -43,12 +43,13 @@ ralph run
     if max_iter > 0 and iteration > max_iter: exit `max_iterations`
     prompt_file = render_prompt(.ralph/PROMPT.md, run_id, iteration, tasks)
     source adapter-$provider.sh
+    fp_before = worktree_fingerprint()         # 本轮前快照（方案 B，T6.1）
     provider_oneshot $prompt_file iter-$N/log iter-$N/  # writes log, meta drafts
     provider_collect_session iter-$N/      # writes session.*, chat.log, tools.log
     provider_diagnose iter-$N/             # writes error{type,message} to meta
-    changed = git_changed_files $start_sha  # diff since run start
+    fp_after = worktree_fingerprint()          # 本轮后快照
     tasks_after = parse_tasks(.ralph/TASKS.md)
-    if checked_count(tasks_after) == checked_count(tasks) and empty(changed):
+    if checked_count(tasks_after) == checked_count(tasks) and fp_after == fp_before:
       stagnation_count += 1
     else:
       stagnation_count = 0
@@ -372,10 +373,13 @@ provider_diagnose <iter_dir>
 
 ## Stagnation 判定
 
-每轮结束后：
+每轮结束后（**本轮 vs 上轮**对比，T6.1 决策）：
 
 ```text
-if tasks_checked_after == tasks_checked_before AND changed_files is empty:
+fingerprint_before = worktree_fingerprint()  # 每轮 provider_oneshot 前捕获
+fingerprint_after  = worktree_fingerprint()  # provider_oneshot 结束后捕获
+
+if tasks_checked_after == tasks_checked_before AND fingerprint_after == fingerprint_before:
   stagnation_count += 1
 else:
   stagnation_count = 0
@@ -384,17 +388,24 @@ if stagnation_count >= stagnation_limit:
   exit `stagnated`
 ```
 
-`changed_files` 定义（决策 #7）：
+**Worktree fingerprint 定义**（方案 B，T6.1 决策）：
 
 ```bash
-git diff --name-only "$start_sha" HEAD     # 相对 run 起点的已提交变更
-  ∪
-git status --porcelain | awk '{print $NF}' # 当前工作区未提交变更
+# git ls-files -s：每个 tracked 文件的 blob sha
+# git status -z：未提交变更（含 untracked），\0 分隔转换为换行
+{ git ls-files -s; git status -z | tr '\0' '\n'; } | sha256sum | cut -d' ' -f1
 ```
 
-取并集，过滤 `.ralph/`（避免 run 自身产物触发）。
+跨平台：`sha256sum`（Linux/coreutils）→ `shasum -a 256`（macOS 内置）。  
+不写 `.git/refs/`、不创建 git 对象（保"不污染用户 git 状态"契约）。  
+过滤 `.ralph/` 路径由 `git ls-files` 自然区分（`.ralph/` 可以是 tracked，不影响判据）。
 
-默认 `stagnation_limit=5`（决策 #4）。
+**meta.json changed_files 字段**（T6.1 拆分）：
+
+- `changed_files_total`：cumulative，自 run `start_sha` 至今，用于诊断（原 `changed_files` 字段）。
+- `changed_files_iter`：本轮 vs 上轮，fingerprint 不变时为 `[]`，fingerprint 变化时取 `ralph_changed_files(before_iter_head)`。
+
+默认 `stagnation_limit=5`（决策 #4）；可通过 `--stagnation-limit` / `RALPH_STAGNATION_LIMIT` 覆盖（T6.1 新增）。
 
 ## Lock 机制
 

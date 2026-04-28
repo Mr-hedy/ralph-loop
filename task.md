@@ -22,7 +22,10 @@
 > 测试约束：沿用 `docs/architecture/testing.md` 隔离规则；新增真实 Claude 多轮 smoke 必须落到独立临时 workspace（如 `/tmp/ralph-t6-multi-smoke/`），不污染本仓库。
 > 子任务执行顺序（依赖驱动）：T6.0 模板 → T6.1 stagnation 修 → T6.2 effort 接入 → T6.3 多轮 smoke → T6.4 边界复验 → T6.5 使用指南 → T6.6 v0.1 closure；T6.7 patch 池贯穿全程按需触发。
 
-- [ ] T6.0：PROMPT.md + TASKS.md 参考样板（直接落 `.ralph/` 入仓）。
+- [x] T6.0：PROMPT.md + TASKS.md 参考样板（直接落 `.ralph/` 入仓）。
+  - 完成：`.ralph/PROMPT.md`（74 行）+ `.ralph/TASKS.md`（11 行）入仓；`scripts/check.sh` 守卫翻转；`docs/README.md` 部署单元索引行。
+  - 变更：`.ralph/PROMPT.md`（新增）、`.ralph/TASKS.md`（新增）、`scripts/check.sh`、`docs/README.md`
+  - 验证：`bash scripts/check.sh` PASS；行数约束满足（PROMPT ≤120、TASKS ≤20）。
   - 目标：交付 `.ralph/PROMPT.md` 和 `.ralph/TASKS.md` 两份 provider-agnostic 参考样板，**直接放在部署单元 `.ralph/` 内入仓**（REQ-017）——使用者部署 ralph 时 `cp -r .ralph/ <workspace>/.ralph/` 一次性带走 bin/lib/PROMPT/TASKS，按需裁剪。ralph 内核**不**读取这两个文件作为内核控制信号、不自动生成、不在工具运行时改写其结构（requirements §非目标 line 23：ralph 工具运行时不 init/不生成模板。样板入仓由人工维护，不属于内核 init 路径）。两份样板配对成一组降低首次上手摩擦；详细字段语义在 T6.5 usage doc 内嵌完整 demo 解释。
   - 范围：
     - 新文件 `.ralph/PROMPT.md`，承载以下要点（每点都要 actionable、可被 LLM 当指令读）：
@@ -50,7 +53,11 @@
   - 不做：把样板内容硬编码进 ralph 内核；TASKS 样板写复杂业务任务样例（保持极简，详细 demo 在 T6.5 usage 内嵌）；多语言版本（v0.1 中文为主）；本仓库 dogfood 跑 ralph 自己（v0.1 不做，T6 期间内核还在改，dogfood 风险大）。
   - 参考：trantor `.trantor/build/PROMPT.md`（外部参考）；REQ-001 / REQ-002 / REQ-017、requirements §非目标 line 23；`docs/architecture/overview.md` 退出原因 7 种。
 
-- [ ] T6.1：stagnation 检测语义修正 + per-iter changed_files 记录。
+- [x] T6.1：stagnation 检测语义修正 + per-iter changed_files 记录。
+  - 完成：方案 B（in-memory fingerprint）实现；`run.sh` 主循环改为 fingerprint_before vs fingerprint_after；`meta.json` 字段拆为 `changed_files_total`（cumulative）+ `changed_files_iter`（per-iter）；`--stagnation-limit` flag + `RALPH_STAGNATION_LIMIT` 新增；`partial_progress` mock 场景新增；新增 2 个集成测试（partial_progress stagnation + happy stagnation_count=0）；`docs/architecture/overview.md` stagnation 段补丁。
+  - 变更：`.ralph/lib/common.sh`、`.ralph/lib/run.sh`、`.ralph/lib/session.sh`、`.ralph/lib/adapter-fake.sh`、`.ralph/bin/ralph`、`scripts/integration-test.sh`、`docs/architecture/overview.md`
+  - 验证：`bash scripts/check.sh` PASS；`bash scripts/integration-test.sh` 全 37 PASS（含新增 2 用例）；macOS（shasum -a 256 fallback）已在代码中覆盖。
+  - 注意：PM-0003 回查——stagnation cumulative bug 已修复，T6.4 真实 Claude 触发待 T6.4 验证。
   - 目标：修复 adversarial review 暴露的 P0 缺陷——`run.sh:386` 当前用 `ralph_changed_files "$start_sha"`（**run 起点 cumulative**）作为 stagnation 判据，导致第一轮一旦改过任何文件，第二轮起 cumulative diff 永远非空，stagnation_count 永远不再 ++，stagnation 在长链路里事实上失效。同步修复 P1 缺陷：每轮 `meta.json.changed_files` 也是 cumulative，语义误导。
   - 范围：
     - `.ralph/lib/common.sh` 或 `run.sh`：新增 `ralph_changed_files_since <ref>` 或在 run.sh 主循环维护"上轮末快照 SHA + worktree fingerprint"，让 stagnation 判据改为**本轮 vs 上轮**：

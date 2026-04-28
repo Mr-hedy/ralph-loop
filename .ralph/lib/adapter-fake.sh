@@ -3,6 +3,7 @@
 # source 本文件后即设置 RALPH_PROVIDER_CLI；三函数契约
 
 RALPH_PROVIDER_CLI="${RALPH_FAKE_CLI:-bash}"
+_RALPH_PP_DONE=0  # partial_progress 状态跟踪；每次 adapter 被 source 时重置
 
 # ── provider_check_deps ──────────────────────────────────────────────────────
 provider_check_deps() {
@@ -60,6 +61,30 @@ provider_oneshot() {
       echo "$api_msg" >> "$log_path"
       echo "$api_msg" >&2
       return 1
+      ;;
+    partial_progress)
+      # iter 1：标记第 1 条任务 + 写一个文件（使 worktree fingerprint 变化）
+      # iter 2+：什么都不做（触发 stagnation 累加）
+      if [[ "${_RALPH_PP_DONE:-0}" -eq 0 ]]; then
+        local tasks_file="${RALPH_WORKSPACE:-.}/.ralph/TASKS.md"
+        if [[ -f "$tasks_file" ]]; then
+          local found=0 tmpout
+          tmpout="$(mktemp)"
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            if [[ "$found" -eq 0 && "$line" =~ ^([[:space:]]*-[[:space:]]+)\[[[:space:]]\](.*)$ ]]; then
+              printf '%s[x]%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" >> "$tmpout"
+              found=1
+            else
+              printf '%s\n' "$line" >> "$tmpout"
+            fi
+          done < "$tasks_file"
+          mv "$tmpout" "$tasks_file"
+        fi
+        printf 'partial-progress-iter1\n' > "${RALPH_WORKSPACE:-.}/pp-test-file.txt"
+        _RALPH_PP_DONE=1
+      fi
+      echo "fake: partial_progress scenario (done=$_RALPH_PP_DONE)" | tee -a "$log_path"
+      return 0
       ;;
     slow)
       # sleep 远超 timeout；用于 timeout 用例
