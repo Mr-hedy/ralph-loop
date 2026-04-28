@@ -666,6 +666,87 @@ echo "-- Claude diagnose: unknown (CLI crash, no stdout)"
 _run_diagnose_case crash unknown "diagnose unknown (crash)"
 
 # ────────────────────────────────
+# SC-014-1: --effort flag 接入（T6.2）
+# ────────────────────────────────
+
+get_received_effort() {
+  local iter_dir="$1"
+  jq -r '._received_effort // ""' "$iter_dir/session.claude.stdout.json" 2>/dev/null
+}
+
+echo ""
+echo "-- SC-014-1: RALPH_EFFORT=low → --effort low"
+setup_claude_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=low \
+  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; iter_dir="${run_dir}/iterations/iter-001"
+rcv="$(get_received_effort "$iter_dir")"
+if [[ "$rc" -eq 0 && "$rcv" == "low" ]]; then
+  _pass "SC-014-1 effort=low: --effort low received by mock-claude"
+else
+  _fail "SC-014-1 effort=low: expected low, got rcv=$rcv rc=$rc"
+fi
+cleanup_claude_ws
+
+echo ""
+echo "-- SC-014-1: RALPH_EFFORT=medium → --effort medium"
+setup_claude_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=medium \
+  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; iter_dir="${run_dir}/iterations/iter-001"
+rcv="$(get_received_effort "$iter_dir")"
+if [[ "$rc" -eq 0 && "$rcv" == "medium" ]]; then
+  _pass "SC-014-1 effort=medium: --effort medium received by mock-claude"
+else
+  _fail "SC-014-1 effort=medium: expected medium, got rcv=$rcv rc=$rc"
+fi
+cleanup_claude_ws
+
+echo ""
+echo "-- SC-014-1: RALPH_EFFORT=high → --effort high"
+setup_claude_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=high \
+  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; iter_dir="${run_dir}/iterations/iter-001"
+rcv="$(get_received_effort "$iter_dir")"
+if [[ "$rc" -eq 0 && "$rcv" == "high" ]]; then
+  _pass "SC-014-1 effort=high: --effort high received by mock-claude"
+else
+  _fail "SC-014-1 effort=high: expected high, got rcv=$rcv rc=$rc"
+fi
+cleanup_claude_ws
+
+echo ""
+echo "-- SC-014-1: RALPH_EFFORT=none → --effort not passed"
+setup_claude_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=none \
+  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; iter_dir="${run_dir}/iterations/iter-001"
+rcv="$(get_received_effort "$iter_dir")"
+if [[ "$rc" -eq 0 && -z "$rcv" ]]; then
+  _pass "SC-014-1 effort=none: --effort not passed to mock-claude"
+else
+  _fail "SC-014-1 effort=none: expected empty, got rcv=$rcv rc=$rc"
+fi
+cleanup_claude_ws
+
+# ────────────────────────────────
 # 依赖校验补缺（T2.5）
 # ────────────────────────────────
 

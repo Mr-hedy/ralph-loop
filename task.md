@@ -83,7 +83,11 @@
   - 参考：`docs/architecture/overview.md` stagnation 段、REQ-013、`run.sh:380-395`、PM-0001（macOS 兼容）、PM-0002（跨任务沉淀）、**PM-0003（本 bug 是 PM-0003 触发证据之一，T6.1 完成后回查 PM-0003 验证修复有效）**。
   - **本任务必须在 T6.4 边界复验之前完成**（否则 T6.4 stagnation 真实用例无法正确设计）。
 
-- [ ] T6.2：`--effort` flag 接入 Claude adapter + SC-014-1 单元测试。
+- [x] T6.2：`--effort` flag 接入 Claude adapter + SC-014-1 单元测试。
+  - 完成：`adapter-claude.sh` 改为数组构建命令，加 `--effort` 直通（`none`/空不拼）；实测 Claude CLI v2.1.114 使用 `--effort low|medium|high|xhigh|max` 原生直通，无需 `--thinking-budget` 翻译；`mock-claude` 新增 `--effort` flag 解析 + `_received_effort` 回显；集成测试新增 4 用例（low/medium/high/none）；requirements.md + overview 伪代码注释更新 effort 字段说明。
+  - 变更：`.ralph/lib/adapter-claude.sh`、`tests/fixtures/mock-claude`、`scripts/integration-test.sh`、`docs/requirements/ralph-loop/requirements.md`
+  - 验证：`bash scripts/check.sh` PASS；`bash scripts/integration-test.sh` 全 41 PASS（含新增 4 SC-014-1 用例）；macOS（数组构建无空参数注入）已验证。
+  - 注意：PM-0003 回查——effort 漏接入 bug 已修复，T6.4 真实 Claude 闭环待 T6.4 验证。
   - 目标：修复 adversarial review 暴露的 P0 缺陷——`adapter-claude.sh` 完全没读 `$RALPH_EFFORT`，REQ-014（P1）+ SC-014-1（"low/medium/high 翻译为 provider 原生参数；none 或留空不传"）+ requirements §integrations Claude 节"`--effort` 翻译为 `--thinking-budget`"在 Claude adapter 中均未实现，effort 被 run.sh 写进 context.json 后丢失。
   - 范围：
     - `.ralph/lib/adapter-claude.sh` `provider_oneshot` 内：

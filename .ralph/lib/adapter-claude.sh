@@ -38,13 +38,23 @@ provider_oneshot() {
     return 1
   fi
 
+  # --effort 直通（Claude CLI v2.1.114+ 原生支持 --effort low|medium|high|xhigh|max）
+  # none/空 → 不拼 flag；用数组避免空参数注入（SC-014-1）
+  local effort="${RALPH_EFFORT:-}"
+  local -a claude_cmd
+  claude_cmd=(
+    claude -p "$(cat "$prompt_file")"
+    --session-id "$session_id"
+    --dangerously-skip-permissions
+    --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+    --output-format json
+  )
+  if [[ -n "$effort" && "$effort" != "none" ]]; then
+    claude_cmd+=(--effort "$effort")
+  fi
+
   local rc=0
-  claude -p "$(cat "$prompt_file")" \
-    --session-id "$session_id" \
-    --dangerously-skip-permissions \
-    --allowedTools "Bash,Read,Edit,Write,Glob,Grep" \
-    --output-format json \
-    > "$stdout_file" 2>>"$log_path" || rc=$?
+  "${claude_cmd[@]}" > "$stdout_file" 2>>"$log_path" || rc=$?
 
   # stdout 同步追加到 log（保持全量日志约定）
   cat "$stdout_file" >> "$log_path" 2>/dev/null || true

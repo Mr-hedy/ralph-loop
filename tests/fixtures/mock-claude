@@ -5,11 +5,13 @@
 set -euo pipefail
 
 session_id=""
+received_effort=""
 
-# 解析 --session-id flag（其余 flag 忽略）
+# 解析 --session-id / --effort flag（其余 flag 忽略）
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --session-id) session_id="$2"; shift 2 ;;
+    --session-id) session_id="$2";      shift 2 ;;
+    --effort)     received_effort="$2"; shift 2 ;;
     *)            shift ;;
   esac
 done
@@ -25,8 +27,9 @@ _cwd_hash() {
 
 case "$scenario" in
   happy)
-    # 写 session.claude.stdout.json 内容（stdout）
-    printf '{"is_error":false,"result":"done","session_id":"%s"}\n' "$session_id"
+    # 写 session.claude.stdout.json 内容（stdout）；_received_effort 供 SC-014-1 断言
+    printf '{"is_error":false,"result":"done","session_id":"%s","_received_effort":"%s"}\n' \
+      "$session_id" "$received_effort"
 
     # 写 ~/.claude/projects/<cwd_hash>/<session_id>.jsonl（供 T2.2 collect + T2.4 派生视图使用）
     cwd_hash="$(_cwd_hash "$PWD")"

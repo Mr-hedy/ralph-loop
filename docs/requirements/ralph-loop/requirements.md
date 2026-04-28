@@ -273,7 +273,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - 输出：oneshot 退出码、`iter-xxx/log`、`iter-xxx/session.claude.jsonl`、派生 `chat.log` / `tools.log`、错误诊断类别
 - 业务规则：
   - 固定 flag：`--dangerously-skip-permissions`、`--allowedTools "Bash,Read,Edit,Write,Glob,Grep"`、`--output-format json`、`--session-id <预分配 UUID>`
-  - 可选 flag（有值才拼）：`--model`、`--thinking-budget`（从 effort 翻译）
+  - 可选 flag（有值才拼）：`--model`、`--effort`（Claude CLI 原生直通，T6.2 实测；`none`/空 → 不拼）
   - session 路径定位：`~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`，encoded-cwd = realpath 后非 `[A-Za-z0-9-]` 字符替换为 `-`
   - 错误诊断：`is_error: true` → 按 `result` 关键字分 `auth` / `quota` / `concurrency` / `api`
 
