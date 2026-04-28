@@ -4,6 +4,12 @@
 
 RALPH_PROVIDER_CLI="${RALPH_FAKE_CLI:-bash}"
 
+# ── provider_check_deps ──────────────────────────────────────────────────────
+provider_check_deps() {
+  ralph_require_cmd "$RALPH_PROVIDER_CLI" "fake provider CLI" \
+    "test fake; override via RALPH_FAKE_CLI"
+}
+
 # ── provider_oneshot ─────────────────────────────────────────────────────────
 # <prompt_file> <log_path> <iter_dir>
 provider_oneshot() {
@@ -105,15 +111,9 @@ provider_diagnose() {
     fi
   fi
 
-  # 更新 meta.json error 字段
-  if [[ "$error_json" == "null" ]]; then
-    sed -i.bak 's|"error": .*|"error": null|' "$meta" 2>/dev/null || true
-  else
-    # 替换整行 error 字段
-    local escaped
-    escaped="${error_json//\//\\/}"
-    sed -i.bak "s|\"error\": .*|\"error\": ${escaped}|" "$meta" 2>/dev/null || true
-  fi
+  # 更新 meta.json error 字段（保留尾逗号，与 update_meta_field 模式一致）
+  local err_val="$error_json"
+  sed -i.bak -E "s|\"error\": [^,}]*(,?)\$|\"error\": ${err_val}\1|" "$meta" 2>/dev/null || true
   rm -f "${meta}.bak"
   return 0
 }

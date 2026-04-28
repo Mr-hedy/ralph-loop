@@ -26,7 +26,7 @@ init_meta() {
   "session_id": null,
   "session_source_path": null,
   "session_copied_path": null,
-  "capture_status": "ok",
+  "capture_status": "pending",
   "capture_warning": null,
   "exit_code": ${exit_code},
   "duration_ms": ${duration_ms},
@@ -37,6 +37,20 @@ init_meta() {
   "stagnation_count": 0
 }
 EOF
+}
+
+# update_meta_jq <iter_dir> <jq_filter> [jq_args...]
+# jq 原地重写 meta.json（tmp+mv），支持 string/object/array 等所有复杂值。
+# 示例：update_meta_jq "$dir" '.session_id = $sid' --arg sid "$uuid"
+update_meta_jq() {
+  local iter_dir="$1"
+  local jq_filter="$2"
+  shift 2
+  local meta="$iter_dir/meta.json"
+  [[ -f "$meta" ]] || return 1
+  local tmp
+  tmp="$(mktemp)"
+  jq "$@" "$jq_filter" "$meta" > "$tmp" && mv "$tmp" "$meta"
 }
 
 # update_meta_field <iter_dir> <field> <json_value>

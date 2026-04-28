@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":"Do one task"},"uuid":"u1","timestamp":"2024-01-01T00:00:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me think about this task."},{"type":"text","text":"I will complete this"},{"type":"tool_use","id":"tool1","name":"Bash","input":{"command":"echo hello"}}]},"uuid":"u2","timestamp":"2024-01-01T00:00:01.000Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool1","content":"hello\n"}]},"uuid":"u3","timestamp":"2024-01-01T00:00:02.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done."}]},"uuid":"u4","timestamp":"2024-01-01T00:00:03.000Z"}

@@ -1,44 +1,130 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+RALPH_VERSION="0.1.0-dev"
+
 RALPH_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 RALPH_ROOT="$(cd "$RALPH_BIN_DIR/.." && pwd -P)"
 
 # shellcheck source=../lib/common.sh
 source "$RALPH_ROOT/lib/common.sh"
 
+ralph_version() {
+  local sha
+  sha="$(git rev-parse --short HEAD 2>/dev/null)" || sha="unknown"
+  printf 'ralph %s (%s)\n' "$RALPH_VERSION" "$sha"
+}
+
 ralph_usage() {
   cat <<'EOF'
+ralph — AI agent loop harness
+
 Usage:
   ralph <command> [options]
+  ralph --version
+  ralph --help
 
 Commands:
-  run     Start the run loop.
-  help    Show this help.
+  run     Start the agent run loop in the current workspace.
+  help    Show this help or help for a subcommand.
+  status  (v0.1 not implemented — roadmap T5)
+  watch   (v0.1 not implemented — roadmap T5)
 
-Subcommands `status`, `watch` are not implemented yet.
+Examples:
+  ralph run --provider claude
+  ralph run --provider claude --max-iter 5 --timeout 120
+  ralph run --help
 
-Options for `run`:
-  --provider <claude|codex|gemini>   Provider (env: RALPH_PROVIDER)
-  --model <name>                     Model name (env: RALPH_MODEL)
-  --effort <low|medium|high|none>    Effort level (env: RALPH_EFFORT)
-  --max-iter <n>                     Max iterations, 0=unlimited (env: RALPH_MAX_ITER)
-  --timeout <sec>                    Per-iteration timeout, 0=unlimited (env: RALPH_TIMEOUT)
+Run `ralph help <command>` or `ralph <command> --help` for subcommand details.
+EOF
+}
+
+ralph_run_help() {
+  cat <<'EOF'
+Usage:
+  ralph run [options]
+
+Start the agent run loop: reads .ralph/PROMPT.md and .ralph/TASKS.md,
+calls the provider CLI once per iteration (fresh oneshot), and loops
+until a stop condition is reached.
+
+Options:
+  --provider <name>        Provider to use (env: RALPH_PROVIDER)
+                           Required. Choices: claude, codex, gemini, fake.
+  --model <name>           Model name passed to provider (env: RALPH_MODEL)
+  --effort <level>         Effort level: low|medium|high|none (env: RALPH_EFFORT)
+  --max-iter <n>           Max iterations; 0 = unlimited (env: RALPH_MAX_ITER)
+                           Default: 0
+  --timeout <sec>          Per-iteration timeout in seconds; 0 = unlimited
+                           (env: RALPH_TIMEOUT). Default: 0
+  --help                   Show this help and exit.
+
+Option priority (highest to lowest): CLI flag > process env > .ralph/.env > default
+
+Exit reasons (stored in .ralph/runs/<id>/result.json):
+  done            All tasks completed successfully.
+  provider_failed Provider CLI returned error or is_error=true.
+  timeout         Iteration exceeded --timeout.
+  max_iterations  --max-iter limit reached.
+  stagnated       No task progress after consecutive iterations.
+  locked          Another ralph run is already active in this workspace.
+  interrupted     SIGTERM/SIGINT received.
+
+Run directory layout (.ralph/runs/<run-id>/):
+  result.json                Run summary (exit_reason, timestamps, last_error).
+  context.json               Startup context snapshot.
+  iterations/iter-NNN/       Per-iteration artifacts:
+    meta.json                Iteration metadata (session_id, exit_code, timing).
+    session.<prov>.stdout.json  Provider stdout (raw).
+    session.<prov>.jsonl     Session transcript (copied from provider dir).
+    chat.log                 Human-readable conversation view.
+    tools.log                Tool invocation summary.
+
+Examples:
+  ralph run --provider claude
+  ralph run --provider claude --max-iter 3
+  ralph run --provider fake --timeout 60 --max-iter 10
+EOF
+}
+
+ralph_status_help() {
+  cat <<'EOF'
+ralph status: show current run state (v0.1 not implemented)
+
+This command is planned for roadmap T5. In a future release it will
+read .ralph/status.json and print a summary of the active or last run.
+
+Usage (future):
+  ralph status
+  ralph status --watch
+EOF
+}
+
+ralph_watch_help() {
+  cat <<'EOF'
+ralph watch: stream live run events (v0.1 not implemented)
+
+This command is planned for roadmap T5. In a future release it will
+tail the active run log and emit live iteration events to stdout.
+
+Usage (future):
+  ralph watch
+  ralph watch --follow
 EOF
 }
 
 ralph_run_cmd() {
   # flag 解析：CLI flag > 进程 env > .env > 默认
-  # 先把 CLI flag 写入变量，然后 run.sh 里 load_env 会补充 .env 中未设的值
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --provider)   export RALPH_PROVIDER="$2"; shift 2 ;;
-      --model)      export RALPH_MODEL="$2";    shift 2 ;;
-      --effort)     export RALPH_EFFORT="$2";   shift 2 ;;
-      --max-iter)   export RALPH_MAX_ITER="$2"; shift 2 ;;
-      --timeout)    export RALPH_TIMEOUT="$2";  shift 2 ;;
-      --*)          ralph_usage_error "unknown flag: $1" ;;
-      *)            ralph_usage_error "unexpected argument: $1" ;;
+      --help | -h)    ralph_run_help; exit 0 ;;
+      --provider)     export RALPH_PROVIDER="$2"; shift 2 ;;
+      --model)        export RALPH_MODEL="$2";    shift 2 ;;
+      --effort)       export RALPH_EFFORT="$2";   shift 2 ;;
+      --max-iter)     export RALPH_MAX_ITER="$2"; shift 2 ;;
+      --timeout)      export RALPH_TIMEOUT="$2";  shift 2 ;;
+      --*)            ralph_usage_error "unknown flag: $1" ;;
+      *)              ralph_usage_error "unexpected argument: $1" ;;
     esac
   done
 
@@ -52,14 +138,31 @@ ralph_main() {
   shift || true
 
   case "$command" in
+    --version | -v)
+      ralph_version
+      ;;
+    --help | -h)
+      ralph_usage
+      ;;
     run)
       ralph_run_cmd "$@"
       ;;
-    help | -h | --help)
-      ralph_usage
+    help)
+      local sub="${1:-}"
+      case "$sub" in
+        run)    ralph_run_help ;;
+        status) ralph_status_help ;;
+        watch)  ralph_watch_help ;;
+        "")     ralph_usage ;;
+        *)      ralph_usage >&2; ralph_usage_error "unknown subcommand: $sub" ;;
+      esac
       ;;
     status | watch)
-      ralph_usage_error "'$command' is not implemented yet"
+      if [[ "$command" == "status" ]]; then
+        ralph_status_help
+      else
+        ralph_watch_help
+      fi
       ;;
     *)
       ralph_usage >&2

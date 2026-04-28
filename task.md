@@ -22,7 +22,7 @@
 > 测试约束：所有集成测试必须遵循 `docs/architecture/testing.md` 「测试隔离规则」段——HOME / PATH / 真实 `~/.claude/projects/` 等用户配置不得被污染，所有副作用限定在 `ralph run` 子进程或临时目录。
 > 不含：Codex/Gemini adapter（T3/T4）、status/watch 真实功能（T5）、PROMPT/TASKS 模板生成、skill 封装、`ralph doctor` 子命令、provider 版本号检查（后两项在 `docs/roadmap.md` Deferred 段，T2.0 框架预留接口）。
 
-- [ ] T2.0：依赖校验框架。
+- [x] T2.0：依赖校验框架。
   - 目标：启动校验阶段一次性收集所有缺失的第三方命令，按"缺什么 / 干什么用 / 怎么装"汇总打印到 stderr 后退出码 1；不逐个 fail-fast。后续 adapter 可直接挂载，无需各自实现。
   - 范围：
     - `.ralph/lib/common.sh`：新增 `ralph_require_cmd <cmd> <purpose> <install_hint> [min_version]`；缺失则追加进全局数组 `_RALPH_MISSING_DEPS`，不立即返回。`min_version` 参数预留位（本期不实现版本检查，传值会被忽略）。新增 `ralph_report_missing_deps`：若数组非空则按统一格式打印每一项（前缀 `ralph: missing dependency:`，含 cmd / purpose / install hint），最后退出码 1。安装提示统一支持 `macOS:` 和 `Linux:` 两行（手动列，不自动检测平台）。
@@ -47,7 +47,7 @@
   - 不做：`ralph doctor` 子命令、版本号比对、安装提示自动检测平台、依赖路径缓存。
   - 参考：`docs/requirements/ralph-loop/requirements.md` REQ-011（快速失败）、`docs/architecture/overview.md`（启动校验段）、`docs/architecture/testing.md`（测试隔离）。
 
-- [ ] T2.1：Claude adapter 骨架 + 命令构造 + session_id 生成 + mock-claude 单一来源。
+- [x] T2.1：Claude adapter 骨架 + 命令构造 + session_id 生成 + mock-claude 单一来源。
   - 目标：实现 `adapter-claude.sh` 三函数契约——`provider_oneshot` 完整实现，`provider_collect_session` / `provider_diagnose` 空实现（T2.2/T2.3 落实）；session_id 在 adapter 内生成并写回 meta.json；stdout JSON 拆为独立文件供后续 diagnose 解析；同步建立 `tests/fixtures/mock-claude` 作为后续所有 claude 测试的**单一 mock 来源**（T2.5 在同一文件扩展场景，不另起炉灶；见 PM-0002）。
   - 范围：
     - 新文件 `.ralph/lib/adapter-claude.sh`：
@@ -81,7 +81,7 @@
   - 不做：session 文件查找（T2.2）、错误诊断（T2.3）、派生视图（T2.4）、完整 mock-claude 多场景（T2.5）。
   - 参考：`docs/architecture/integrations.md`（Claude 节、Session 文件命名约定）、`docs/architecture/security.md`（approval/sandbox 写死）、`docs/architecture/testing.md`（测试隔离 + 单一来源）。
 
-- [ ] T2.2：Session 文件采集 + cwd_hash 定位 + 降级 + setup_claude_workspace helper。
+- [x] T2.2：Session 文件采集 + cwd_hash 定位 + 降级 + setup_claude_workspace helper。
   - 目标：实现 `provider_collect_session` 完整版：按 cwd_hash 规则在 `~/.claude/projects/<hash>/<session_id>.jsonl` 精确定位 → 复制 → 写 meta.json 路径字段；找不到走 mtime 降级扫描；最终都失败写 `capture_status=warning` + `capture_warning`。同步建立 `setup_claude_workspace` 测试 helper（HOME 隔离）作为**单一测试基础设施来源**，T2.5 在此基础上扩展场景，避免重复造（见 PM-0002）。
   - 范围：
     - `.ralph/lib/adapter-claude.sh`：填充 `provider_collect_session(iter_dir)`：
@@ -111,7 +111,7 @@
   - 不做：session 内容解析或脱敏；session 文件入仓；跨 cwd_hash 目录的扫描。
   - 参考：`docs/architecture/integrations.md`（Claude session 机制 + cwd_hash 严格顺序）、`docs/postmortems/pm-shell-macos-compat.md`、`docs/postmortems/pm-cross-task-decision-sedimentation.md`、`docs/architecture/testing.md`（测试隔离 + 单一来源）。
 
-- [ ] T2.3：Claude 错误诊断矩阵。
+- [x] T2.3：Claude 错误诊断矩阵。
   - 目标：实现 `provider_diagnose` 完整版：从 `session.claude.stdout.json` 解析 `is_error` 与 `result` 字段，按矩阵分类为 `auth` / `rate_limit` / `quota` / `api` / `concurrency` / `unknown`，写入 meta.json `error` 对象；run.sh 的 `provider_failed` 路径据此填充 `result.json.last_error.type`。
   - 范围：
     - `.ralph/lib/adapter-claude.sh`：填充 `provider_diagnose(iter_dir)`：
@@ -143,7 +143,7 @@
   - 不做：自动重试、auth 错误自动登录引导、错误分类后影响下一轮 session 处理（fresh oneshot 默认已满足 concurrency 重置）。
   - 参考：`docs/architecture/integrations.md`（错误诊断节）、`docs/architecture/overview.md`（错误诊断类别）。
 
-- [ ] T2.4：chat.log / tools.log 派生视图。
+- [x] T2.4：chat.log / tools.log 派生视图。
   - 目标：从 `session.claude.jsonl` 派生 `chat.log` 与 `tools.log`，**严格遵循 `docs/architecture/overview.md` 派生视图段** schema（chat.log 含 `[user] / [assistant] / [tool-result name=X]` 三类带 timestamp 段，tool-result 文本截 2000 字符；tools.log 每行 `<timestamp> <tool_name> <brief_input> <brief_output_or_status>`）；不自定义 schema。
   - 范围：
     - `.ralph/lib/adapter-claude.sh`：在 `provider_collect_session` 末尾新增 `_claude_derive_views(iter_dir)`，capture_status=ok 时调用：
@@ -164,7 +164,7 @@
   - 不做：HTML/Markdown 渲染、内容脱敏、跨 iter 合并视图、自定义 schema。
   - 参考：`docs/architecture/overview.md`（派生视图段）、`docs/architecture/integrations.md`（统一采集输出）。
 
-- [ ] T2.5：集成测试扩展（mock-claude 全场景 + claude adapter 端到端）。
+- [x] T2.5：集成测试扩展（mock-claude 全场景 + claude adapter 端到端）。
   - 目标：在 T2.1 建立的 `tests/fixtures/mock-claude` **单一文件**上扩展全部场景（不另起炉灶）；在 T2.2 建立的 `setup_claude_workspace` helper 上扩展用例（不另起炉灶）；总 PASS 数从 14 扩展到 ≥29。
   - 范围：
     - `tests/fixtures/mock-claude` 扩展场景（T2.1 已有 happy 骨架）：
@@ -192,7 +192,7 @@
   - 不做：真实 claude CLI 调用（T2.6）、网络相关测试、性能测试。
   - 参考：T1 fake adapter 集成测试模式、`docs/postmortems/pm-shell-macos-compat.md`、`docs/postmortems/pm-cross-task-decision-sedimentation.md`、`docs/architecture/testing.md`。
 
-- [ ] T2.6：真实 Claude smoke + `--version` / `--help` 补全 + 文档收尾。
+- [x] T2.6：真实 Claude smoke + `--version` / `--help` 补全 + 文档收尾。
   - 目标：真实 `claude` CLI 跑一轮单条 task 验证 T2.1-T2.5 端到端；补全 `ralph --version` 和全部 `--help` 输出，使工具看起来用起来都专业；如发现 docs 与实际有偏差做补丁级更新。
   - 范围：
     - **真实 Claude smoke**：
@@ -223,3 +223,9 @@
     - 真实 smoke 证据贴 task.md。
   - 不做：性能基准、多 task 长链路 smoke（T6 v0.1 release）、Codex/Gemini 对应 smoke。
   - 参考：`docs/roadmap.md`、`docs/architecture/integrations.md`、`docs/architecture/overview.md`。
+  - 完成证据（2026-04-27，claude 2.1.119）：
+    - run_id: `20260427-121516-ef055eb`；exit_reason: done；iterations: 2；duration: 30s；last_error: null。
+    - meta.json: session_id=2b768224-b3bf-4809-a5c1-a0c9135dc537；capture_status=ok；exit_code=0；error=null。
+    - session.claude.jsonl 复制成功；chat.log 含 `[user]`/`[assistant]`/`[tool-result name=*]` 段；tools.log 含工具调用行。
+    - smoke-output.txt 内容为 `ralph smoke ok`（任务完成）。
+    - schema 修正：真实 Claude JSONL 中 tool_result 封装在 `type:"user"` 消息（非 `type:"tool"`），内层 content 为字符串；已修正 `_claude_derive_chat` / `_claude_derive_tools` 及 fixture/mock-claude，PASS 仍 34。

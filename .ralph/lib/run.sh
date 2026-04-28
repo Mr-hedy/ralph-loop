@@ -149,12 +149,6 @@ _ralph_startup_checks() {
   [[ -d "$workspace/.git" ]] || {
     echo "$_STARTUP_FAIL_PREFIX $workspace is not a git repository" >&2; return 1; }
 
-  # command -v $RALPH_PROVIDER_CLI
-  [[ -n "${RALPH_PROVIDER_CLI:-}" ]] || {
-    echo "$_STARTUP_FAIL_PREFIX RALPH_PROVIDER_CLI not set by adapter" >&2; return 1; }
-  command -v "$RALPH_PROVIDER_CLI" >/dev/null 2>&1 || {
-    echo "$_STARTUP_FAIL_PREFIX provider CLI not found: $RALPH_PROVIDER_CLI" >&2; return 1; }
-
   # UUID 校验（仅 claude provider）
   if [[ "$provider" == "claude" ]]; then
     ralph_uuid >/dev/null || return 1
@@ -193,7 +187,18 @@ ralph_run() {
   if [[ -f "$adapter_file" ]]; then
     # shellcheck disable=SC1090
     source "$adapter_file"
+  else
+    echo "${_STARTUP_FAIL_PREFIX} unknown provider: ${provider:-fake} (adapter-${provider:-fake}.sh not found)" >&2
+    exit 1
   fi
+
+  # 依赖校验：先注册公共依赖，再调用 provider_check_deps，最后聚合输出
+  ralph_require_cmd git "git version control" \
+    $'macOS: brew install git\nLinux: apt install git-all'
+  if declare -f provider_check_deps >/dev/null 2>&1; then
+    provider_check_deps
+  fi
+  ralph_report_missing_deps || exit 1
 
   # 启动校验
   _ralph_startup_checks "$workspace" "$provider" || exit 1
@@ -307,6 +312,9 @@ EOF
         "$run_id" "$iteration" "$start_sha" "$workspace"
     } > "$prompt_file"
 
+    # meta.json 骨架（在 provider_oneshot 之前，让 adapter 可写入 session_id 等字段）
+    init_meta "$iter_dir" "$iteration" "$provider" 0 0
+
     # provider_oneshot（带 timeout 支持）
     local rc=0
     if [[ "$timeout_sec" -gt 0 ]]; then
@@ -319,7 +327,15 @@ EOF
         elapsed=$(( elapsed + 1 ))
         if [[ "$elapsed" -ge "$timeout_sec" ]]; then
           kill "$pid" 2>/dev/null || true
-          wait "$pid" 2>/dev/null || true
+          local timeout_pid_rc=0
+          wait "$pid" 2>/dev/null || timeout_pid_rc=$?
+          local timeout_end_ts timeout_dur_ms
+          timeout_end_ts=$(( $(date -u +%s) * 1000 ))
+          timeout_dur_ms=$(( timeout_end_ts - iter_start_ts ))
+          update_meta_field "$iter_dir" exit_code "$timeout_pid_rc"
+          update_meta_field "$iter_dir" duration_ms "$timeout_dur_ms"
+          provider_collect_session "$iter_dir" || true
+          provider_diagnose "$iter_dir" || true
           _RALPH_TASKS_CHECKED_END="$checked_before"
           _ralph_finish "timeout" 3 "$iteration" "$tasks_total" \
             "$tasks_checked_start" "$checked_before" "$started_at" "null"
@@ -334,17 +350,24 @@ EOF
     iter_end_ts=$(( $(date -u +%s) * 1000 ))
     duration_ms=$(( iter_end_ts - iter_start_ts ))
 
-    # meta.json 初始写入
-    init_meta "$iter_dir" "$iteration" "$provider" "$rc" "$duration_ms"
+    # exit_code / duration_ms 事后回填（保留 adapter 已写入的其他字段，如 session_id）
+    update_meta_field "$iter_dir" exit_code "$rc"
+    update_meta_field "$iter_dir" duration_ms "$duration_ms"
 
     # provider 失败判定
     if [[ "$rc" -ne 0 ]]; then
       provider_collect_session "$iter_dir" || true
       provider_diagnose "$iter_dir" || true
-      # 读取 error type
-      local error_type=""
-      error_type="$(grep '"type"' "$iter_dir/meta.json" 2>/dev/null | sed 's/.*"type":[[:space:]]*"\([^"]*\)".*/\1/' | head -1)" || error_type="unknown"
-      last_error_json="{\"type\":\"$(ralph_json_escape "${error_type:-unknown}")\",\"message\":\"provider exited with code $rc\",\"raw\":\"\"}"
+      # 优先从 meta.json 读取 provider_diagnose 写入的 error 对象（jq 可用时）
+      local error_obj=""
+      if command -v jq >/dev/null 2>&1 && [[ -f "$iter_dir/meta.json" ]]; then
+        error_obj="$(jq -c '.error // empty' "$iter_dir/meta.json" 2>/dev/null)" || error_obj=""
+      fi
+      if [[ -n "$error_obj" && "$error_obj" != "null" ]]; then
+        last_error_json="$error_obj"
+      else
+        last_error_json="{\"type\":\"unknown\",\"message\":\"provider exited with code $rc\",\"raw\":\"\"}"
+      fi
       _RALPH_TASKS_CHECKED_END="$checked_before"
       _ralph_finish "provider_failed" 2 "$iteration" "$tasks_total" \
         "$tasks_checked_start" "$checked_before" "$started_at" "$last_error_json"
@@ -378,6 +401,17 @@ EOF
       -e "s|\"stagnation_count\": 0|\"stagnation_count\": ${stagnation_count}|" \
       "$iter_dir/meta.json" 2>/dev/null || true
     rm -f "$iter_dir/meta.json.bak"
+
+    # changed_files 写入 meta.json（需要 jq；fake adapter 路径静默跳过）
+    if command -v jq >/dev/null 2>&1; then
+      local cf_json
+      if [[ -n "$changed_files_list" ]]; then
+        cf_json="$(printf '%s\n' "$changed_files_list" | jq -R . | jq -s . 2>/dev/null)" || cf_json="[]"
+      else
+        cf_json="[]"
+      fi
+      update_meta_jq "$iter_dir" '.changed_files = $cf' --argjson cf "$cf_json" || true
+    fi
 
     # status.json 刷新
     _ralph_update_status "running" "" "$iteration" "$tasks_total" "$checked_after"

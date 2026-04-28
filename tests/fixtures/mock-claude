@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# tests/fixtures/mock-claude — Claude CLI test double (T2.1 establishes; T2.5 extends)
+# cwd_hash 严格步骤顺序：先 realpath 解 symlink，再字符替换为 -
+# 参见 docs/architecture/integrations.md §Claude Session 机制
+set -euo pipefail
+
+session_id=""
+
+# 解析 --session-id flag（其余 flag 忽略）
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --session-id) session_id="$2"; shift 2 ;;
+    *)            shift ;;
+  esac
+done
+
+scenario="${RALPH_MOCK_CLAUDE_SCENARIO:-happy}"
+
+# cwd_hash：先 realpath，再字符替换（步骤顺序固定，见 PM-0002）
+_cwd_hash() {
+  local resolved
+  resolved="$(realpath "$1")"
+  printf '%s' "$resolved" | sed 's/[^A-Za-z0-9-]/-/g'
+}
+
+case "$scenario" in
+  happy)
+    # 写 session.claude.stdout.json 内容（stdout）
+    printf '{"is_error":false,"result":"done","session_id":"%s"}\n' "$session_id"
+
+    # 写 ~/.claude/projects/<cwd_hash>/<session_id>.jsonl（供 T2.2 collect + T2.4 派生视图使用）
+    cwd_hash="$(_cwd_hash "$PWD")"
+    jsonl_dir="$HOME/.claude/projects/$cwd_hash"
+    mkdir -p "$jsonl_dir"
+    cat > "$jsonl_dir/${session_id}.jsonl" << 'ENDJSONL'
+{"type":"user","message":{"role":"user","content":"Do one task"},"uuid":"u1","timestamp":"2024-01-01T00:00:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me think about this task."},{"type":"text","text":"I will complete this"},{"type":"tool_use","id":"tool1","name":"Bash","input":{"command":"echo hello"}}]},"uuid":"u2","timestamp":"2024-01-01T00:00:01.000Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool1","content":"hello\n"}]},"uuid":"u3","timestamp":"2024-01-01T00:00:02.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done."}]},"uuid":"u4","timestamp":"2024-01-01T00:00:03.000Z"}
+ENDJSONL
+
+    # 勾选 TASKS.md 第 1 条未勾选任务（通过 RALPH_WORKSPACE，使 run 退出 done）
+    if [[ -n "${RALPH_WORKSPACE:-}" ]]; then
+      _tasks="${RALPH_WORKSPACE}/.ralph/TASKS.md"
+      if [[ -f "$_tasks" ]]; then
+        _tmpout="$(mktemp)"
+        _found=0
+        while IFS= read -r _line || [[ -n "$_line" ]]; do
+          if [[ "$_found" -eq 0 && "$_line" =~ ^([[:space:]]*-[[:space:]]+)\[[[:space:]]\](.*)$ ]]; then
+            printf '%s[x]%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" >> "$_tmpout"
+            _found=1
+          else
+            printf '%s\n' "$_line" >> "$_tmpout"
+          fi
+        done < "$_tasks"
+        mv "$_tmpout" "$_tasks"
+      fi
+    fi
+
+    exit 0
+    ;;
+  mtime_fallback)
+    # stdout JSON（正常）；但写入文件名 UUID 不匹配 session_id 的 jsonl（触发 mtime 降级）
+    printf '{"is_error":false,"result":"done","session_id":"%s"}\n' "$session_id"
+    cwd_hash="$(_cwd_hash "$PWD")"
+    jsonl_dir="$HOME/.claude/projects/$cwd_hash"
+    mkdir -p "$jsonl_dir"
+    printf '{"sessionId":"00000000-0000-0000-0000-000000000000","type":"system"}\n' \
+      > "$jsonl_dir/00000000-0000-0000-0000-000000000000.jsonl"
+    exit 0
+    ;;
+
+  missing_session)
+    # stdout JSON（正常），但不写任何 session 文件
+    printf '{"is_error":false,"result":"done","session_id":"%s"}\n' "$session_id"
+    exit 0
+    ;;
+
+  is_error_auth)
+    printf '{"is_error":true,"result":"Authentication failed: unauthorized","session_id":"%s"}\n' "$session_id"
+    exit 0
+    ;;
+
+  is_error_rate)
+    printf '{"is_error":true,"result":"Rate limited: 429 too many requests","session_id":"%s"}\n' "$session_id"
+    exit 0
+    ;;
+
+  is_error_quota)
+    printf '{"is_error":true,"result":"Usage quota exceeded: credits exhausted","session_id":"%s"}\n' "$session_id"
+    exit 0
+    ;;
+
+  is_error_api)
+    printf '{"is_error":true,"result":"API error: 500 internal server error","session_id":"%s"}\n' "$session_id"
+    exit 0
+    ;;
+
+  is_error_concurrency)
+    printf '{"is_error":true,"result":"tool_use_concurrency error: concurrent tool calls not allowed","session_id":"%s"}\n' "$session_id"
+    exit 0
+    ;;
+
+  crash)
+    # CLI 崩溃：不写任何 stdout，exit 1
+    exit 1
+    ;;
+
+  *)
+    printf 'mock-claude: unknown scenario: %s\n' "$scenario" >&2
+    exit 1
+    ;;
+esac

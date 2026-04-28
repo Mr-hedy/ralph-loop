@@ -10,7 +10,7 @@
 | 命令 | 用途 | 通过标准 |
 |---|---|---|
 | `bash scripts/check.sh` | 静态检查（`bash -n` 全 lib 文件 + integration-test.sh 存在性） | stdout 含 `ralph-loop check passed` |
-| `bash scripts/integration-test.sh` | 端到端集成测试（mock workspace + 退出原因 + 启动校验 + adapter 各分支） | `PASS=N FAIL=0`，N 随阶段扩展（T1 期：14；T2 完成期：≥33） |
+| `bash scripts/integration-test.sh` | 端到端集成测试（mock workspace + 退出原因 + 启动校验 + adapter 各分支） | `PASS=N FAIL=0`，N 随阶段扩展（T1 期：14；T2 自动化完成：34） |
 | `git diff --check` | 空白错误检查 | 无输出 |
 
 完整验证 = 三条命令全过。文档/协作规则改动至少跑前两条；脚本/代码改动跑全套。
@@ -69,14 +69,14 @@ tests/
 | 阶段 | PASS 数 | 覆盖类别 |
 |---|---|---|
 | T1 已完成 | 14 | 7 退出原因 + 6 启动校验 + api-error 变体 |
-| T2.0 完成期 | +≥3 | 依赖框架 happy / 单缺失 / 多缺失 |
-| T2.1 完成期 | +≥1 | claude adapter 骨架 happy |
-| T2.2 完成期 | +≥3 | session 采集 happy / mtime fallback / missing |
-| T2.3 完成期 | +≥6 | 错误诊断 6 种类别 |
+| T2.0 完成期 | +3（实际 17） | 依赖框架 happy / 单缺失 / 多缺失 |
+| T2.1 完成期 | +1（实际 18） | claude adapter 骨架 happy |
+| T2.2 完成期 | +3（实际 21） | session 采集 happy / mtime fallback / missing |
+| T2.3 完成期 | +6（实际 28） | 错误诊断 6 种类别 |
 | T2.4 完成期 | +0（复用 T2.1/T2.2 用例加派生视图断言） | chat.log/tools.log 内容与格式符合 overview.md schema |
-| T2.5 完成期 | +≥2 | dep_missing_jq + 补缺 |
-| T2.6 完成期 | +≥4 | --version + --help × 3 |
-| T2 总目标 | ≥33 | 上述累计 |
+| T2.5 完成期 | +2（实际 30） | dep_missing_jq + claude+jq 双缺失非 fail-fast |
+| T2.6 完成期 | +4（实际 34） | --version + --help + run --help + status placeholder；真实 smoke 手动通过（2026-04-27，claude 2.1.119） |
+| T2 总目标 | ≥33（实际 34） | 上述累计；schema 修正：real Claude JSONL tool_result 在 type:"user" 而非 type:"tool" |
 
 未覆盖范围（已知，不计入失败）：
 

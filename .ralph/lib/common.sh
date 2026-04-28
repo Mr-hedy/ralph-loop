@@ -132,6 +132,45 @@ ralph_changed_files() {
   } | grep -v '^\.ralph/' | sort -u || true
 }
 
+# ── 依赖校验框架 ────────────────────────────────────────────────────────────────
+# 全局积累数组；由 ralph_require_cmd 写入，ralph_report_missing_deps 读取并打印
+_RALPH_MISSING_CMDS=()
+_RALPH_MISSING_PURPOSES=()
+_RALPH_MISSING_HINTS=()
+
+# ralph_require_cmd <cmd> <purpose> <install_hint> [min_version]
+# 检查 cmd 是否在 PATH 中；不在则追加进全局数组，不立即 fail。
+# min_version 预留位：本期传值会被忽略。
+ralph_require_cmd() {
+  local cmd="$1"
+  local purpose="$2"
+  local install_hint="$3"
+  # $4 = min_version; reserved, not implemented
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    _RALPH_MISSING_CMDS+=("$cmd")
+    _RALPH_MISSING_PURPOSES+=("$purpose")
+    _RALPH_MISSING_HINTS+=("$install_hint")
+  fi
+}
+
+# ralph_report_missing_deps
+# 若数组非空，按统一格式打印所有缺失依赖到 stderr，返回 1。
+# 格式：ralph: missing dependency: <cmd> (<purpose>)\n  <install_hint line>...
+ralph_report_missing_deps() {
+  [[ "${#_RALPH_MISSING_CMDS[@]}" -eq 0 ]] && return 0
+  local i hline
+  for i in "${!_RALPH_MISSING_CMDS[@]}"; do
+    printf 'ralph: missing dependency: %s (%s)\n' \
+      "${_RALPH_MISSING_CMDS[$i]}" "${_RALPH_MISSING_PURPOSES[$i]}" >&2
+    if [[ -n "${_RALPH_MISSING_HINTS[$i]}" ]]; then
+      while IFS= read -r hline; do
+        [[ -n "$hline" ]] && printf '  %s\n' "$hline" >&2
+      done <<< "${_RALPH_MISSING_HINTS[$i]}"
+    fi
+  done
+  return 1
+}
+
 # ── 最小 JSON emit helpers ───────────────────────────────────────────────────
 # 把字符串转义为 JSON 字符串值（不含两端引号）
 ralph_json_escape() {
