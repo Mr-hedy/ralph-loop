@@ -5,12 +5,14 @@
 
 ## Current State
 
+- **v0.1 已发布（2026-04-28）**。T6 全部子任务闭环，版本号 `0.1.0`。
+- 下阶段候选：T3（Codex adapter）/ T4（Gemini adapter）/ T5（status/watch 真实功能）/ T7（skill 封装），等待用户决定优先级。
 - 协作壳已初始化，`.spec/`、`docs/` 结构稳定。
 - Ralph v0.1 需求已收敛为 22 条决策，沉淀在 `requirements.md`（REQ-001 ~ REQ-016）。
 - 架构和稳定契约沉淀在 `docs/architecture/overview.md`；provider 集成细节沉淀在 `docs/architecture/integrations.md`；安全边界沉淀在 `docs/architecture/security.md`。
-- 工具代码骨架：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude}.sh` 已落地；`status` / `watch` 仅占位 help。
-- T1（fake 闭环）、T2（Claude adapter + 单轮真实 smoke）已完成；当前阶段 T6（v0.1 闭环 + 使用指南），T3/T4/T5 后置。
-- `task.md` 是开发任务事实源；按"只排当前阶段"规则推进。
+- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude}.sh`；部署单元样板 `.ralph/PROMPT.md` + `.ralph/TASKS.md`；`status` / `watch` 仅占位 help。
+- T1（fake 闭环）、T2（Claude adapter + 单轮真实 smoke）、T6（v0.1 闭环 + 使用指南）均已完成；T3/T4/T5 后置。
+- `task.md` 是开发任务事实源；当前阶段 T6 已完成，下阶段由用户决策后更新。
 
 ## Phased Delivery
 

@@ -137,8 +137,8 @@ ralph_changed_files() {
 # 跨平台：sha256sum（Linux/coreutils）→ shasum -a 256（macOS 内置）→ 无 sha 时返回唯一随机值（无 sha 可用时 stagnation 检测安全降级：永不误判）。
 ralph_worktree_fingerprint() {
   {
-    git ls-files -s 2>/dev/null || true
-    git status -z 2>/dev/null | tr '\0' '\n' || true
+    git ls-files -s 2>/dev/null | grep -v $'\t\.ralph/' || true
+    git status -z 2>/dev/null | tr '\0' '\n' | grep -v '\.ralph/' || true
   } | {
     if command -v sha256sum >/dev/null 2>&1; then
       sha256sum | cut -d' ' -f1

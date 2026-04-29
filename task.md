@@ -145,7 +145,11 @@
   - 不做：性能基准、并发 run、长链路（>10 task）压测、跨 provider smoke（T3/T4 后再做）。
   - 参考：`docs/architecture/overview.md`、`docs/architecture/integrations.md`、T2.6 单轮 smoke 经验、`docs/checkpoints/README.md`。
 
-- [ ] T6.4：边界场景在真实 Claude 下复验。
+- [x] T6.4：边界场景在真实 Claude 下复验。
+  - 完成：stagnation/max_iter/timeout 三个场景全部触发；fingerprint bug（T6.7.1）就地修复；integration-test.sh 41/41 PASS。
+  - 变更：`.ralph/lib/common.sh`（fingerprint .ralph/ 过滤修复）、`docs/checkpoints/2026-04-28-05-t6.4-boundaries.md`（新增）
+  - 验证：stagnation→exit_reason=stagnated（stagnation_count=1,2）；max_iter→exit_reason=max_iterations（2/5 tasks done）；timeout→exit_reason=timeout（duration_sec=11，exit_code=143 SIGTERM）；status.json 三组均 state=finished。
+  - 注意：T6.7.1 fingerprint bug：`.ralph/runs/iter-NNN/` 未追踪目录每轮新增导致 `git status -z` 指纹每轮变，stagnation 永不累加；修复：双路过滤 `.ralph/` 路径（`git ls-files -s` 用 `grep -v $'\t\.ralph/'`，`git status -z` 用 `grep -v '\.ralph/'`）。
   - 目标：T1 fake adapter 验过的兜底逻辑（stagnation / max_iter / timeout）在**真实 Claude 长链路**下重新各触发一次，确认假设仍成立；任一不成立则就地补丁（计入 T6.7）。
   - 前置：T6.1 stagnation 修正必须完成（否则 stagnation 用例设计无法成立）。
   - 范围：
@@ -163,7 +167,10 @@
   - 不做：interrupted（SIGINT）/ locked（并发 run）真实验证——T1 fake 已充分；provider_failed 已在 T2.6 通过 mock-claude 全分类验过。
   - 参考：`docs/architecture/overview.md` 退出原因段、T1 fake 集成测试用例、`docs/postmortems/`。
 
-- [ ] T6.5：使用指南 + 模板入口文档 + TASKS 示例。
+- [x] T6.5：使用指南 + 模板入口文档 + TASKS 示例。
+  - 完成：quickstart ≤80 行并入 README.md（11-91 行）；docs/README.md 加使用指南索引行。
+  - 变更：`README.md`（## 快速开始 段新增）、`docs/README.md`（权威事实源表新增使用指南行）
+  - 验证：`bash scripts/check.sh` PASS；README quickstart 段 = 80 行（边界满足）；内容覆盖前置依赖/部署/配置/.gitignore/首跑/结果查看/退出原因速查/v0.1 行为说明。
   - 目标：交付 `docs/usage.md`（或扩 `README.md` quickstart 段，二选一），让一个新使用者照着把 workspace 准备好并跑通首轮；同步把 `.ralph/` 部署单元（含 PROMPT.md / TASKS.md 样板）的 copy 路径写清楚；内嵌一份完整 TASKS.md demo 解释字段语义（修复 adversarial review P1#5）。
   - 范围：
     - 评估归属（实施时一次性决策）：单独 `docs/usage.md` vs 扩 `README.md` quickstart 段。判据：若 quickstart ≤80 行能讲清，并入 README；否则独立文件。
@@ -216,6 +223,13 @@
     - 子项命名：`T6.7.<n>:<one-line>` append 到本任务下。
     - 每个子项包含：触发证据（来自哪个 T6 子任务）、根因、最小修复、验证（新增/修改集成测试或人工 smoke）、是否需 postmortem。
     - 跨任务稳定决策（如发现新的 shell 兼容性陷阱）继续按 PM-0002 规则沉淀到 `docs/architecture/*` 或 `.spec/rules/*`。
+  - 子项：
+    - [x] T6.7.1：`ralph_worktree_fingerprint()` 未过滤 `.ralph/` 路径导致 stagnation 永不累加
+      - 触发：T6.4 stagnation 真实 Claude 场景首跑得 max_iterations（11 iter）
+      - 根因：`git status -z` 输出含 `.ralph/runs/iter-NNN/` 未追踪目录，每轮新增导致指纹每轮变
+      - 修复：`.ralph/lib/common.sh` 双路过滤（`git ls-files -s | grep -v $'\t\.ralph/'`；`git status -z | tr '\0' '\n' | grep -v '\.ralph/'`）
+      - 验证：unit test PASS + integration-test.sh 41/41 + T6.4 stagnation 真实触发
+      - Postmortem：不需要（局部实现遗漏，非系统性失效）
   - 实施步骤：（按需）
   - 验证计划：每个子项闭环后再勾 `[x]`；T6.7 顶层在所有子项闭环、且 T6.0–T6.6 不再产生新 patch 时勾 `[x]`。
   - 不做：本任务**不**承载 T3/T4/T5 工作；T6 闭环过程中冒出来的 nice-to-have 列入 `docs/roadmap.md` Deferred 或下阶段，不挂在 T6.7。

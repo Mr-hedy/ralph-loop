@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RALPH_VERSION="0.1.0-dev"
+RALPH_VERSION="0.1.0"
 
 RALPH_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 RALPH_ROOT="$(cd "$RALPH_BIN_DIR/.." && pwd -P)"

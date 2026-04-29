@@ -797,8 +797,8 @@ echo ""
 echo "-- ralph --version"
 rc=0
 version_out=$(bash "$REPO_ROOT/.ralph/bin/ralph" --version 2>/dev/null) || rc=$?
-if [[ "$rc" -eq 0 && "$version_out" == *"0.1.0-dev"* ]]; then
-  _pass "ralph --version: exit 0, contains 0.1.0-dev"
+if [[ "$rc" -eq 0 && "$version_out" == *"0.1.0"* ]]; then
+  _pass "ralph --version: exit 0, contains 0.1.0"
 else
   _fail "ralph --version: rc=$rc out=$version_out"
 fi

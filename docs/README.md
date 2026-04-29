@@ -14,6 +14,7 @@
 | 架构 Security | `architecture/security.md` | 已确认 | approval/sandbox 固定策略、`.env` 解析约束、secrets 禁入规则、攻击面 |
 | Roadmap | `roadmap.md` | 已确认 | T1→T7 阶段目标、验收口径和风险 |
 | 部署单元样板 | `../.ralph/PROMPT.md` / `../.ralph/TASKS.md` | 已确认 | 部署单元 `.ralph/`（bin/ + lib/ + 样板）通过 `cp -r .ralph/ <workspace>/.ralph/` 一次性部署；样板随部署带走，按需裁剪 |
+| 使用指南 | `../README.md#快速开始` | 已确认 | 前置依赖、部署、.env 配置、首跑、结果查看、退出原因速查、v0.1 行为说明 |
 
 ## 模块索引
 
