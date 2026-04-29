@@ -1,6 +1,6 @@
 # Testing
 
-- 状态：T1 已稳定，T2 阶段持续扩展
+- 状态：T1/T2/T6 已稳定；当前 41 PASS
 - 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/architecture/overview.md`（启动校验、退出原因、运行目录 schema）、`docs/architecture/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
 - 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/testing.md`），不写具体用例的验证计划（写到任务事实源 `task.md` 对应任务的"验证计划"段）。
 - 变更条件：测试入口脚本变化、新增 fixture 或 mock 类型、隔离规则失效、新平台支持、测试覆盖目标变化。
@@ -10,7 +10,7 @@
 | 命令 | 用途 | 通过标准 |
 |---|---|---|
 | `bash scripts/check.sh` | 静态检查（`bash -n` 全 lib 文件 + integration-test.sh 存在性） | stdout 含 `ralph-loop check passed` |
-| `bash scripts/integration-test.sh` | 端到端集成测试（mock workspace + 退出原因 + 启动校验 + adapter 各分支） | `PASS=N FAIL=0`，N 随阶段扩展（T1 期：14；T2 自动化完成：34） |
+| `bash scripts/integration-test.sh` | 端到端集成测试（mock workspace + 退出原因 + 启动校验 + adapter 各分支） | `PASS=N FAIL=0`，N 随阶段扩展（T1：14；T2：34；T6：41） |
 | `git diff --check` | 空白错误检查 | 无输出 |
 
 完整验证 = 三条命令全过。文档/协作规则改动至少跑前两条；脚本/代码改动跑全套。
@@ -77,10 +77,14 @@ tests/
 | T2.5 完成期 | +2（实际 30） | dep_missing_jq + claude+jq 双缺失非 fail-fast |
 | T2.6 完成期 | +4（实际 34） | --version + --help + run --help + status placeholder；真实 smoke 手动通过（2026-04-27，claude 2.1.119） |
 | T2 总目标 | ≥33（实际 34） | 上述累计；schema 修正：real Claude JSONL tool_result 在 type:"user" 而非 type:"tool" |
+| T6.1 完成期 | +2（实际 36） | partial_progress stagnation（stagnation_count 累加）+ happy stagnation_count=0（不误触发） |
+| T6.2 完成期 | +4（实际 40） | SC-014-1：effort=low/medium/high/none 各触发一次；mock-claude `_received_effort` 回显 |
+| T6.6 完成期 | +1（实际 41） | ralph --version 含 0.1.0（从 0.1.0-dev 提升） |
+| T6 总目标 | ≥41（实际 41） | 上述累计；macOS 实测通过 |
 
 未覆盖范围（已知，不计入失败）：
 
-- 真实 provider CLI 端到端：仅 T2.6 / T3 / T4 各做一次手动 smoke，证据贴 task.md。
+- 真实 provider CLI 端到端：T2.6 单轮 smoke + T6.3 多轮 smoke + T6.4 边界三场景 均手动完成，证据贴 checkpoints/。
 - lock 获取前 `interrupted` 竞争窗口：可观察风险，已在 T1 接受。
 - 性能、并发压力：v0.1 不验证。
 

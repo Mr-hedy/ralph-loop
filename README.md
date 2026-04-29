@@ -81,7 +81,7 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 | `max_iterations` | 达到最大轮数 |
 | `timeout` | 超过总超时 |
 | `provider_failed` | provider CLI 报错或崩溃 |
-| `already_running` | workspace 已有 ralph 在跑（lock） |
+| `locked` | workspace 已有 ralph 在跑（lock） |
 | `startup_failed` | 依赖缺失或初始化失败 |
 
 ### v0.1 行为说明
