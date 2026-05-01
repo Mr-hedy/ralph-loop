@@ -3,16 +3,30 @@
 > Ralph Loop 专项开发阶段目标、优先级、验收口径和风险。
 > 权威需求：`docs/requirements/ralph-loop/requirements.md`。
 
+## 编号约定（2026-04-30 起生效）
+
+- **T0–T7 是 v0.1 历史 phase 命名**（已发布 release 范围内的阶段），保留不动作为历史。
+- **新阶段统一用 `I` 前缀**（Iteration）：`I1` / `I2` / `I3` ...，每个 iteration 对应一次完整迭代闭环（设计 → 实施 → 验证 → 归档）。
+- **第一个新 iteration 是 I1**（dogfood T5），不延续 T0-T7 编号。
+- 命名映射：
+  - v0.1 release = T0+T1+T2+T6 历史集合（已完成）
+  - v0.1.x / v0.2+ release = I1+I2+... 新 iteration 集合（dogfood 模式推进）
+- **未实施的历史 phase（T3 / T4 / T5 / T7）后续作为新 iteration 推进，编号与 T 不绑定**：
+  - I1 = dogfood T5（status + watch 真实功能）+ HUMAN-N 阻塞机制 + 任务类型路由
+  - I2 / I3 / I4 等 = T3 / T4 / T7 或新议题，由用户在 I1 完成后排序
+  - 历史 T 编号仅作为"该 iteration 关联的 v0.1 规划项"出现在 iteration 主题里，不再是 phase 单位
+
 ## Current State
 
 - **v0.1 已发布（2026-04-28）**。T6 全部子任务闭环，版本号 `0.1.0`。
-- 下阶段候选：T3（Codex adapter）/ T4（Gemini adapter）/ T5（status/watch 真实功能）/ T7（skill 封装），等待用户决定优先级。
+- **进入 dogfood 模式（2026-04-30）**：本仓库切换到 `.ralph/TASKS.md` 作为开发任务事实源；root `task.md` 已封版作为 v0.1 历史归档。
+- **I1 准备中**：dogfood T5（status + watch 真实功能），设计方案见 `docs/requirements/ralph-loop/I1-design.md`；启动前置完成后开始执行。
+- 后续 iteration 候选：T3（Codex adapter）/ T4（Gemini adapter）/ T7（skill 封装），等用户决定优先级（与 I1 完成后排程）。
 - 协作壳已初始化，`.spec/`、`docs/` 结构稳定。
 - Ralph v0.1 需求已收敛为 22 条决策，沉淀在 `requirements.md`（REQ-001 ~ REQ-016）。
 - 架构和稳定契约沉淀在 `docs/architecture/overview.md`；provider 集成细节沉淀在 `docs/architecture/integrations.md`；安全边界沉淀在 `docs/architecture/security.md`。
-- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude}.sh`；部署单元样板 `.ralph/PROMPT.md` + `.ralph/TASKS.md`；`status` / `watch` 仅占位 help。
-- T1（fake 闭环）、T2（Claude adapter + 单轮真实 smoke）、T6（v0.1 闭环 + 使用指南）均已完成；T3/T4/T5 后置。
-- `task.md` 是开发任务事实源；当前阶段 T6 已完成，下阶段由用户决策后更新。
+- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude}.sh`；部署单元 `.ralph/PROMPT.md` + `.ralph/TASKS.md`（dogfood 任务源）+ `.ralph/TASKS.bak`（hello world 样例）。
+- T1（fake 闭环）、T2（Claude adapter + 单轮真实 smoke）、T6（v0.1 闭环 + 使用指南）均已完成。
 
 ## Phased Delivery
 

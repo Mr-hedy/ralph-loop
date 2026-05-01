@@ -50,6 +50,12 @@ load_env() {
     else
       val="$raw_val"
     fi
+    # 路径类变量值的 tilde 展开（^~/ → $HOME/）
+    # .env 不经 shell 解析，~ 不会自动展开；通用规则覆盖所有以 ~/ 开头的值
+    # 注意：${val#~/} 会触发 bash tilde-expand，必须用 ${val#\~/} 转义
+    if [[ "$val" == "~/"* ]]; then
+      val="${HOME}/${val#\~/}"
+    fi
     # 优先级：进程 env > .env（仅当未设时才赋值）
     if [[ -z "${!key+x}" ]] || [[ -z "${!key}" ]]; then
       export "$key=$val"

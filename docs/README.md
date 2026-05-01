@@ -6,14 +6,17 @@
 |---|---|---|---|
 | 项目入口 | `../README.md` | 已确认 | 项目定位、入口地图和项目边界 |
 | 协作规范 | `../.spec/README.md` | 已确认 | 协作模型、阶段和事实源边界 |
-| 当前开发任务 | `../task.md` | 已确认 | 当前工程的开发任务事实源（T1 待执行） |
+| 当前开发任务 | `../.ralph/TASKS.md` | 已确认 | 当前工程的开发任务事实源（dogfood 模式，按 iteration 推进） |
+| v0.1 历史任务 | `../task.md` | 已封版 | T0–T6 历史任务史 + 22 条决策追溯（v0.1.0 发布于 2026-04-28） |
+| 当前 iteration 设计 | `requirements/ralph-loop/I<N>-design.md` | 进行中 | 当前 iteration 的启动前方案锚点 |
+| Iteration 归档 | `requirements/ralph-loop/I<N>-FINAL-TASK.md` | 历史 | iteration 完成后的不可变任务快照（cp 自 `.ralph/TASKS.md`） |
 | 项目级需求 | `requirements.md` | 已确认 | 项目全局目标、跨模块边界和模块索引 |
 | 模块需求 | `requirements/ralph-loop/requirements.md` | 已确认 | Ralph harness 模块 REQ-001 ~ REQ-016，22 条决策完整追踪 |
 | 架构 Overview | `architecture/overview.md` | 已确认 | 系统上下文、CLI 契约、运行目录 schema、adapter 函数签名、退出原因、stagnation、lock、错误诊断类别 |
 | 架构 Integrations | `architecture/integrations.md` | 已确认 | Claude / Codex / Gemini 原生 session 路径、采集命令、退化策略、UUID 依赖 |
 | 架构 Security | `architecture/security.md` | 已确认 | approval/sandbox 固定策略、`.env` 解析约束、secrets 禁入规则、攻击面 |
 | Roadmap | `roadmap.md` | 已确认 | T1→T7 阶段目标、验收口径和风险 |
-| 部署单元样板 | `../.ralph/PROMPT.md` / `../.ralph/TASKS.md` | 已确认 | 部署单元 `.ralph/`（bin/ + lib/ + 样板）通过 `cp -r .ralph/ <workspace>/.ralph/` 一次性部署；样板随部署带走，按需裁剪 |
+| 部署单元 | `../.ralph/PROMPT.md` / `../.ralph/TASKS.md` / `../.ralph/TASKS.bak` | 已确认 | 部署单元 `.ralph/`（bin/ + lib/ + PROMPT.md + TASKS.md + TASKS.bak）通过 `cp -r .ralph/ <workspace>/.ralph/` 一次性部署；TASKS.bak 是 hello world 样例参考 |
 | 使用指南 | `../README.md#快速开始` | 已确认 | 前置依赖、部署、.env 配置、首跑、结果查看、退出原因速查、v0.1 行为说明 |
 
 ## 模块索引
@@ -50,7 +53,9 @@
 |---|---|
 | 项目是什么、当前状态 | `../README.md` |
 | 当前协作规范和文档结构 | `../.spec/README.md` |
-| 当前要执行什么 | `../task.md` |
+| 当前要执行什么 | `../.ralph/TASKS.md`（dogfood 任务源） |
+| 当前 iteration 设计方案 | `requirements/ralph-loop/I<N>-design.md` |
+| v0.1 历史任务 | `../task.md`（已封版） |
 | 项目级需求和跨模块约束 | `requirements.md` |
 | Ralph harness 模块需求 | `requirements/ralph-loop/requirements.md` |
 | Ralph 架构和稳定契约 | `architecture/overview.md` |

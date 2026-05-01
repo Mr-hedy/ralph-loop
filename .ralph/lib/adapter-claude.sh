@@ -5,6 +5,13 @@
 
 RALPH_PROVIDER_CLI="claude"
 
+# ── 中立变量 → provider 原生变量翻译（adapter 配置目录翻译契约）──────────────
+# 由 ralph load_env 保证 RALPH_PROVIDER_CONFIG_DIR 已 export 且 tilde 已展开。
+# 仅在变量非空时才 export，避免空 CLAUDE_CONFIG_DIR 干扰 claude CLI 默认行为。
+if [[ -n "${RALPH_PROVIDER_CONFIG_DIR:-}" ]]; then
+  export CLAUDE_CONFIG_DIR="$RALPH_PROVIDER_CONFIG_DIR"
+fi
+
 # ── provider_check_deps ──────────────────────────────────────────────────────
 provider_check_deps() {
   ralph_require_cmd claude "Claude Code CLI" \

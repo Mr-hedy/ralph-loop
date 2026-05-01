@@ -55,6 +55,27 @@ Ralph 默认使用 provider 的 fresh oneshot 执行，不默认 resume。sessio
 
 采集失败不能直接判定任务失败。失败时应记录 warning，并继续使用 process log 和 `.ralph/TASKS.md` 判断 run 状态。
 
+## Adapter 配置目录翻译契约
+
+REQ-022 引入的隐式契约（不增三函数签名）。每个 adapter 在 source 时执行：
+
+- 检查 ralph 中立变量 `RALPH_PROVIDER_CONFIG_DIR` 是否非空。
+- 非空 → `export <provider 原生环境变量>="$RALPH_PROVIDER_CONFIG_DIR"`，让 provider CLI 子进程读独立 config dir。
+- 空或未设 → 不 export（避免空值干扰 provider 默认行为）。
+
+各 provider 翻译目标：
+
+| Provider | 原生环境变量 | 来源 / 备注 |
+|---|---|---|
+| Claude Code | `CLAUDE_CONFIG_DIR` | 官方 [authentication.md](https://code.claude.com/docs/en/authentication.md)；macOS 上当 settings.json 含 API key / apiKeyHelper / `ANTHROPIC_BASE_URL` 时切换该目录 = 切换账号（OAuth/Keychain 不参与） |
+| Codex CLI | （T3 落地时确定） | 待查 codex 官方文档 |
+| Gemini CLI | （T4 落地时确定） | 待查 gemini 官方文档 |
+| fake adapter | n/a | 测试用，不读真实 provider 配置 |
+
+实现位置：`.ralph/lib/adapter-<provider>.sh` 顶部 source 时执行的 if 块（不放进 `provider_oneshot` / `provider_collect_session` / `provider_diagnose` 函数体内，避免每次调用重复 export）。
+
+子进程继承走 bash 默认行为：父进程 export 的环境变量自动透传给所有 fork+exec 出来的子进程。无需在 `provider_oneshot` 用命令前缀语法（`VAR=val command...`）显式注入。
+
 ## Claude Code
 
 ### Session 机制

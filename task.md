@@ -1,6 +1,19 @@
 # ralph-loop 开发任务
 
-> 当前工程的开发任务事实源。工具实现位于 `.ralph/bin/` 和 `.ralph/lib/`；使用者 workspace 的 `.ralph/TASKS.md` 是运行时任务源，不与本文件混淆，也不入本仓库。
+> **本文件已封版（v0.1.0 发布于 2026-04-28）。**
+>
+> 本仓库自 v0.1 后切换到 `.ralph/TASKS.md` 作为开发任务事实源（dogfood 模式），按 iteration 推进。本文件保留作为 T0–T6 历史归档，**不再更新**。
+>
+> - 当前任务源：`.ralph/TASKS.md`
+> - 当前 iteration 设计方案：`docs/requirements/ralph-loop/I<N>-design.md`
+> - iteration 完成归档：`docs/requirements/ralph-loop/I<N>-FINAL-TASK.md`
+> - v0.1 完整开发史：本文件以下内容（T0–T6 任务史 + 22 条决策追溯）
+>
+> ---
+>
+> 以下为封版前内容（v0.1 历史归档，仅供回查）：
+
+> 当前工程的开发任务事实源（v0.1 历史，已封版）。工具实现位于 `.ralph/bin/` 和 `.ralph/lib/`；使用者 workspace 的 `.ralph/TASKS.md` 是运行时任务源，不与本文件混淆，也不入本仓库。
 
 ## 规则
 

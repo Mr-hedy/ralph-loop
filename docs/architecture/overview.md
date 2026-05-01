@@ -367,9 +367,95 @@ provider_diagnose <iter_dir>
 | `max_iterations` | 4 | 达到 `--max-iter`（仅当 `>0` 时触发） | 有 | 有 |
 | `stagnated` | 5 | 连续 N 轮无进展 | 有 | 有 |
 | `locked` | 6 | 已有 run 运行中 | **无** | **无** |
+| `blocked_by_human` | 7 | 第一个未勾选任务前缀是 `HUMAN-`（v0.1.1 新增，见 REQ-018 / Iteration 协议） | 有 | 有（不调 provider，无 iter-NNN） |
 | `interrupted` | 130 | SIGINT / Ctrl-C | 有（尽力写） | 有（若在 lock 获取前被中断，则同 `locked`，不产生 run 目录、不写 `result.json`） |
 
-`locked` 始终**不产生 run 目录**；`interrupted` 在 lock 获取前触发时同样不产生（REQ-012）。
+`locked` 始终**不产生 run 目录**；`interrupted` 在 lock 获取前触发时同样不产生（REQ-012）。`blocked_by_human` 产生 run 目录但不创建 iteration 子目录（不调用 provider）。
+
+**接力打印**：所有 exit_reason 下，ralph 退出时向 stderr 打印格式化总结，并写入 `.ralph/runs/<run_id>/exit-message.txt`（REQ-019）。打印内容含 `run_id` / `iteration_name` / `exit_reason` / `iterations` / 任务进度 / 阻塞点（如有）/ 接力提示。
+
+## Iteration 协议
+
+v0.1.1 引入的协作协议层约定，承载 ralph + 人类 + main agent 三方协作的稳定契约。
+
+### 命名
+
+- **Iteration**（迭代）= roadmap 的最小规划单位 = 一次完整闭环（设计 → 实施 → 验证 → 归档）。
+- 编号格式 `I<N>`（如 `I1` / `I2`），单调递增，不与 release 编号混淆。
+- v0.1 历史 `T0-T7` 命名保留作为已发布 release 范围内的历史 phase 编号，新阶段统一用 `I` 前缀。
+- Release / version（如 `v0.1` / `v0.1.1`）= 多个 iteration 组成的发布单元，与 iteration 是多对多关系。
+
+### 当前迭代声明
+
+`.ralph/TASKS.md` 顶部用 markdown blockquote 声明：
+
+```markdown
+> 当前迭代: I1
+> 主题: <一句话主题>
+> 关联 roadmap: <对应 roadmap 项，可选>
+```
+
+ralph 启动时调用 `parse_current_iteration()`（`.ralph/lib/tasks.sh`）解析该行，写入：
+- `.ralph/status.json.iteration_name`
+- `.ralph/runs/<run_id>/result.json.iteration_name`
+- 退出打印的 `Iteration:` 行
+
+未声明时字段为空字符串，不影响 ralph 运行。
+
+### 任务类型路由（PROMPT 层约定）
+
+`.ralph/TASKS.md` 任务前缀决定 agent mindset 和参考的 `.spec/` 规范段。**ralph 工具内核不解析前缀**；前缀仅作为 prompt 层 agent 自检入口。
+
+| 前缀 | 对应 `.spec/` 段 |
+|------|-----------------|
+| `REQ-N` | `.spec/rules/requirements.md` |
+| `SOL-N` | `.spec/rules/solution.md` |
+| `PLAN-N` | `.spec/rules/roadmap.md` |
+| `TASK-N` | `.spec/README.md` 阶段 4 |
+| (空) / `DEV-N` | `CLAUDE.md` + 代码事实（默认） |
+| `QA-N` | `.spec/rules/testing.md` |
+| `REVIEW-N` | `.spec/rules/review.md` 或 `.spec/rules/adversarial-review.md` |
+| `HUMAN-N` | 等人类决策（见下文 HUMAN-N 阻塞机制） |
+
+### HUMAN-N 阻塞机制（REQ-018）
+
+**触发**：agent 在执行任意类型任务时遇到无法独立决策的需求层歧义/矛盾/缺口。
+
+**Agent 动作**（`.ralph/PROMPT.md` 强约束）：
+
+1. 在阻塞任务**上方**插入 `- [ ] HUMAN-N: <问题>`（含上下文、选项、影响）。
+2. 阻塞任务后追加 `→ BLOCKED by HUMAN-N`，保留 `- [ ]`（不勾不删）。
+3. `git commit && exit`。
+
+**Agent 强约束**：
+
+- ralph oneshot 内**不得勾选 `[x]` HUMAN-N 任务**（人类的动作）。
+- ralph oneshot 内**不得执行 HUMAN-N 任务的内容**（HUMAN-N 是给人类的）。
+- 普通 Claude Code 对话里 PROMPT.md 不被加载，无此约束（人类主导对话时可勾选）。
+
+**ralph 工具层动作**：
+
+- 每轮启动前调用 `is_blocked_by_human()`（`.ralph/lib/tasks.sh`）扫描 TASKS.md 第一个 `- [ ]` 任务。
+- 前缀匹配 `HUMAN-[0-9]+` → 不调用 provider，立即以 `blocked_by_human`（exit code 7）退出。
+- 主循环外预检（首轮启动前）+ 主循环内每轮检查（done 之后、max_iter 之前）双重保险。
+
+**人类侧解锁**：
+
+- Claude Code 对话里和 agent 协作得出共识；落地到对应 docs（requirements / architecture）。
+- HUMAN-N 任务描述末尾追加 `答（<日期>）: <答案摘要>，落地: <docs 路径>`。
+- HUMAN-N 改 `[x]` + commit；重跑 `ralph run`，agent 回到原阻塞任务按答案继续。
+
+### Iteration 归档动作
+
+iteration 完成（`exit_reason=done` + 所有任务 `[x]`）时执行（人类操作）：
+
+```bash
+cp .ralph/TASKS.md docs/requirements/<module>/I<N>-FINAL-TASK.md
+# 清空 .ralph/TASKS.md 的"当前任务"段，更新顶部"当前迭代"为下一个
+git commit
+```
+
+归档文件不可变，归档后不再修改。详见 `.spec/rules/roadmap.md` "Phase / Iteration 完成动作" 段。
 
 ## Stagnation 判定
 

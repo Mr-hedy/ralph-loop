@@ -797,8 +797,8 @@ echo ""
 echo "-- ralph --version"
 rc=0
 version_out=$(bash "$REPO_ROOT/.ralph/bin/ralph" --version 2>/dev/null) || rc=$?
-if [[ "$rc" -eq 0 && "$version_out" == *"0.1.0"* ]]; then
-  _pass "ralph --version: exit 0, contains 0.1.0"
+if [[ "$rc" -eq 0 && "$version_out" == *"0.1.1"* ]]; then
+  _pass "ralph --version: exit 0, contains 0.1.1"
 else
   _fail "ralph --version: rc=$rc out=$version_out"
 fi
@@ -831,6 +831,185 @@ if [[ "$rc" -eq 0 && "$status_out" == *"v0.1"* ]]; then
   _pass "ralph status: exit 0, contains 'v0.1'"
 else
   _fail "ralph status: rc=$rc out=$status_out"
+fi
+
+# ── HUMAN-N 阻塞机制（v0.1.1）──────────────────────────────────────────────────
+
+echo ""
+echo "-- blocked_by_human: HUMAN-N is first unchecked → exit 7, no provider call"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
+- [ ] HUMAN-1: 确认默认值
+- [ ] DEV-1: 实现功能
+TASKS_EOF
+rc=0
+bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+run_dir=$(latest_run_dir "$ws")
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
+  _pass "blocked_by_human: exit_reason=blocked_by_human, rc=7"
+else
+  _fail "blocked_by_human: expected blocked_by_human/rc=7, got $reason/$rc"
+fi
+# 验证未调用 provider（无 iter-001 目录或 iter 目录中无 log）
+if [[ ! -d "$run_dir/iterations/iter-001" ]]; then
+  _pass "blocked_by_human: no iteration directory created (provider not called)"
+else
+  _fail "blocked_by_human: iteration directory created (should not call provider)"
+fi
+
+echo ""
+echo "-- blocked_by_human cleared: HUMAN-N marked [x], normal flow resumes"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
+- [x] HUMAN-1: 已答完
+- [ ] Task A
+TASKS_EOF
+rc=0
+bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+run_dir=$(latest_run_dir "$ws")
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+if [[ "$reason" == "done" && "$rc" -eq 0 ]]; then
+  _pass "blocked_by_human cleared: HUMAN-1 [x] → exit_reason=done, rc=0"
+else
+  _fail "blocked_by_human cleared: expected done/rc=0, got $reason/$rc"
+fi
+
+echo ""
+echo "-- iteration_name parsed from TASKS.md top-level declaration"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
+> 当前迭代: I1
+> 主题: 测试 iteration name 解析
+
+- [ ] Task A
+- [ ] Task B
+TASKS_EOF
+rc=0
+bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+run_dir=$(latest_run_dir "$ws")
+iter_name=""
+if command -v jq >/dev/null 2>&1 && [[ -f "$run_dir/result.json" ]]; then
+  iter_name="$(jq -r '.iteration_name // ""' "$run_dir/result.json")"
+else
+  iter_name="$(grep '"iteration_name"' "$run_dir/result.json" 2>/dev/null \
+    | sed 's/.*"iteration_name":[[:space:]]*"\([^"]*\)".*/\1/' | head -1)"
+fi
+if [[ "$iter_name" == "I1" ]]; then
+  _pass "iteration_name parsed: I1"
+else
+  _fail "iteration_name expected I1, got '$iter_name'"
+fi
+
+echo ""
+echo "-- task prefix uppercase enforcement: lowercase prefix → startup_failed exit 1"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
+- [ ] dev-1: 小写前缀应该被拒绝
+TASKS_EOF
+rc=0
+err_out=$(bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 1>/dev/null) || rc=$?
+if [[ "$rc" -eq 1 ]] && echo "$err_out" | grep -q "UPPERCASE"; then
+  _pass "lowercase prefix: exit 1 + stderr contains UPPERCASE"
+else
+  _fail "lowercase prefix: expected exit 1 + UPPERCASE error, got rc=$rc / stderr=$err_out"
+fi
+
+echo ""
+echo "-- task prefix uppercase enforcement: mixed case prefix → startup_failed exit 1"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
+- [ ] Dev-1: 大小写混合也应该被拒绝
+TASKS_EOF
+rc=0
+err_out=$(bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 1>/dev/null) || rc=$?
+if [[ "$rc" -eq 1 ]] && echo "$err_out" | grep -q "UPPERCASE"; then
+  _pass "mixed case prefix: exit 1 + stderr contains UPPERCASE"
+else
+  _fail "mixed case prefix: expected exit 1 + UPPERCASE error, got rc=$rc / stderr=$err_out"
+fi
+
+echo ""
+echo "-- task prefix uppercase enforcement: no prefix (legacy) → still works"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
+- [ ] Task A
+- [ ] Task B
+TASKS_EOF
+rc=0
+bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+run_dir=$(latest_run_dir "$ws")
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+if [[ "$reason" == "done" && "$rc" -eq 0 ]]; then
+  _pass "no-prefix legacy tasks: exit_reason=done (validation skipped)"
+else
+  _fail "no-prefix legacy tasks: expected done/0, got $reason/$rc"
+fi
+
+echo ""
+echo "-- load_env: ~/foo tilde expansion → \$HOME/foo"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/.env" <<TASKS_EOF
+RALPH_PROVIDER=fake
+RALPH_PROVIDER_CONFIG_DIR=~/test-cfg
+TASKS_EOF
+out=$(bash -c "source '$REPO_ROOT/.ralph/lib/common.sh'; load_env '$ws/.ralph/.env'; echo \"PCD=\$RALPH_PROVIDER_CONFIG_DIR\"")
+expected="PCD=$HOME/test-cfg"
+if [[ "$out" == *"$expected"* ]]; then
+  _pass "load_env tilde expansion: ~/test-cfg → \$HOME/test-cfg"
+else
+  _fail "load_env tilde expansion: expected '$expected', got '$out'"
+fi
+
+echo ""
+echo "-- adapter-claude.sh translates RALPH_PROVIDER_CONFIG_DIR → CLAUDE_CONFIG_DIR"
+out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+  export RALPH_PROVIDER_CONFIG_DIR=/tmp/ralph-test-claude-cfg
+  source '$REPO_ROOT/.ralph/lib/common.sh'
+  source '$REPO_ROOT/.ralph/lib/adapter-claude.sh'
+  echo \"CCD=\${CLAUDE_CONFIG_DIR:-UNSET}\"
+")
+if [[ "$out" == *"CCD=/tmp/ralph-test-claude-cfg"* ]]; then
+  _pass "adapter-claude: CLAUDE_CONFIG_DIR translated from RALPH_PROVIDER_CONFIG_DIR"
+else
+  _fail "adapter-claude translation: expected CCD=/tmp/ralph-test-claude-cfg, got '$out'"
+fi
+
+echo ""
+echo "-- adapter-claude.sh robustness: empty RALPH_PROVIDER_CONFIG_DIR → CLAUDE_CONFIG_DIR NOT exported"
+out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+  source '$REPO_ROOT/.ralph/lib/common.sh'
+  source '$REPO_ROOT/.ralph/lib/adapter-claude.sh'
+  if [[ -z \${CLAUDE_CONFIG_DIR+x} ]]; then
+    echo 'UNSET'
+  else
+    echo \"SET=\$CLAUDE_CONFIG_DIR\"
+  fi
+")
+if [[ "$out" == *"UNSET"* ]]; then
+  _pass "adapter-claude empty case: CLAUDE_CONFIG_DIR not exported (robust)"
+else
+  _fail "adapter-claude empty case: expected UNSET, got '$out'"
+fi
+
+echo ""
+echo "-- exit-message.txt generated with iteration + exit_reason context"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
+> 当前迭代: I1
+
+- [ ] HUMAN-1: 测试
+- [ ] DEV-1: foo
+TASKS_EOF
+rc=0
+bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+run_dir=$(latest_run_dir "$ws")
+if [[ -f "$run_dir/exit-message.txt" ]] \
+   && grep -q "blocked_by_human" "$run_dir/exit-message.txt" \
+   && grep -q "I1" "$run_dir/exit-message.txt"; then
+  _pass "exit-message.txt: contains blocked_by_human + I1"
+else
+  _fail "exit-message.txt: missing or wrong content (expected blocked_by_human + I1)"
 fi
 
 # ── 汇总 ─────────────────────────────────────────────────────────────────────

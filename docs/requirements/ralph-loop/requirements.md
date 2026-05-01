@@ -20,14 +20,14 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 ## 非目标
 
 - 不实现自有 agent 推理、任务规划或代码生成。
-- 不提供 `ralph init` 或任何模板生成行为；ralph 工具运行时**不**写 `.ralph/PROMPT.md` / `.ralph/TASKS.md` / `.ralph/.env`，**不**读取它们做内核控制流。使用者通过部署单元 `.ralph/`（含 PROMPT/TASKS 参考样板，见 REQ-017）`cp -r` 起手，再自行裁剪/补 `.env` 等私有配置。"用户自行创建"指 user-driven，不是"必须从空白起手"。
+- 不提供 `ralph init` 或任何模板生成行为；ralph 工具运行时**不**写 `.ralph/PROMPT.md` / `.ralph/TASKS.md` / `.ralph/.env`，**不**修改它们做内核控制流（仅读取 TASKS.md 顶部"当前迭代"声明和任务勾选状态作为运行依据，见 REQ-020）。使用者通过部署单元 `.ralph/`（含 PROMPT.md + TASKS.md，见 REQ-017）`cp -r` 起手，再自行裁剪/补 `.env` 等私有配置。"用户自行创建"指 user-driven，不是"必须从空白起手"。
 - 不把 provider session 当作任务完成事实源；任务完成只以 `.ralph/TASKS.md` 勾选为准。
 - 不默认 resume provider session；每轮都是 fresh oneshot。
 - 不支持全局 `ralph` 命令；只支持 per-workspace 部署。
 - 不接受 `--cwd` 参数；workspace 根由脚本路径决定。
 - 不引入数据库，不依赖完整 Markdown parser。
 - 不做复杂 TUI；`watch` 只做最小可用的状态刷新。
-- 不在本仓库内做任何 `ralph-loop` 自举（本仓库是开发工程，不自用 ralph）。
+- ~~不在本仓库内做任何 `ralph-loop` 自举（本仓库是开发工程，不自用 ralph）。~~ **此条 v0.1 范围内有效；v0.1.1 起本仓库进入 dogfood 模式**（自用 ralph 驱动后续 iteration 开发，详见 I1 设计方案 `docs/requirements/ralph-loop/I1-design.md`）。runtime artifacts 由本仓库 `.gitignore` 管理（`.ralph/runs/`、`.ralph/lock`、`.ralph/status.json`、`.ralph/.env`）。
 
 ## 受众
 
@@ -79,16 +79,21 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-005 | Adapter 抽象 | 用统一 shell 函数契约抽象 provider 差异，便于独立实现和替换 | P0-必须 | 协作 | 澄清轮次 2 |
 | REQ-006 | 运行证据沉淀 | 每轮保存 stdout/stderr 原始 log、provider 原生 session 副本、派生 chat/tools 视图、changed_files 和 meta | P0-必须 | 功能 | 澄清轮次 1 |
 | REQ-007 | 状态观察 | 提供 `ralph status` 和 `ralph watch` 两个子命令读取当前 run 状态和任务进度 | P1-重要 | 功能 | 澄清轮次 1 |
-| REQ-008 | Per-workspace 部署 | 每个使用者 workspace 自带完整 `.ralph/` 部署单元（构成见 REQ-017：`bin/ralph` + `lib/*` + 参考样板 `PROMPT.md` + `TASKS.md`）；不支持全局 `ralph` 命令 | P0-必须 | 约束 | 澄清轮次 3 |
-| REQ-009 | .env 驱动默认值 | 从 `.ralph/.env` 读取 `RALPH_*` 前缀的默认参数；`RALPH_PROVIDER` 必需，其他留空即不传 flag | P0-必须 | 功能 | 澄清轮次 3 |
+| REQ-008 | Per-workspace 部署 | 每个使用者 workspace 自带完整 `.ralph/` 部署单元（构成见 REQ-017：`bin/ralph` + `lib/*` + `PROMPT.md` + `TASKS.md` + `TASKS.bak` 部署样例）；不支持全局 `ralph` 命令 | P0-必须 | 约束 | 澄清轮次 3 |
+| REQ-009 | .env 驱动默认值 | 从 `.ralph/.env` 读取 `RALPH_*` 前缀的默认参数；`RALPH_PROVIDER` 必需，其他留空即不传 flag。值以 `~/` 开头时安全展开为 `${HOME}/...`（路径类变量友好）。`.env` 不经 shell 解析，禁止 `source` 或命令替换。中立变量 `RALPH_PROVIDER_CONFIG_DIR`（见 REQ-022）由 adapter 翻译为各 provider 原生环境变量。 | P0-必须 | 功能 | 澄清轮次 3 / I1 dogfood 扩展（2026-04-30）|
 | REQ-010 | 工作目录自定位 | workspace 根由 ralph 脚本路径决定（`$script_dir/../..`），ralph 启动时内部 `cd` 到该目录；不接受 `--cwd` 参数 | P0-必须 | 约束 | 澄清轮次 3 |
 | REQ-011 | 快速失败校验 | 启动时校验 `.ralph/PROMPT.md`、`.ralph/TASKS.md`、`.ralph/.env`（含 `RALPH_PROVIDER`）、git 仓库、provider CLI 可执行；当 `RALPH_PROVIDER=claude` 时同时校验 UUID 生成器可用（TC-INT-003 三路至少一路成功）；任一缺失立即退出 | P0-必须 | 功能 | 澄清轮次 3 |
-| REQ-012 | 明确退出原因 | 每次 `ralph run` 退出必须写明退出原因，共 7 种：`done` / `provider_failed` / `timeout` / `max_iterations` / `stagnated` / `locked` / `interrupted`（`locked` 不产生 run 目录，不写 `result.json`；`interrupted` 在 lock 获取前触发时同样不产生 run 目录） | P0-必须 | 功能 | 澄清轮次 2 |
+| REQ-012 | 明确退出原因 | 每次 `ralph run` 退出必须写明退出原因。v0.1：7 种（`done` / `provider_failed` / `timeout` / `max_iterations` / `stagnated` / `locked` / `interrupted`，`locked` 不产生 run 目录，不写 `result.json`；`interrupted` 在 lock 获取前触发时同样不产生 run 目录）。v0.1.1 新增第 8 种 `blocked_by_human`（见 REQ-018） | P0-必须 | 功能 | 澄清轮次 2 / I1 扩展 2026-04-30 |
 | REQ-013 | Stagnation 保护 | 连续 N 轮 TASKS 勾选数不变且 changed_files 为空时触发 `stagnated` 退出，默认 N=5 | P1-重要 | 功能 | 澄清轮次 2 |
 | REQ-014 | Effort 抽象 | `--effort=low\|medium\|high\|none` 由 adapter 翻译到各 provider 原生参数；留空不传 | P1-重要 | 功能 | 澄清轮次 3 |
 | REQ-015 | Provider 绑定 | `--provider` 或 `RALPH_PROVIDER` 在 `ralph run` 启动时绑定，运行中不切换；写入 `status.json` 和 `provider.meta` | P0-必须 | 约束 | 澄清轮次 1 |
 | REQ-016 | Skill 封装（后置） | 后续封装 `ralph-loop` skill，负责在使用者 workspace 初始化 `.ralph/` 结构并正确构造 `ralph run`；不进入 v0.1 范围 | P2-期望 | 协作 | 澄清轮次 3 |
-| REQ-017 | 交付单元 = `.ralph/` 整个目录 | ralph-loop 项目的最终产物是 `.ralph/` 整个目录，含 `bin/ralph`、`lib/*.sh`、参考样板 `PROMPT.md` 和 `TASKS.md`。部署方式 = `cp -r .ralph/ <workspace>/.ralph/` 一次性带走全部。运行期产物（`runs/`、`lock`、`status.json`）和私有配置（`.env`）由使用者外层 `.gitignore` 管理（建议忽略 `.ralph/runs/`、`.ralph/lock`、`.ralph/status.json`、`.ralph/.env`）。本仓库 `.ralph/` 不含 runtime artifacts（仓库不自用 ralph，见 §非目标 line 30）。| P0-必须 | 约束 | 澄清轮次 4（2026-04-28） |
+| REQ-017 | 交付单元 = `.ralph/` 整个目录 | ralph-loop 项目的最终产物是 `.ralph/` 整个目录，含 `bin/ralph`、`lib/*.sh`、`PROMPT.md`（循环协议，本仓库自用 + 部署）、`TASKS.md`（dogfood 任务源 + 部署后由使用者改写）、`TASKS.bak`（hello world 部署样例参考，不被 ralph 识别）。部署方式 = `cp -r .ralph/ <workspace>/.ralph/` 一次性带走全部，使用者把 `TASKS.bak` 重命名为 `TASKS.md` 即可首跑。运行期产物（`runs/`、`lock`、`status.json`）和私有配置（`.env`）由本仓库及使用者外层 `.gitignore` 管理（忽略 `.ralph/runs/`、`.ralph/lock`、`.ralph/status.json`、`.ralph/.env`）。**v0.1 阶段本仓库 `.ralph/` 不含 runtime artifacts；v0.1.1 起本仓库进入 dogfood 模式，会产生 runtime artifacts 但同样按 `.gitignore` 管理**（§非目标 line 30 已更新）。| P0-必须 | 约束 | 澄清轮次 4（2026-04-28）/ I1 dogfood 扩展（2026-04-30）|
+| REQ-018 | HUMAN-N 人工阻塞机制 | TASKS.md 第一个未勾选任务前缀是 `HUMAN-` 时，ralph 工具层在每轮启动前扫描发现 → 不调用 provider，直接以 `blocked_by_human`（exit code 7）退出。agent 在 ralph oneshot 内不得勾选或执行 `HUMAN-N` 任务（PROMPT.md 强约束）；普通 Claude Code 对话里不受此约束。机制目的：让 agent 优雅退出，把需求层决策交还给人类，避免猜测/伪装勾选。| P0-必须 | 功能 | I1 设计方案 2026-04-30 |
+| REQ-019 | 退出接力打印 | `ralph run` 退出时（任意 exit_reason）向 stderr 打印格式化总结，含 `run_id` / `iteration_name` / `exit_reason` / `iterations` / 任务进度 / 阻塞点（如有）/ 接力提示（基于 exit_reason 的下一步建议）；同时落到 `.ralph/runs/<run_id>/exit-message.txt` 方便人类复制粘贴给 main agent。| P1-重要 | 功能 | I1 设计方案 2026-04-30 |
+| REQ-020 | Iteration 命名约定 | `.ralph/TASKS.md` 顶部声明 `> 当前迭代: I<N>`，ralph 启动时解析并写入 `status.json.iteration_name` 和 `result.json.iteration_name`。Iteration 完成时按归档约定 `cp .ralph/TASKS.md docs/requirements/<module>/I<N>-FINAL-TASK.md` 沉淀不可变快照。命名采用单一 `I` 前缀（v0.1 历史 `T0-T7` 保留作为 release 范围内的历史命名，不延续）。| P1-重要 | 协作 | I1 设计方案 2026-04-30 |
+| REQ-021 | 任务类型路由 | `.ralph/TASKS.md` 任务前缀决定 agent mindset 和参考的 `.spec/` 规范段，约定 7 类（REQ / SOL / PLAN / TASK / DEV / QA / REVIEW）+ HUMAN（见 REQ-018）。**ralph 工具内核不解析前缀**，前缀仅作为 prompt 层 agent 自检入口；默认无前缀视为 DEV。详见 `.ralph/PROMPT.md`「任务类型」段。| P1-重要 | 协作 | I1 设计方案 2026-04-30 |
+| REQ-022 | Provider 配置目录隔离（中立抽象）| `.ralph/.env` 引入中立变量 `RALPH_PROVIDER_CONFIG_DIR`，由 ralph load_env 加载（含 `~/` tilde 展开），由 adapter 在 source 时翻译为 provider 原生环境变量（Claude → `CLAUDE_CONFIG_DIR`；Codex / Gemini 在 T3 / T4 落地时定义）。变量为空或未设时 adapter **不**做 export（鲁棒性约束，避免空值干扰 provider 默认行为）。子进程 env 继承走 bash 默认行为，无需 `provider_oneshot` 显式注入。用例：本仓库 dogfood 时通过该变量切换到独立账号 config dir，避免占用 main agent 的 Claude usage limit；Linux/Windows 用户也能用同一抽象。详见 `docs/architecture/integrations.md` §Adapter 配置目录翻译契约 + `docs/architecture/security.md` §Provider 凭据 / 配置目录隔离。 | P1-重要 | 协作 | I1 dogfood 扩展 2026-04-30 |
 
 ## 优先级说明
 
@@ -157,6 +162,13 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | SC-014-1 | REQ-014 | `--effort=low\|medium\|high` 翻译为各 provider 原生参数；`none` 或留空不传 | 构造的命令行 | flag 匹配或缺席 | 单元测试 |
 | SC-015-1 | REQ-015 | `status.json` 和 `provider.meta` 都记录本轮 provider；run 生命周期内不变更 | 文件字段 | 一致 | 集成测试 |
 | SC-017-1 | REQ-017 | `.ralph/` 整个目录可通过 `cp -r .ralph/ <workspace>/.ralph/` 一次性部署到独立 workspace 并跑通 `ralph run` 到 `exit_reason=done` | 部署后 workspace 的 `.ralph/runs/<id>/result.json` | `done` 且无依赖外部脚本 | T6.3 真实多轮 smoke |
+| SC-018-1 | REQ-018 | TASKS.md 第一个未勾选任务前缀是 `HUMAN-` → ralph 不调 provider，立即以 `blocked_by_human` / exit code 7 退出；HUMAN-N 任务勾 `[x]` 后正常进入下一轮 | `result.json.exit_reason` + 退出码 + iter 目录是否存在 | exit 7 / no iter dir；勾掉后 done | 集成测试 2 用例（blocked_by_human 触发 + cleared）+ 1 断言（不调 provider 验证 iter 目录不创建） |
+| SC-018-2 | REQ-018, REQ-021 | 任务前缀格式校验：非全大写英文（如 `Dev-1`、`dev-1`）触发启动失败 exit 1 | 启动退出码 + stderr 错误前缀 | exit 1 / `startup check failed: TASKS.md task prefixes must be UPPERCASE` | 集成测试 |
+| SC-019-1 | REQ-019 | `.ralph/runs/<run_id>/exit-message.txt` 在 lock 获取后的所有 exit_reason 下生成，包含 exit_reason、iteration_name、接力提示等字段（`startup_failed` / `locked` 不产生 run 目录因此无文件） | 文件存在 + 文本 grep | 含关键字段 | 集成测试（HUMAN-N 用例覆盖：含 `blocked_by_human` 和 iteration_name 关键字） |
+| SC-020-1 | REQ-020 | TASKS.md 顶部 `> 当前迭代: I<N>` 声明被解析并写入 `result.json.iteration_name`；冒号必须 ASCII `:`（全角不识别） | `result.json.iteration_name` | 等于声明值 | 集成测试 |
+| SC-021-1 | REQ-021 | `.ralph/PROMPT.md` 含 7 类任务前缀（REQ/SOL/PLAN/TASK/DEV/QA/REVIEW）+ HUMAN 共 8 类的路由表、HUMAN-N 触发条件、agent 行为约束、REVIEW-N 两种用法（escalation `[blocked-by]` vs 常规 `\| review` / `\| adversarial-review`） | PROMPT.md 文本 | 段落齐全 | 文档 review |
+| SC-022-1 | REQ-022 | `load_env` 加载 `.env` 含 `RALPH_PROVIDER_CONFIG_DIR=~/foo` 时，进程 env 中的值是 `${HOME}/foo`（tilde 已展开） | 进程 env / `bash -c 'source common.sh; load_env ...; echo $RALPH_PROVIDER_CONFIG_DIR'` | 等于 `${HOME}/foo` | 集成测试 |
+| SC-022-2 | REQ-022 | `adapter-claude.sh` source 时，若 `RALPH_PROVIDER_CONFIG_DIR` 非空 → export `CLAUDE_CONFIG_DIR` 等于该值；若为空或未设 → `CLAUDE_CONFIG_DIR` 保持未设 | 子 shell env | 翻译正确 / 鲁棒性正确 | 集成测试（2 用例：translate + empty robustness） |
 
 ## 业务流程
 

@@ -34,11 +34,14 @@ cp -r <ralph-loop-repo>/.ralph/ <your-workspace>/.ralph/
 ```bash
 RALPH_PROVIDER=claude
 # 可选：
-# RALPH_EFFORT=low        # low / medium / high / none（默认不传）
-# RALPH_MAX_ITER=20       # 最大轮数，0 = 无限（默认 0）
-# RALPH_TIMEOUT=3600      # 超时秒数，0 = 无限（默认 0）
-# RALPH_STAGNATION_LIMIT=5  # 连续无进展轮数（默认 5）
-# RALPH_MODEL=<name>      # 覆盖 provider 默认模型
+# RALPH_EFFORT=low                       # low / medium / high / none（默认不传）
+# RALPH_MAX_ITER=20                      # 最大轮数，0 = 无限（默认 0）
+# RALPH_TIMEOUT=3600                     # 超时秒数，0 = 无限（默认 0）
+# RALPH_STAGNATION_LIMIT=5               # 连续无进展轮数（默认 5）
+# RALPH_MODEL=<name>                     # 覆盖 provider 默认模型
+# RALPH_PROVIDER_CONFIG_DIR=~/.claude-x  # 用独立账号 / API 配置跑 ralph，不占 main agent 的 limit
+                                         # ralph 自动翻译为 provider 原生变量（Claude → CLAUDE_CONFIG_DIR）
+                                         # 该目录下 settings.json 配 ANTHROPIC_BASE_URL / API key 即可切账号
 ```
 
 按需裁剪 `.ralph/TASKS.md`（样板含 hello-world 示例；ralph 只识别顶层 `- [ ]` / `- [x]`，子 bullet 供 agent 读）。
@@ -74,15 +77,19 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 
 ### 退出原因速查
 
-| exit_reason | 含义 |
-|---|---|
-| `done` | 全部任务完成 |
-| `stagnated` | 连续 N 轮无进展 |
-| `max_iterations` | 达到最大轮数 |
-| `timeout` | 超过总超时 |
-| `provider_failed` | provider CLI 报错或崩溃 |
-| `locked` | workspace 已有 ralph 在跑（lock） |
-| `startup_failed` | 依赖缺失或初始化失败 |
+| exit_reason | exit code | 含义 |
+|---|---|---|
+| `done` | 0 | 全部任务完成 |
+| `provider_failed` | 2 | provider CLI 报错或崩溃 |
+| `timeout` | 3 | 超过总超时 |
+| `max_iterations` | 4 | 达到最大轮数 |
+| `stagnated` | 5 | 连续 N 轮无进展 |
+| `locked` | 6 | workspace 已有 ralph 在跑（lock） |
+| `blocked_by_human` | 7 | 第一个未勾选任务前缀是 `HUMAN-`（等人类决策；不调 provider） |
+| `interrupted` | 130 | SIGINT 中断 |
+| `startup_failed` | 1 | 依赖缺失或初始化失败 |
+
+退出时 ralph 会向 stderr 打印格式化总结（含 exit_reason / iteration / 完成任务 / 阻塞点 / 接力提示），同时落到 `.ralph/runs/<run_id>/exit-message.txt` 方便复制粘贴给 main agent。
 
 ### v0.1 行为说明
 
@@ -91,8 +98,9 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 
 ## 当前状态
 
-- 阶段：需求澄清 + 工具骨架重建
-- 当前开发任务：`task.md`
+- 版本：v0.1.1-dev（v0.1.0 已发布于 2026-04-28；I1 dogfood 准备中）
+- 当前开发任务：`.ralph/TASKS.md`（dogfood 模式，root `task.md` 已封版）
+- 当前 iteration 设计方案：`docs/requirements/ralph-loop/I1-design.md`
 - 续接状态：`handoff.md`
 - 工具入口：`.ralph/bin/ralph`
 
@@ -101,7 +109,10 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 | 想做什么 | 从哪里开始 |
 |---|---|
 | 查看协作与规格规范 | `.spec/README.md` |
-| 查看当前开发任务 | `task.md` |
+| 查看当前开发任务（dogfood） | `.ralph/TASKS.md` |
+| 查看 v0.1 历史任务 | `task.md`（已封版） |
+| 查看当前 iteration 设计方案 | `docs/requirements/ralph-loop/I<N>-design.md` |
+| 查看 iteration 完成归档 | `docs/requirements/ralph-loop/I<N>-FINAL-TASK.md` |
 | 查看项目文档地图 | `docs/README.md` |
 | 查看项目级需求 | `docs/requirements.md` |
 | 查看 Ralph 需求 | `docs/requirements/ralph-loop/requirements.md` |
@@ -115,8 +126,9 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 
 ## 项目边界
 
-- 本仓库是 ralph-loop 工具的**开发工程**，不自用 ralph 驱动自身开发。
-- 工具代码位于 `.ralph/bin/`、`.ralph/lib/`；使用者 workspace 的 `.ralph/PROMPT.md` / `.ralph/TASKS.md` / `.ralph/runs/` 是运行态，由使用者自行创建或由运行期生成，不进入本仓库。
+- 本仓库是 ralph-loop 工具的**开发工程**。**v0.1 后切换为 dogfood 模式** — 自用 ralph 驱动后续开发；`.ralph/TASKS.md` 是当前任务源（按 iteration 推进）。
+- 工具代码位于 `.ralph/bin/`、`.ralph/lib/`；`.ralph/PROMPT.md` + `.ralph/TASKS.md` + `.ralph/TASKS.bak` 入仓；运行时产物 `.ralph/runs/` + `.ralph/lock` + `.ralph/status.json` + `.ralph/.env` gitignore。
 - Ralph 需求沉淀在 `docs/requirements.md`（项目级）和 `docs/requirements/ralph-loop/requirements.md`（模块级）；架构和外部集成沉淀在 `docs/architecture/`。
-- 当前开发任务写入 `task.md`；长期事实写入 `README.md` 或 `docs/`。
+- 当前 iteration 设计方案放 `docs/requirements/ralph-loop/I<N>-design.md`；完成后归档为 `I<N>-FINAL-TASK.md`（cp 自 `.ralph/TASKS.md`）。
+- 长期事实写入 `README.md` 或 `docs/`。
 - 新增、移动、重命名或删除项目文档时，同步更新 `docs/README.md` 和本入口。

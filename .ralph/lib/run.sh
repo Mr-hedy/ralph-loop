@@ -12,6 +12,7 @@ _RALPH_LOCK_ACQUIRED=0
 _RALPH_RUN_DIR=""
 _RALPH_WORKSPACE=""
 _RALPH_START_TIME=0
+_RALPH_CURRENT_ITERATION=""
 
 # ── 退出辅助函数 ─────────────────────────────────────────────────────────────
 _ralph_write_result() {
@@ -32,6 +33,7 @@ _ralph_write_result() {
 {
   "run_id": "$(ralph_json_escape "${_RALPH_RUN_DIR##*/}")",
   "exit_reason": "$(ralph_json_escape "$exit_reason")",
+  "iteration_name": $(ralph_json_str "$_RALPH_CURRENT_ITERATION"),
   "iterations": ${iterations},
   "tasks_total": ${tasks_total},
   "tasks_checked_start": ${tasks_checked_start},
@@ -42,6 +44,94 @@ _ralph_write_result() {
   "last_error": ${last_error}
 }
 EOF
+}
+
+# 退出时人类可读总结打印（终端 + .ralph/runs/<run_id>/exit-message.txt）
+_ralph_print_summary() {
+  local exit_reason="$1"
+  local iterations="$2"
+  local tasks_total="$3"
+  local tasks_checked_end="$4"
+
+  local run_id="${_RALPH_RUN_DIR##*/}"
+  local iter_label="${_RALPH_CURRENT_ITERATION:-(unspecified)}"
+  local first_unchecked=""
+  local tasks_md="$_RALPH_WORKSPACE/.ralph/TASKS.md"
+  if [[ -f "$tasks_md" ]] && declare -f first_unchecked_task >/dev/null 2>&1; then
+    first_unchecked="$(first_unchecked_task "$tasks_md")"
+  fi
+
+  local sep="────────────────────────────────────────────────"
+  local lines=()
+  lines+=("$sep")
+  lines+=("Ralph Run Complete")
+  lines+=("$sep")
+  lines+=("Run ID:        $run_id")
+  lines+=("Iteration:     $iter_label")
+  lines+=("Exit Reason:   $exit_reason")
+  lines+=("Iterations:    $iterations")
+  lines+=("Tasks:         $tasks_checked_end / $tasks_total")
+
+  case "$exit_reason" in
+    done)
+      lines+=("")
+      lines+=("All tasks completed.")
+      lines+=("")
+      lines+=("Next step:")
+      lines+=("  归档动作：cp .ralph/TASKS.md docs/requirements/<module>/${iter_label}-FINAL-TASK.md")
+      lines+=("  清空 .ralph/TASKS.md 当前任务段，'当前迭代' 改为下一个；commit。")
+      ;;
+    blocked_by_human)
+      lines+=("")
+      lines+=("Blocked by human task:")
+      lines+=("  $first_unchecked")
+      lines+=("")
+      lines+=("Next step:")
+      lines+=("  在 Claude Code 对话中和 agent 协作回答此 HUMAN 任务，")
+      lines+=("  把答案落到对应 docs（requirements / architecture），")
+      lines+=("  在 TASKS.md 里勾掉 HUMAN 任务，重启 ralph run。")
+      ;;
+    stagnated)
+      lines+=("")
+      lines+=("连续多轮无文件变更，疑似 agent 卡住或任务描述不清。")
+      lines+=("Next step:")
+      lines+=("  排查最后任务描述是否模糊、provider 是否异常、PROMPT 是否需调整。")
+      ;;
+    timeout)
+      lines+=("")
+      lines+=("单轮 oneshot 超时。")
+      lines+=("Next step:")
+      lines+=("  考虑拆分任务或排查 provider 性能；调整 --timeout。")
+      ;;
+    max_iterations)
+      lines+=("")
+      lines+=("已达 --max-iter 上限。")
+      lines+=("Next step:")
+      lines+=("  评估剩余任务复杂度，必要时拆分；或提高 --max-iter 重跑。")
+      ;;
+    provider_failed)
+      lines+=("")
+      lines+=("Provider CLI 退出非 0。")
+      lines+=("Next step:")
+      lines+=("  查看 .ralph/runs/$run_id/result.json 的 last_error 字段诊断。")
+      ;;
+    interrupted)
+      lines+=("")
+      lines+=("SIGINT 中断（lock 已释放）。直接重跑 ralph run 即可继续。")
+      ;;
+    locked)
+      lines+=("")
+      lines+=("Lock 冲突：另有 ralph run 在跑。")
+      ;;
+  esac
+  lines+=("$sep")
+
+  printf '%s\n' "${lines[@]}" >&2
+
+  # 同时写到 run dir 方便人类 cat 给 main agent
+  if [[ -n "$_RALPH_RUN_DIR" && -d "$_RALPH_RUN_DIR" ]]; then
+    printf '%s\n' "${lines[@]}" > "$_RALPH_RUN_DIR/exit-message.txt"
+  fi
 }
 
 _ralph_finish() {
@@ -62,6 +152,8 @@ _ralph_finish() {
     [[ -f "$tasks_md" ]] && cp "$tasks_md" "$_RALPH_RUN_DIR/TASKS.md"
     # status.json 更新为 finished
     _ralph_update_status "finished" "$exit_reason" "$iterations" "$tasks_total" "$tasks_checked_end"
+    # 终端格式化总结（接力提示）
+    _ralph_print_summary "$exit_reason" "$iterations" "$tasks_total" "$tasks_checked_end"
     ralph_lock_release "$_RALPH_LOCK_FILE"
   fi
   exit "$exit_code"
@@ -106,6 +198,7 @@ _ralph_write_status() {
   "started_at": "$(ralph_json_escape "$started_at")",
   "updated_at": "$(ralph_json_escape "$(ralph_timestamp)")",
   "iteration": ${iteration},
+  "iteration_name": $(ralph_json_str "$_RALPH_CURRENT_ITERATION"),
   "state": "$(ralph_json_escape "$state")",
   "tasks_total": ${tasks_total},
   "tasks_checked": ${tasks_checked},
@@ -140,6 +233,12 @@ _ralph_startup_checks() {
   # TASKS.md
   [[ -f "$workspace/.ralph/TASKS.md" ]] || {
     echo "$_STARTUP_FAIL_PREFIX .ralph/TASKS.md not found" >&2; return 1; }
+
+  # 任务前缀全大写校验（快速失败，在 lock 之前）
+  if ! validate_task_prefixes "$workspace/.ralph/TASKS.md"; then
+    echo "$_STARTUP_FAIL_PREFIX TASKS.md task prefixes must be UPPERCASE (see PROMPT.md task type table)" >&2
+    return 1
+  fi
 
   # .env + RALPH_PROVIDER 非空
   [[ -n "$provider" ]] || {
@@ -258,6 +357,9 @@ EOF
   _RALPH_MODEL="$model"
   _RALPH_EFFORT="$effort"
 
+  # 解析 TASKS.md 顶部 "当前迭代" 声明（如有），用于 status.json / result.json / 退出打印
+  _RALPH_CURRENT_ITERATION="$(parse_current_iteration "$tasks_md")"
+
   # status.json 初始写入
   _ralph_write_status "running" "$run_id" "$provider" "$model" "$effort" \
     "$started_at" 0 "$tasks_total" "$tasks_checked_start"
@@ -265,6 +367,12 @@ EOF
   # TASKS.md 空或全部已勾选 → 直接 done，不产生 iteration
   if [[ "$tasks_total" -eq 0 || "$tasks_checked_start" -ge "$tasks_total" ]]; then
     _ralph_finish "done" 0 0 "$tasks_total" "$tasks_checked_start" "$tasks_checked_start" "$started_at" "null"
+  fi
+
+  # blocked_by_human 预检：第一个未勾选任务前缀是 HUMAN- → 不启动 oneshot，直接 exit 7
+  if is_blocked_by_human "$tasks_md"; then
+    _ralph_finish "blocked_by_human" 7 0 "$tasks_total" \
+      "$tasks_checked_start" "$tasks_checked_start" "$started_at" "null"
   fi
 
   local stagnation_count=0
@@ -285,6 +393,13 @@ EOF
     if [[ "$checked_before" -ge "$total_now" && "$total_now" -gt 0 ]]; then
       _RALPH_TASKS_CHECKED_END="$checked_before"
       _ralph_finish "done" 0 "$iteration" "$tasks_total" \
+        "$tasks_checked_start" "$checked_before" "$started_at" "null"
+    fi
+
+    # blocked_by_human 检查（done 之后，max_iter 之前）：第一个未勾选任务前缀是 HUMAN- → 不调 provider，exit 7
+    if is_blocked_by_human "$tasks_md"; then
+      _RALPH_TASKS_CHECKED_END="$checked_before"
+      _ralph_finish "blocked_by_human" 7 "$iteration" "$tasks_total" \
         "$tasks_checked_start" "$checked_before" "$started_at" "null"
     fi
 

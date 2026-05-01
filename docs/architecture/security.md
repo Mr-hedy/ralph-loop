@@ -39,8 +39,22 @@ TC-STK-003 固定的加载规则：
 - 注释 `#` 和空行忽略。
 - 禁止 `source .env` 或任何等价的 shell 执行；必须逐行解析 `KEY=VALUE`，以避免 `.env` 变成任意代码执行点。
 - 值两端的引号（单/双）被剥离，内部不做变量展开、不做命令替换。
+- **Tilde 展开例外**：值以 `~/` 开头的（如 `~/.claude-glm`）安全地展开为 `${HOME}/...`；不接受 `~user/` 形式（避免引入用户名查找的风险）。这是为了让路径类变量（`RALPH_PROVIDER_CONFIG_DIR` 等）在 `.env` 里能用 home-relative 写法。
 
 这一约束来自 NFR-SEC-001：`.env` 是用户可编辑配置，不是受信代码。
+
+## Provider 凭据 / 配置目录隔离
+
+REQ-022 引入的中立抽象：
+
+- ralph 内核中立变量 `RALPH_PROVIDER_CONFIG_DIR`：在 `.env` 里声明，由 ralph load_env 解析（含 tilde 展开）+ export。
+- 每个 adapter 在 source 时把它翻译为 provider 原生环境变量（详见 `integrations.md` §Adapter 配置目录翻译契约）：
+  - `adapter-claude.sh` → `CLAUDE_CONFIG_DIR`
+  - `adapter-codex.sh` / `adapter-gemini.sh` → 对应 provider 原生变量（T3 / T4 落地时实现）
+- **鲁棒性约束**：变量未设或值为空时**不**做翻译 export，避免空值干扰 provider 默认行为。
+- 子进程 env 继承走 bash 默认行为（fork+exec），无需 adapter 在每次调用时重设。
+- 凭据值（API key / OAuth token）**不**写入 status.json / result.json / 任何运行证据。
+- 隔离用例：本仓库 dogfood 时 `.ralph/.env` 设 `RALPH_PROVIDER_CONFIG_DIR=~/.claude-<sub-account>`，让 ralph 子进程用独立账号跑，不占主 Claude Code 会话的 usage limit。
 
 ## Secrets 与敏感信息
 
