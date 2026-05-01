@@ -921,6 +921,119 @@ else
 fi
 cleanup_ws "$ws"
 
+# ────────────────────────────────
+# SC-024: watch 集成测试（QA-2）
+# ────────────────────────────────
+
+echo ""
+echo "-- SC-024-2: watch run_id switch separator + tail target switch"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/status.json" <<'SJEOF'
+{
+  "run_id": "20260501-120000-aaa1111",
+  "run_dir": ".ralph/runs/20260501-120000-aaa1111",
+  "workspace": "/tmp/test-ws",
+  "provider": "fake",
+  "model": "test",
+  "effort": "high",
+  "started_at": "2026-05-01T12:00:00Z",
+  "updated_at": "2026-05-01T12:01:00Z",
+  "iteration": 1,
+  "iteration_name": "I1",
+  "state": "running",
+  "tasks_total": 2,
+  "tasks_checked": 0,
+  "exit_reason": null,
+  "last_error": null
+}
+SJEOF
+run_a_dir="$ws/.ralph/runs/20260501-120000-aaa1111/iterations/iter-001"
+mkdir -p "$run_a_dir"
+echo "log from run A" > "$run_a_dir/log"
+# Source libs and init watch state (direct function test)
+# shellcheck source=/dev/null
+source "$REPO_ROOT/.ralph/lib/status.sh"
+# shellcheck source=/dev/null
+source "$REPO_ROOT/.ralph/lib/watch.sh"
+_RALPH_TAIL_OFFSET=0
+_RALPH_TAIL_PREV_PATH=""
+_RALPH_WATCH_RUN_ID=""
+tmpout=$(mktemp)
+# Frame 1: establish run A, tail its iter log
+_ralph_watch_tail_draw "$ws" "$ws/.ralph/status.json" >> "$tmpout"
+# Switch to run B
+cat > "$ws/.ralph/status.json" <<'SJEOF'
+{
+  "run_id": "20260501-130000-bbb2222",
+  "run_dir": ".ralph/runs/20260501-130000-bbb2222",
+  "workspace": "/tmp/test-ws",
+  "provider": "fake",
+  "model": "test",
+  "effort": "high",
+  "started_at": "2026-05-01T13:00:00Z",
+  "updated_at": "2026-05-01T13:01:00Z",
+  "iteration": 1,
+  "iteration_name": "I1",
+  "state": "running",
+  "tasks_total": 3,
+  "tasks_checked": 1,
+  "exit_reason": null,
+  "last_error": null
+}
+SJEOF
+run_b_dir="$ws/.ralph/runs/20260501-130000-bbb2222/iterations/iter-001"
+mkdir -p "$run_b_dir"
+echo "log from run B" > "$run_b_dir/log"
+# Frame 2: run_id changed → separator + new tail target
+_ralph_watch_tail_draw "$ws" "$ws/.ralph/status.json" >> "$tmpout"
+separator_ok=0; log_a_ok=0; log_b_ok=0; trunc_ok=0
+grep -q "─── new run:" "$tmpout" && separator_ok=1
+grep -q "log from run A" "$tmpout" && log_a_ok=1
+grep -q "log from run B" "$tmpout" && log_b_ok=1
+grep -q "20260501-130\.\.\." "$tmpout" && trunc_ok=1
+if [[ "$separator_ok" -eq 1 && "$log_a_ok" -eq 1 && "$log_b_ok" -eq 1 && "$trunc_ok" -eq 1 ]]; then
+  _pass "SC-024-2: run_id switch → separator + truncated id + both iter logs"
+else
+  _fail "SC-024-2: sep=$separator_ok logA=$log_a_ok logB=$log_b_ok trunc=$trunc_ok"
+fi
+rm -f "$tmpout"
+cleanup_ws "$ws"
+
+echo ""
+echo "-- SC-024-4: watch non-TTY fallback → status output + exit 0"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/status.json" <<'SJEOF'
+{
+  "run_id": "20260501-120000-abc1234",
+  "run_dir": ".ralph/runs/20260501-120000-abc1234",
+  "workspace": "/tmp/test-ws",
+  "provider": "fake",
+  "model": "test-model",
+  "effort": "high",
+  "started_at": "2026-05-01T12:00:00Z",
+  "updated_at": "2026-05-01T12:01:00Z",
+  "iteration": 3,
+  "iteration_name": "I1",
+  "state": "running",
+  "tasks_total": 5,
+  "tasks_checked": 2,
+  "exit_reason": null,
+  "last_error": null
+}
+SJEOF
+rc=0
+watch_out=$(bash "$ws/.ralph/bin/ralph" watch 2>/dev/null | cat) || rc=$?
+has_fields=0
+if echo "$watch_out" | grep -q "run_id:" && echo "$watch_out" | grep -q "state:"; then
+  has_fields=1
+fi
+if [[ "$rc" -eq 0 && "$has_fields" -eq 1 ]]; then
+  _pass "SC-024-4: watch non-TTY → status-like output, exit 0"
+else
+  _fail "SC-024-4: rc=$rc has_fields=$has_fields"
+fi
+cleanup_ws "$ws"
+
 # ── HUMAN-N 阻塞机制（v0.1.1）──────────────────────────────────────────────────
 
 echo ""

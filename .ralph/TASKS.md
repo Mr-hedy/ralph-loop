@@ -85,7 +85,7 @@
   - 启动时检测 `isatty(stdout)`，false → 退化为 `ralph status` 单次打印后 exit 0
   - 用例验证：`ralph watch | cat` 不卡死
 
-- [ ] QA-2: watch 集成测试（SC-024-2/4 自动化部分）
+- [x] QA-2: watch 集成测试（SC-024-2/4 自动化部分）
   - `scripts/integration-test.sh` 加 2 用例：
     - run_id 切换 separator（mock 修改 status.json `run_id` → 验证 separator 行出现 + tail 目标切换；用 timeout + tail -f 自身退出验证）
     - 非 TTY 退化（`ralph watch | cat` → exit 0 + 单次输出）
