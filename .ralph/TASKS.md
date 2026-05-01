@@ -51,7 +51,7 @@
     - SC-023-3: status.json 缺失时 exit 0 + 提示文案 + 无副作用
   - 验证：3/3 PASS；替换旧占位测试（v0.1 placeholder check）
 
-- [ ] DEV-3: 实现 watch sticky bar 渲染（REQ-024 / SC-024-1 部分）
+- [x] DEV-3: 实现 watch sticky bar 渲染（REQ-024 / SC-024-1 部分）
   - 新建 `.ralph/lib/watch.sh`
   - 底部 sticky bar（ANSI 保留底部 1-2 行 + 上方滚动）
   - sticky bar 字段：`run_id`（截断前 12 位 + `...`）/ `iter <N>` / `<checked>/<total> tasks` / `state` / `exit_reason` / `provider`
