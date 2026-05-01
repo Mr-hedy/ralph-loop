@@ -823,15 +823,103 @@ else
   _fail "ralph run --help: rc=$rc out=$run_help_out"
 fi
 
+# ────────────────────────────────
+# SC-023: status 集成测试（QA-1）
+# ────────────────────────────────
+
 echo ""
-echo "-- ralph status (not implemented, exit 0 with placeholder help)"
+echo "-- SC-023-1: ralph status plain text — all 14 field labels + checked progress"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/status.json" <<'SJEOF'
+{
+  "run_id": "20260501-120000-abc1234",
+  "run_dir": ".ralph/runs/20260501-120000-abc1234",
+  "workspace": "/tmp/test-ws",
+  "provider": "fake",
+  "model": "test-model",
+  "effort": "high",
+  "started_at": "2026-05-01T12:00:00Z",
+  "updated_at": "2026-05-01T12:01:00Z",
+  "iteration": 3,
+  "iteration_name": "I1",
+  "state": "running",
+  "tasks_total": 5,
+  "tasks_checked": 2,
+  "exit_reason": null,
+  "last_error": null
+}
+SJEOF
 rc=0
-status_out=$(bash "$REPO_ROOT/.ralph/bin/ralph" status 2>/dev/null) || rc=$?
-if [[ "$rc" -eq 0 && "$status_out" == *"v0.1"* ]]; then
-  _pass "ralph status: exit 0, contains 'v0.1'"
+status_out=$(bash "$ws/.ralph/bin/ralph" status 2>/dev/null) || rc=$?
+fields_ok=1
+for f in run_id: run_dir: workspace: provider: model: effort: started_at: updated_at: iteration: iteration_name: state: tasks: exit_reason: last_error:; do
+  if [[ "$status_out" != *"$f"* ]]; then
+    fields_ok=0
+    break
+  fi
+done
+checked_ok=0
+[[ "$status_out" == *"2 / 5 checked"* ]] && checked_ok=1
+if [[ "$rc" -eq 0 && "$fields_ok" -eq 1 && "$checked_ok" -eq 1 ]]; then
+  _pass "SC-023-1: 14 field labels + '2 / 5 checked' present, exit 0"
 else
-  _fail "ralph status: rc=$rc out=$status_out"
+  _fail "SC-023-1: rc=$rc fields_ok=$fields_ok checked_ok=$checked_ok"
 fi
+cleanup_ws "$ws"
+
+echo ""
+echo "-- SC-023-2: ralph status --json — byte-for-byte match with status.json"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/status.json" <<'SJEOF'
+{
+  "run_id": "20260501-120000-abc1234",
+  "run_dir": ".ralph/runs/20260501-120000-abc1234",
+  "workspace": "/tmp/test-ws",
+  "provider": "fake",
+  "model": "test-model",
+  "effort": "high",
+  "started_at": "2026-05-01T12:00:00Z",
+  "updated_at": "2026-05-01T12:01:00Z",
+  "iteration": 3,
+  "iteration_name": "I1",
+  "state": "running",
+  "tasks_total": 5,
+  "tasks_checked": 2,
+  "exit_reason": null,
+  "last_error": null
+}
+SJEOF
+rc=0
+tmpout="$(mktemp)"
+bash "$ws/.ralph/bin/ralph" status --json > "$tmpout" 2>/dev/null || rc=$?
+diff_ok=0
+diff "$ws/.ralph/status.json" "$tmpout" >/dev/null 2>&1 && diff_ok=1
+rm -f "$tmpout"
+if [[ "$rc" -eq 0 && "$diff_ok" -eq 1 ]]; then
+  _pass "SC-023-2: --json output matches status.json byte-for-byte"
+else
+  _fail "SC-023-2: rc=$rc diff_ok=$diff_ok"
+fi
+cleanup_ws "$ws"
+
+echo ""
+echo "-- SC-023-3: ralph status — status.json missing: exit 0 + hint + no side effects"
+ws=$(setup_workspace)
+rm -f "$ws/.ralph/status.json"
+ralph_files_before="$(find "$ws/.ralph" -type f | sort)"
+rc=0
+status_out=$(bash "$ws/.ralph/bin/ralph" status 2>/dev/null) || rc=$?
+ralph_files_after="$(find "$ws/.ralph" -type f | sort)"
+no_side_effects=0
+[[ "$ralph_files_before" == "$ralph_files_after" ]] && no_side_effects=1
+hint_ok=0
+echo "$status_out" | grep -q "无运行中/已结束的 run" && hint_ok=1
+if [[ "$rc" -eq 0 && "$hint_ok" -eq 1 && "$no_side_effects" -eq 1 ]]; then
+  _pass "SC-023-3: no status.json → exit 0, hint message, no side effects"
+else
+  _fail "SC-023-3: rc=$rc hint_ok=$hint_ok no_side=$no_side_effects"
+fi
+cleanup_ws "$ws"
 
 # ── HUMAN-N 阻塞机制（v0.1.1）──────────────────────────────────────────────────
 

@@ -44,11 +44,12 @@
   - 加 `--json` flag 解析
   - cat `.ralph/status.json` 字节透传（不二次序列化）
 
-- [ ] QA-1: status 集成测试（SC-023-1/2/3）
+- [x] QA-1: status 集成测试（SC-023-1/2/3）
   - `scripts/integration-test.sh` 加 3 用例：
-    - plain text 字段齐全（grep 15 关键字段名）
-    - `--json` 输出与文件 diff 完全一致
-    - status.json 缺失时 exit 0 + 提示文案 + 无副作用
+    - SC-023-1: plain text 14 字段标签 + checked 进度格式
+    - SC-023-2: `--json` 输出与 status.json diff 完全一致
+    - SC-023-3: status.json 缺失时 exit 0 + 提示文案 + 无副作用
+  - 验证：3/3 PASS；替换旧占位测试（v0.1 placeholder check）
 
 - [ ] DEV-3: 实现 watch sticky bar 渲染（REQ-024 / SC-024-1 部分）
   - 新建 `.ralph/lib/watch.sh`
