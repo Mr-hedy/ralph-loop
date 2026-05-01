@@ -27,7 +27,7 @@ Usage:
 Commands:
   run     Start the agent run loop in the current workspace.
   help    Show this help or help for a subcommand.
-  status  (v0.1 not implemented — roadmap T5)
+  status  Show current or last run state.
   watch   (v0.1 not implemented — roadmap T5)
 
 Examples:
@@ -91,14 +91,22 @@ EOF
 
 ralph_status_help() {
   cat <<'EOF'
-ralph status: show current run state (v0.1 not implemented)
+Usage:
+  ralph status [options]
 
-This command is planned for roadmap T5. In a future release it will
-read .ralph/status.json and print a summary of the active or last run.
+Show current or last run state from .ralph/status.json.
 
-Usage (future):
+Options:
+  --json    Output raw JSON (byte-for-byte from status.json).
+  --help    Show this help and exit.
+
+Output (default):
+  Plain text with all status fields. If no status.json exists,
+  prints "无运行中/已结束的 run" and exits 0.
+
+Examples:
   ralph status
-  ralph status --watch
+  ralph status --json
 EOF
 }
 
@@ -113,6 +121,34 @@ Usage (future):
   ralph watch
   ralph watch --follow
 EOF
+}
+
+ralph_status_cmd() {
+  local json_mode=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --help | -h) ralph_status_help; exit 0 ;;
+      --json)      json_mode=1; shift ;;
+      --*)         ralph_usage_error "unknown flag: $1" ;;
+      *)           ralph_usage_error "unexpected argument: $1" ;;
+    esac
+  done
+
+  local status_file
+  status_file="$(ralph_workspace_root)/.ralph/status.json"
+
+  if [[ "$json_mode" -eq 1 ]]; then
+    if [[ ! -f "$status_file" ]]; then
+      echo "无运行中/已结束的 run"
+      return 0
+    fi
+    cat "$status_file"
+    return 0
+  fi
+
+  # shellcheck source=../lib/status.sh
+  source "$RALPH_ROOT/lib/status.sh"
+  ralph_status
 }
 
 ralph_run_cmd() {
@@ -160,12 +196,11 @@ ralph_main() {
         *)      ralph_usage >&2; ralph_usage_error "unknown subcommand: $sub" ;;
       esac
       ;;
-    status | watch)
-      if [[ "$command" == "status" ]]; then
-        ralph_status_help
-      else
-        ralph_watch_help
-      fi
+    status)
+      ralph_status_cmd "$@"
+      ;;
+    watch)
+      ralph_watch_help
       ;;
     *)
       ralph_usage >&2

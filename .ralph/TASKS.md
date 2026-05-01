@@ -33,7 +33,7 @@
 
 ## 当前任务
 
-- [ ] DEV-1: 实现 ralph status plain text 输出（REQ-023 / SC-023-1, SC-023-3）
+- [x] DEV-1: 实现 ralph status plain text 输出（REQ-023 / SC-023-1, SC-023-3）
   - 新建 `.ralph/lib/status.sh`
   - 读 `.ralph/status.json`，渲染 15 字段 plain text（`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `iteration` / `iteration_name` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`）
   - 任务进度渲染为 `<checked> / <total> checked`
