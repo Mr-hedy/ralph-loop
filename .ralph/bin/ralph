@@ -28,7 +28,7 @@ Commands:
   run     Start the agent run loop in the current workspace.
   help    Show this help or help for a subcommand.
   status  Show current or last run state.
-  watch   (v0.1 not implemented — roadmap T5)
+  watch   Stream live run events (sticky bar + iter log tail).
 
 Examples:
   ralph run --provider claude
@@ -112,15 +112,37 @@ EOF
 
 ralph_watch_help() {
   cat <<'EOF'
-ralph watch: stream live run events (v0.1 not implemented)
-
-This command is planned for roadmap T5. In a future release it will
-tail the active run log and emit live iteration events to stdout.
-
-Usage (future):
+Usage:
   ralph watch
-  ralph watch --follow
+
+Stream live run events with a sticky status bar at the bottom
+and iteration log output in the scroll area above.
+
+The display refreshes every 2 seconds. Press Ctrl-C to exit.
+
+Output:
+  Bottom bar: run_id, iteration, task progress, state, exit_reason, provider.
+  Scroll area: tail of the current iteration's log output.
+
+  When no status.json exists, the bar shows "no active run".
+
+Examples:
+  ralph watch
 EOF
+}
+
+ralph_watch_cmd() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --help | -h) ralph_watch_help; exit 0 ;;
+      --*)         ralph_usage_error "unknown flag: $1" ;;
+      *)           ralph_usage_error "unexpected argument: $1" ;;
+    esac
+  done
+
+  # shellcheck source=../lib/watch.sh
+  source "$RALPH_ROOT/lib/watch.sh"
+  ralph_watch
 }
 
 ralph_status_cmd() {
@@ -200,7 +222,7 @@ ralph_main() {
       ralph_status_cmd "$@"
       ;;
     watch)
-      ralph_watch_help
+      ralph_watch_cmd "$@"
       ;;
     *)
       ralph_usage >&2

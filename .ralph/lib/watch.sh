@@ -119,3 +119,53 @@ ralph_watch_frame() {
   _ralph_watch_tail_draw "$workspace" "$status_file"
   _ralph_watch_bar_draw "$status_file"
 }
+
+# ── Watch state ─────────────────────────────────────────────────────────────
+_RALPH_WATCH_CLEANED=0
+_RALPH_SLEEP_PID=""
+
+_ralph_watch_cleanup() {
+  [[ "$_RALPH_WATCH_CLEANED" -eq 1 ]] && return 0
+  _RALPH_WATCH_CLEANED=1
+  _ralph_watch_scroll_reset
+  tput clear 2>/dev/null || true
+  printf '\033[?25h'
+}
+
+_ralph_watch_on_sigint() {
+  kill "${_RALPH_SLEEP_PID:-}" 2>/dev/null || true
+  _ralph_watch_cleanup
+  exit 130
+}
+
+# ── Main watch entry point ──────────────────────────────────────────────────
+ralph_watch() {
+  local workspace status_file
+  workspace="$(ralph_workspace_root)"
+  status_file="${workspace}/.ralph/status.json"
+
+  # shellcheck source=status.sh
+  source "$RALPH_ROOT/lib/status.sh"
+
+  _RALPH_TAIL_OFFSET=0
+  _RALPH_TAIL_PREV_PATH=""
+
+  # Hide cursor
+  printf '\033[?25l'
+
+  trap '_ralph_watch_cleanup' EXIT
+  trap '_ralph_watch_on_sigint' INT
+
+  tput clear 2>/dev/null || true
+  _ralph_watch_scroll_set
+  printf '\033[1;1H'
+
+  ralph_watch_frame "$workspace" "$status_file"
+
+  # sleep & wait: bash interruptible wait lets SIGINT handler fire immediately
+  while true; do
+    sleep 2 & _RALPH_SLEEP_PID=$!
+    wait "$_RALPH_SLEEP_PID" 2>/dev/null || true
+    ralph_watch_frame "$workspace" "$status_file"
+  done
+}

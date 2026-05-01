@@ -62,7 +62,7 @@
   - 文件不存在时上方区域留空（无占位文案）
   - iter 切换（status.json `iteration` 变化）时切换 tail 目标
 
-- [ ] DEV-5: 实现 watch 主循环 + dispatcher wiring + Ctrl-C 退出清屏
+- [x] DEV-5: 实现 watch 主循环 + dispatcher wiring + Ctrl-C 退出清屏
   - 2 秒刷新循环（固定，不暴露 `--interval`）
   - 在 `.ralph/bin/ralph` 加 `watch` 子命令
   - SIGINT 信号处理 + 退出时 `tput clear` 清屏
