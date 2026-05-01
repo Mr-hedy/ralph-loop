@@ -84,9 +84,26 @@ _ralph_watch_iter_log_path() {
 
 # ── Tail area: print new lines from current iter log ─────────────────────────
 # Tracks last-read byte offset in _RALPH_TAIL_OFFSET (per log path).
-# When log path changes (iter switch), resets offset and clears _RALPH_TAIL_PREV_PATH.
+# When run_id changes: prints separator, resets tail state.
+# When iter changes (same run): resets offset.
 _ralph_watch_tail_draw() {
   local workspace="$1" status_file="$2"
+
+  # Detect run_id switch → separator + tail state reset
+  local current_run_id=""
+  if [[ -f "$status_file" ]]; then
+    current_run_id="$(_ralph_status_json_val "$status_file" "run_id")"
+  fi
+  if [[ -n "${_RALPH_WATCH_RUN_ID:-}" && -n "$current_run_id" && "$current_run_id" != "null" \
+        && "${_RALPH_WATCH_RUN_ID}" != "$current_run_id" ]]; then
+    printf '%s\n' "─── new run: $(_ralph_watch_truncate_id "$current_run_id") ───"
+    _RALPH_TAIL_PREV_PATH=""
+    _RALPH_TAIL_OFFSET=0
+  fi
+  if [[ -n "$current_run_id" && "$current_run_id" != "null" ]]; then
+    _RALPH_WATCH_RUN_ID="$current_run_id"
+  fi
+
   local log_path
   log_path="$(_ralph_watch_iter_log_path "$workspace" "$status_file")" || return 0
 
@@ -149,6 +166,7 @@ ralph_watch() {
 
   _RALPH_TAIL_OFFSET=0
   _RALPH_TAIL_PREV_PATH=""
+  _RALPH_WATCH_RUN_ID=""
 
   # Hide cursor
   printf '\033[?25l'

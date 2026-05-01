@@ -68,7 +68,7 @@
   - SIGINT 信号处理 + 退出时 `tput clear` 清屏
   - run 自然结束（`state=finished`）后**不自动退出**，最后一帧保留继续刷新
 
-- [ ] DEV-6: 实现 watch run_id 切换 separator（SC-024-2）
+- [x] DEV-6: 实现 watch run_id 切换 separator（SC-024-2）
   - 检测 status.json `run_id` 变化 → 上方区域插入 separator 行 `─── new run: <new_run_id> ───`
   - 切换 tail 目标到新 run 的 iter log
 
