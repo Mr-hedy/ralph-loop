@@ -1,0 +1,27 @@
+{
+  "iteration": 3,
+  "provider": "claude",
+  "session_id": "9c40eadc-f2cd-4765-be23-d0d228735175",
+  "session_source_path": null,
+  "session_copied_path": null,
+  "capture_status": "warning",
+  "capture_warning": "session file not found",
+  "exit_code": 0,
+  "duration_ms": 826000,
+  "error": null,
+  "changed_files_total": [
+    "scripts/integration-test.sh"
+  ],
+  "changed_files_iter": [
+    "scripts/integration-test.sh"
+  ],
+  "tasks_before": {
+    "total": 13,
+    "checked": 2
+  },
+  "tasks_after": {
+    "total": 13,
+    "checked": 3
+  },
+  "stagnation_count": 0
+}

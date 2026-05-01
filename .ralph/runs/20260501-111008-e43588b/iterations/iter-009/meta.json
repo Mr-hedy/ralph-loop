@@ -1,0 +1,17 @@
+{
+  "iteration": 9,
+  "provider": "claude",
+  "session_id": "c2ca30a9-8a15-4a74-9b4e-a9239ce10e8d",
+  "session_source_path": null,
+  "session_copied_path": null,
+  "capture_status": "pending",
+  "capture_warning": null,
+  "exit_code": 0,
+  "duration_ms": 0,
+  "error": null,
+  "changed_files_total": [],
+  "changed_files_iter": [],
+  "tasks_before": null,
+  "tasks_after": null,
+  "stagnation_count": 0
+}

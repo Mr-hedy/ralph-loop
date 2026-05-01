@@ -140,6 +140,14 @@ ralph_watch_cmd() {
     esac
   done
 
+  # Non-TTY fallback: print status once and exit (SC-024-4)
+  if [[ ! -t 1 ]]; then
+    # shellcheck source=../lib/status.sh
+    source "$RALPH_ROOT/lib/status.sh"
+    ralph_status
+    return 0
+  fi
+
   # shellcheck source=../lib/watch.sh
   source "$RALPH_ROOT/lib/watch.sh"
   ralph_watch

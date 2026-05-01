@@ -81,7 +81,7 @@
   - sticky bar 字段标签（如 `run:` / `iter` / `tasks`）→ dim 灰
   - 上方 tail 区域不主动上色（透传 provider 输出）
 
-- [ ] DEV-8: 实现 watch 非 TTY 退化（SC-024-4）
+- [x] DEV-8: 实现 watch 非 TTY 退化（SC-024-4）
   - 启动时检测 `isatty(stdout)`，false → 退化为 `ralph status` 单次打印后 exit 0
   - 用例验证：`ralph watch | cat` 不卡死
 
