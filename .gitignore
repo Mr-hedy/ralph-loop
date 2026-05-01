@@ -8,10 +8,6 @@ build/
 # TypeScript incremental
 *.tsbuildinfo
 
-# Env files
-.env
-.env.*
-
 # Runtime / generated output
 tmp/
 .tmp/

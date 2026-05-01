@@ -30,8 +30,8 @@
 |------|--------|---------|-----------|---------|
 | `REQ-N` | ralph oneshot 内 agent | 需求澄清 | `.spec/rules/requirements.md` | `docs/requirements/<module>/requirements.md` |
 | `SOL-N` | ralph oneshot 内 agent | 方案决策（存在真实取舍时） | `.spec/rules/solution.md` | requirements / architecture / 任务源对应章节 |
-| `PLAN-N` | ralph oneshot 内 agent | 迭代规划 | `.spec/rules/roadmap.md` | `docs/roadmap.md` |
-| `TASK-N` | ralph oneshot 内 agent | 任务拆解 | `.spec/README.md` 阶段 4 | `.ralph/TASKS.md` 后续追加 |
+| `ROADMAP-N` | ralph oneshot 内 agent | Roadmap 阶段规划（版本切分、阶段目标、优先级、验收口径） | `.spec/rules/roadmap.md` | `docs/roadmap.md` |
+| `PLAN-N` | ralph oneshot 内 agent | 任务列表规划（基于已确认 REQ/SOL/架构，产出 `.ralph/TASKS.md` 当前迭代的 `- [ ]` 任务列表；与 trantor PLAN / 业界 sprint planning 同义） | `.spec/README.md` 阶段 4 | `.ralph/TASKS.md` 后续追加 |
 | (空) / `DEV-N` | ralph oneshot 内 agent | 开发实施（默认） | `CLAUDE.md` + 代码事实 | 代码 / 文档 / 提示词 / 论文等任何"按已确认需求/方案产出具体交付物"的工作 |
 | `QA-N` | ralph oneshot 内 agent | 测试设计与实施 | `.spec/rules/testing.md` | `docs/architecture/testing.md` + 测试代码 |
 | `REVIEW-N` | ralph oneshot 内 agent | 审查（见下文格式） | `.spec/rules/review.md` 或 `.spec/rules/adversarial-review.md` | findings / 事实源修订 |

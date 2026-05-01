@@ -12,7 +12,7 @@
 
 # 稳定决策
 
-- **任务类型 8 类前缀**：REQ / SOL / PLAN / TASK / DEV / QA / REVIEW（ralph oneshot 内 agent 执行）+ HUMAN（main agent 对话内人类协作）；前缀必须全大写英文，启动校验失败 exit 1。
+- **任务类型 8 类前缀**：REQ / SOL / ROADMAP / PLAN / DEV / QA / REVIEW（ralph oneshot 内 agent 执行）+ HUMAN（main agent 对话内人类协作）；前缀必须全大写英文，启动校验失败 exit 1。注：`PLAN-N` = 任务列表规划（trantor PLAN / sprint planning 同义）；`ROADMAP-N` = roadmap 阶段规划。
 - **HUMAN-N 阻塞**：双重保险 — 工具层 hardcode 入口扫描 + exit 7（`blocked_by_human`）；PROMPT.md 强约束 agent 不勾不执行；解锁路径 = 普通 Claude Code 对话内人类与 main agent 协作勾选。
 - **取消 SUMMARY.md**：信息已在 TASKS.md（任务事实）+ status.json（机器可读）+ 终端打印 + `exit-message.txt` 接力提示中分布；归档 = `cp .ralph/TASKS.md docs/requirements/ralph-loop/I<N>-FINAL-TASK.md`。
 - **Iteration 命名**：`I<N>` 单调递增；`.ralph/TASKS.md` 顶部 `> 当前迭代: I<N>` blockquote 声明（ASCII 冒号），ralph 解析写入 `iteration_name` 字段。

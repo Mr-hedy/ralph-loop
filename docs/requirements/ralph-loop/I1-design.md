@@ -29,8 +29,8 @@
 |------|---------|-----------|---------|
 | `REQ-N` | 需求澄清 | `.spec/rules/requirements.md` | `docs/requirements/<module>/requirements.md` |
 | `SOL-N` | 方案决策（存在真实取舍时） | `.spec/rules/solution.md` | requirements/architecture/任务事实源对应章节 |
-| `PLAN-N` | 迭代规划 | `.spec/rules/roadmap.md` | `docs/roadmap.md` |
-| `TASK-N` | 任务拆解 | `.spec/README.md` 阶段 4 | `.ralph/TASKS.md` 后续追加 |
+| `ROADMAP-N` | Roadmap 阶段规划（版本切分、阶段目标、优先级、验收口径） | `.spec/rules/roadmap.md` | `docs/roadmap.md` |
+| `PLAN-N` | 任务列表规划（基于已确认 REQ/SOL/架构，产出 `.ralph/TASKS.md` 当前迭代任务列表；trantor PLAN / 业界 sprint planning 同义） | `.spec/README.md` 阶段 4 | `.ralph/TASKS.md` 后续追加 |
 | (空) / `DEV-N` | 开发实施（默认） | `CLAUDE.md` + 代码事实 | 代码 / 文档 / 提示词 / 论文等任何"按已确认需求/方案产出具体交付物"的工作 |
 | `QA-N` | 测试设计与实施 | `.spec/rules/testing.md` | `docs/architecture/testing.md` + 测试代码 |
 | `REVIEW-N` | 审查 | `.spec/rules/review.md` 或 `.spec/rules/adversarial-review.md` | findings / 事实源修订 |
@@ -41,7 +41,7 @@
 - 任务类型按需选用，不强求每次都用；简单 dogfood 任务可能就一路 `DEV-N`
 - DEV 涵盖文字类工作（文档、提示词、论文）；任务描述里写清楚要做什么即可
 - REVIEW 不拆 review 和 adversarial-review；任务描述第一行明确审查模式：`REVIEW-N: <对象> | review` 或 `REVIEW-N: <对象> | adversarial-review`
-- 简单需求允许 ralph 跑全流程（REQ → SOL → TASK → DEV → QA → REVIEW 串行任务）；复杂或决策密度高的需求建议在 Claude Code 对话里完成 REQ/SOL/PLAN/TASK，ralph 只跑 DEV/QA/REVIEW
+- 简单需求允许 ralph 跑全流程（REQ → SOL → PLAN → DEV → QA → REVIEW 串行任务）；复杂或决策密度高的需求建议在 Claude Code 对话里完成 REQ/SOL/ROADMAP/PLAN，ralph 只跑 DEV/QA/REVIEW
 
 ### 2. HUMAN-N 阻塞机制
 

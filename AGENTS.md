@@ -40,8 +40,8 @@
 |------|-----------|
 | `REQ-N` | `.spec/rules/requirements.md` |
 | `SOL-N` | `.spec/rules/solution.md` |
-| `PLAN-N` | `.spec/rules/roadmap.md` |
-| `TASK-N` | `.spec/README.md` 阶段 4 |
+| `ROADMAP-N` | `.spec/rules/roadmap.md`（Roadmap 阶段规划） |
+| `PLAN-N` | `.spec/README.md` 阶段 4（任务列表规划，trantor PLAN / sprint planning 同义） |
 | (空) / `DEV-N` | CLAUDE.md + 代码事实（默认） |
 | `QA-N` | `.spec/rules/testing.md` |
 | `REVIEW-N` | `.spec/rules/review.md` 或 `.spec/rules/adversarial-review.md`（任务描述明确） |
