@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# watch.sh — sticky bar rendering (DEV-3)
+# watch.sh — sticky bar rendering (DEV-3) + color support (DEV-7)
 # Requires: status.sh sourced before calling bar functions (for _ralph_status_json_val)
 
 # ── Truncate run_id: first 12 chars + "..." ─────────────────────────────────
@@ -14,7 +14,26 @@ _ralph_watch_truncate_id() {
   fi
 }
 
-# ── Bar content: one-line status string from status.json ────────────────────
+# ── Color detection: TTY + no NO_COLOR ──────────────────────────────────────
+_ralph_watch_color_supported() {
+  [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]]
+}
+
+# ── Pick status color by state / exit_reason ─────────────────────────────────
+_ralph_watch_status_color() {
+  local state="$1" exit_reason="$2"
+  if [[ "$state" == "running" || "$exit_reason" == "done" ]]; then
+    printf '%s' "green"
+  elif [[ "$exit_reason" == "provider_failed" || "$exit_reason" == "timeout" \
+        || "$exit_reason" == "max_iterations" || "$exit_reason" == "stagnated" ]]; then
+    printf '%s' "red"
+  elif [[ "$exit_reason" == "blocked_by_human" || "$exit_reason" == "locked" \
+        || "$exit_reason" == "interrupted" ]]; then
+    printf '%s' "yellow"
+  fi
+}
+
+# ── Bar content: one-line status string from status.json (with optional color) ─
 _ralph_watch_bar_text() {
   local f="$1"
 
@@ -34,12 +53,34 @@ _ralph_watch_bar_text() {
 
   short_id="$(_ralph_watch_truncate_id "$run_id")"
 
-  bar="run: ${short_id}"
-  bar+="  iter ${iter}"
-  bar+="  ${checked}/${total} tasks"
-  bar+="  state: ${state:-}"
-  [[ -n "$exit_reason" && "$exit_reason" != "null" ]] && bar+="  exit_reason: ${exit_reason}"
-  [[ -n "$provider" && "$provider" != "null" ]] && bar+="  provider: ${provider}"
+  local dim="" reset="" green="" red="" yellow=""
+  if _ralph_watch_color_supported; then
+    dim=$'\033[2m'
+    reset=$'\033[0m'
+    green=$'\033[32m'
+    red=$'\033[31m'
+    yellow=$'\033[33m'
+  fi
+
+  local status_color=""
+  local color_name
+  color_name="$(_ralph_watch_status_color "$state" "${exit_reason:-}")"
+  case "$color_name" in
+    green)  status_color="$green"  ;;
+    red)    status_color="$red"    ;;
+    yellow) status_color="$yellow" ;;
+  esac
+
+  bar="${dim}run:${reset} ${short_id}"
+  bar+="  ${dim}iter${reset} ${iter}"
+  bar+="  ${checked}/${total} ${dim}tasks${reset}"
+  bar+="  ${dim}state:${reset} ${status_color}${state:-}${reset}"
+  if [[ -n "$exit_reason" && "$exit_reason" != "null" ]]; then
+    bar+="  ${dim}exit_reason:${reset} ${status_color}${exit_reason}${reset}"
+  fi
+  if [[ -n "$provider" && "$provider" != "null" ]]; then
+    bar+="  ${dim}provider:${reset} ${provider}"
+  fi
 
   printf '%s' "$bar"
 }

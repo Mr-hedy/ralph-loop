@@ -72,7 +72,7 @@
   - 检测 status.json `run_id` 变化 → 上方区域插入 separator 行 `─── new run: <new_run_id> ───`
   - 切换 tail 目标到新 run 的 iter log
 
-- [ ] DEV-7: 实现 watch 彩色支持（SC-024-5）
+- [x] DEV-7: 实现 watch 彩色支持（SC-024-5）
   - 检测 `isatty(stdout) && [ -z "$NO_COLOR" ]`
   - sticky bar 状态字段按 exit_reason 上色：
     - `state=running` 或 `exit_reason=done` → 绿
