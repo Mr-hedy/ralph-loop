@@ -94,7 +94,7 @@
   - `README.md` 加 `ralph status` / `ralph watch` 快速入口段（含 `--json` 示例）
   - 如 `docs/usage.md` 不存在则不创建（README 内嵌即可）
 
-- [ ] DEV-10: 同步 docs/architecture/overview.md 状态观察段
+- [x] DEV-10: 同步 docs/architecture/overview.md 状态观察段
   - 加 status/watch 数据流图 + 双区域布局说明
   - 引用 REQ-023 / REQ-024 / SC-023-* / SC-024-*
 

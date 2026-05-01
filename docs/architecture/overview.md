@@ -98,9 +98,7 @@ ralph help    # 帮助
 
 ### `ralph watch` 参数
 
-| Flag | 默认 | 说明 |
-|---|---|---|
-| `--interval` | `2`（秒） | 刷新间隔 |
+无参数。固定 2 秒刷新间隔，不暴露 `--interval` flag。仅限 TTY 环境；非 TTY 退化为 `ralph status` 单次打印。
 
 ## 运行目录
 
@@ -544,6 +542,74 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 
 派生规则由各 adapter 实现（参考 trantor-skills 的 `deriveSessionViews` / `deriveGeminiSessionViews` / `deriveCodexSessionViews`）。
 
+## 状态观察
+
+`ralph status` 和 `ralph watch` 提供人类维护者观察当前 run 的能力（REQ-007）。两者共享同一数据源 `.ralph/status.json`，不做 session 解析、不做变更诊断、不写文件。
+
+### 数据流
+
+```text
+.ralph/status.json ───── ralph status ──→ stdout（一次性打印，exit 0）
+                   │
+                   └──→ ralph watch ──→ TTY 双区域循环刷新
+                          │
+                          └──→ .ralph/runs/<run_id>/iterations/iter-NNN/log
+                                ↑ 上方区域 tail 目标
+```
+
+- `status`：单次读取 status.json，渲染 15 字段 plain text（`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `iteration` / `iteration_name` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`），任务进度渲染为 `<checked> / <total> checked`。`--json` flag 字节透传 status.json 不做二次序列化。status.json 不存在时输出提示文案，exit 0（REQ-023 / SC-023-1/2/3）。
+- `watch`：每 2 秒重读 status.json + 增量 tail iter log，渲染 TTY 双区域布局。非 TTY 环境退化为 status 单次打印（REQ-024 / SC-024-4）。
+
+### Watch 双区域布局
+
+```text
+┌─────────────────────────────────────────────────────┐
+│  上方区域（scroll region）                           │
+│  tail 当前活跃 iter log 的增量输出                   │
+│  路径: .ralph/runs/<run_id>/iterations/iter-NNN/log │
+│  iter 切换时自动切换 tail 目标，重置偏移量            │
+│  文件不存在时留空（无占位文案）                       │
+│  ...                                                │
+├─────────────────────────────────────────────────────┤
+│  下方 sticky bar（ANSI 保留底部 1 行）                │
+│  run:<truncated_id>  iter <N>  <c>/<t> tasks        │
+│  state:<state>  exit_reason:<reason>  provider:<p>  │
+└─────────────────────────────────────────────────────┘
+```
+
+Sticky bar 字段来源均为 status.json：
+
+| 字段 | 来源 key | 说明 |
+|------|---------|------|
+| `run:` | `run_id` | 截断前 12 位 + `...` |
+| `iter` | `iteration` | 当前迭代序号 |
+| `tasks` | `tasks_checked` / `tasks_total` | `<checked>/<total>` |
+| `state:` | `state` | `running` / `finished` |
+| `exit_reason:` | `exit_reason` | run 结束后显示，运行中隐藏 |
+| `provider:` | `provider` | provider 名称 |
+
+### Watch 行为规则
+
+- **run_id 切换**：status.json `run_id` 变化时，上方区域插入 separator 行 `─── new run: <new_run_id> ───`，tail 目标切换到新 run 的 iter log，偏移量重置（SC-024-2）。
+- **iter 切换**：同一 run 内 `iteration` 变化时，tail 目标自动切换到新 iter log，偏移量重置。
+- **run 结束**：`state=finished` 后 watch 不自动退出，最后一帧保留并继续刷新（SC-024-3）。
+- **退出**：仅 Ctrl-C（SIGINT），退出时 `tput clear` 清屏 + 恢复光标 + 重置 scroll region。
+- **非 TTY 退化**：`isatty(stdout)=false` 时退化为 `ralph status` 单次打印后 exit 0（SC-024-4）。
+
+### Watch 彩色规则
+
+条件：`isatty(stdout) && [ -z "$NO_COLOR" ]`（SC-024-5）。
+
+| 状态 | 颜色 | 覆盖字段 |
+|------|------|---------|
+| `state=running` 或 `exit_reason=done` | 绿 | `state` / `exit_reason` |
+| `exit_reason` ∈ {`provider_failed`, `timeout`, `max_iterations`, `stagnated`} | 红 | `state` / `exit_reason` |
+| `exit_reason` ∈ {`blocked_by_human`, `locked`, `interrupted`} | 黄 | `state` / `exit_reason` |
+| 字段标签（`run:` / `iter` / `tasks` / `state:` / `exit_reason:` / `provider:`） | dim 灰 | 标签文本 |
+| 上方 tail 区域 | 不上色 | 透传 provider 输出原色 |
+
+`NO_COLOR=1` 或非 TTY 时全部不上色。
+
 ## 方案取舍
 
 | 取舍 | 选择 | 原因 | 放弃方案的代价 |
@@ -575,7 +641,7 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 | Backend | `backend.md` | 当前不适用 | Bash 模块结构已在本文 [运行目录](#运行目录) 段落覆盖 |
 | Frontend | `frontend.md` | 当前不适用 | 无前端 |
 | Database | `database.md` | 当前不适用 | 无持久化业务实体；运行期状态在 `.ralph/runs/` 文件中 |
-| UI | `ui.md` | 当前不适用 | 仅 `ralph watch` 的终端 UI，细节待 T5 细化 |
+| UI | `ui.md` | 当前不适用 | `ralph watch` 终端 UI 细节已在本文 [状态观察](#状态观察) 段落覆盖 |
 | Security | [`security.md`](./security.md) | 已确认 | approval / sandbox 策略、secrets 边界、 allowedTools 白名单 |
 | Testing | [`testing.md`](./testing.md) | 已建立（T2 阶段持续扩展） | 测试入口、基础设施、隔离规则、单一来源、运行平台、当前覆盖范围 |
 | Deployment | `deployment.md` | 当前不适用 | per-workspace 部署方式已在本文 [部署形态](#部署形态per-workspacereq-008) 段落覆盖 |
@@ -583,7 +649,6 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 
 ## 待落实
 
-- `ralph watch` 的 sticky bottom bar 具体布局和窄终端降级策略在 T5 实现前细化，不在本文写死。
 - `adapter-fake.sh` 由 `RALPH_FAKE_SCENARIO` 环境变量选场景（不依赖"第 N 轮"模式），T1 五场景：`happy`（勾第 1 条未勾选任务，`exit=0`）/ `stagnation`（不改 TASKS + 不改 git，`exit=0`）/ `crash`（`exit=非零`，无结构化错误，诊断为 `unknown`）/ `api-error`（`exit=非零` + stderr 含 api 错误关键字，诊断为 `api`）/ `slow`（`sleep` 远超 `--timeout`，用于 `timeout` 用例）。接受 `RALPH_FAKE_CLI` 覆盖 `RALPH_PROVIDER_CLI`、`RALPH_FAKE_SLEEP` 控制 sleep 时长。
 - Skill 封装（REQ-016）的具体接口在 v0.1 完成后单独设计。
 - `docs/architecture/testing.md` 在 T1 集成测试脚本成形后补齐。
