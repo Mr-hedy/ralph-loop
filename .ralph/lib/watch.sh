@@ -65,14 +65,57 @@ _ralph_watch_bar_draw() {
   printf '\033[%d;1H\033[2K%s' "$lines" "$bar"
 }
 
-# ── Stub: tail area draw (DEV-4 implements) ─────────────────────────────────
+# ── Build iter log path from status.json run_id + iteration ──────────────────
+_ralph_watch_iter_log_path() {
+  local workspace="$1" status_file="$2"
+  if [[ ! -f "$status_file" ]]; then
+    return 1
+  fi
+  local run_id iter
+  run_id="$(_ralph_status_json_val "$status_file" "run_id")"
+  iter="$(_ralph_status_json_val "$status_file" "iteration")"
+  if [[ -z "$run_id" || -z "$iter" || "$run_id" == "null" || "$iter" == "null" ]]; then
+    return 1
+  fi
+  local zero_padded
+  printf -v zero_padded '%03d' "$iter"
+  printf '%s/.ralph/runs/%s/iterations/iter-%s/log' "$workspace" "$run_id" "$zero_padded"
+}
+
+# ── Tail area: print new lines from current iter log ─────────────────────────
+# Tracks last-read byte offset in _RALPH_TAIL_OFFSET (per log path).
+# When log path changes (iter switch), resets offset and clears _RALPH_TAIL_PREV_PATH.
 _ralph_watch_tail_draw() {
-  : # empty — DEV-4 fills this in
+  local workspace="$1" status_file="$2"
+  local log_path
+  log_path="$(_ralph_watch_iter_log_path "$workspace" "$status_file")" || return 0
+
+  if [[ ! -f "$log_path" ]]; then
+    return 0
+  fi
+
+  # Detect iter switch: path changed → reset offset
+  if [[ "${_RALPH_TAIL_PREV_PATH:-}" != "$log_path" ]]; then
+    _RALPH_TAIL_PREV_PATH="$log_path"
+    _RALPH_TAIL_OFFSET=0
+  fi
+
+  local size
+  size="$(stat -f%z "$log_path" 2>/dev/null || stat -c%s "$log_path" 2>/dev/null)" || return 0
+
+  # Nothing new since last read
+  if [[ "$size" -le "${_RALPH_TAIL_OFFSET:-0}" ]]; then
+    return 0
+  fi
+
+  # Print new bytes
+  dd if="$log_path" bs=1 skip="${_RALPH_TAIL_OFFSET:-0}" count=$((size - _RALPH_TAIL_OFFSET)) 2>/dev/null
+  _RALPH_TAIL_OFFSET=$size
 }
 
 # ── Render one frame: tail area + sticky bar ─────────────────────────────────
 ralph_watch_frame() {
-  local status_file="$1"
-  _ralph_watch_tail_draw
+  local workspace="$1" status_file="$2"
+  _ralph_watch_tail_draw "$workspace" "$status_file"
   _ralph_watch_bar_draw "$status_file"
 }

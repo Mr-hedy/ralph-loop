@@ -57,7 +57,7 @@
   - sticky bar 字段：`run_id`（截断前 12 位 + `...`）/ `iter <N>` / `<checked>/<total> tasks` / `state` / `exit_reason` / `provider`
   - 主循环和 tail 区域暂留空（DEV-4/5 接管）
 
-- [ ] DEV-4: 实现 watch iter log tail（REQ-024 / SC-024-1 部分）
+- [x] DEV-4: 实现 watch iter log tail（REQ-024 / SC-024-1 部分）
   - 上方区域 tail 当前活跃 iter log：路径 = `.ralph/runs/<run_id>/iterations/iter-<NNN>/log`，从 status.json `run_id` + `iteration` 拼接
   - 文件不存在时上方区域留空（无占位文案）
   - iter 切换（status.json `iteration` 变化）时切换 tail 目标
