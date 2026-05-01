@@ -574,6 +574,39 @@ fi
 cleanup_claude_ws
 
 echo ""
+echo "-- Claude session: CLAUDE_CONFIG_DIR aware capture (REQ-022 / SC-022-3)"
+# 验证 adapter 在 CLAUDE_CONFIG_DIR 非空时从该路径采集 session，不读 \$HOME/.claude
+setup_claude_workspace
+custom_cfg="$(dirname "$SETUP_CLAUDE_HOME")/custom-claude-cfg"
+mkdir -p "$custom_cfg/projects"
+# 在 workspace .env 加 RALPH_PROVIDER_CONFIG_DIR（adapter 翻译为 CLAUDE_CONFIG_DIR）
+printf 'RALPH_PROVIDER_CONFIG_DIR=%s\n' "$custom_cfg" >> "$SETUP_CLAUDE_WS/.ralph/.env"
+printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CLAUDE_SCENARIO=happy \
+  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
+iter_dir="${run_dir}/iterations/iter-001"
+jsonl_ok=0; capture_ok=0; src_ok=0; home_clean=1
+[[ -f "$iter_dir/session.claude.jsonl" ]] && jsonl_ok=1
+grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
+# session_source_path 应在 custom_cfg/projects/ 下
+src_path="$(jq -r '.session_source_path // ""' "$iter_dir/meta.json" 2>/dev/null)"
+[[ "$src_path" == "$custom_cfg/projects/"* ]] && src_ok=1
+# 反向断言：$HOME/.claude/projects/ 下不应有任何 jsonl（mock-claude 必须写到 CLAUDE_CONFIG_DIR）
+if find "$SETUP_CLAUDE_HOME/.claude/projects" -name "*.jsonl" -type f 2>/dev/null | grep -q .; then
+  home_clean=0
+fi
+if [[ "$jsonl_ok" -eq 1 && "$capture_ok" -eq 1 && "$src_ok" -eq 1 && "$home_clean" -eq 1 ]]; then
+  _pass "session CLAUDE_CONFIG_DIR aware: jsonl ok, capture_status=ok, source from custom cfg, HOME/.claude clean"
+else
+  _fail "session CLAUDE_CONFIG_DIR aware: jsonl_ok=$jsonl_ok capture_ok=$capture_ok src_ok=$src_ok home_clean=$home_clean src=$src_path"
+fi
+cleanup_claude_ws
+
+echo ""
 echo "-- Claude session: mtime fallback (UUID mismatch → fallback by mtime)"
 setup_claude_workspace
 git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "init" 2>/dev/null || true

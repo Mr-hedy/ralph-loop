@@ -33,7 +33,7 @@ case "$scenario" in
 
     # 写 ~/.claude/projects/<cwd_hash>/<session_id>.jsonl（供 T2.2 collect + T2.4 派生视图使用）
     cwd_hash="$(_cwd_hash "$PWD")"
-    jsonl_dir="$HOME/.claude/projects/$cwd_hash"
+    jsonl_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$cwd_hash"
     mkdir -p "$jsonl_dir"
     cat > "$jsonl_dir/${session_id}.jsonl" << 'ENDJSONL'
 {"type":"user","message":{"role":"user","content":"Do one task"},"uuid":"u1","timestamp":"2024-01-01T00:00:00.000Z"}
@@ -66,7 +66,7 @@ ENDJSONL
     # stdout JSON（正常）；但写入文件名 UUID 不匹配 session_id 的 jsonl（触发 mtime 降级）
     printf '{"is_error":false,"result":"done","session_id":"%s"}\n' "$session_id"
     cwd_hash="$(_cwd_hash "$PWD")"
-    jsonl_dir="$HOME/.claude/projects/$cwd_hash"
+    jsonl_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$cwd_hash"
     mkdir -p "$jsonl_dir"
     printf '{"sessionId":"00000000-0000-0000-0000-000000000000","type":"system"}\n' \
       > "$jsonl_dir/00000000-0000-0000-0000-000000000000.jsonl"

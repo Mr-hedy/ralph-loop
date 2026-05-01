@@ -127,7 +127,7 @@ claude -p "$prompt" \
 - 不传 `--continue`、`--resume`、`--fork-session`。
 - 不传 `--no-session-persistence`。
 - stdout/stderr 全量保存为 `iterations/iter-xxx/log`。
-- provider 退出后，按 `~/.claude/projects/<cwd_hash>/<session_id>.jsonl` 定位 session 文件。`cwd_hash` 规则：先 `realpath` 解析 symlink，再把所有非 `[A-Za-z0-9-]` 字符替换为 `-`。
+- provider 退出后，按 `<claude_root>/projects/<cwd_hash>/<session_id>.jsonl` 定位 session 文件，其中 `claude_root = ${CLAUDE_CONFIG_DIR:-$HOME/.claude}`（CLAUDE_CONFIG_DIR 由 RALPH_PROVIDER_CONFIG_DIR 翻译而来，见本文 §Adapter 配置目录翻译契约 + REQ-022）。`cwd_hash` 规则：先 `realpath` 解析 symlink，再把所有非 `[A-Za-z0-9-]` 字符替换为 `-`。
 - 找到后复制为 `iterations/iter-xxx/session.claude.jsonl`。
 - 若未找到，记录 warning；后续可退化为按 started_at 之后修改的 Claude JSONL 候选文件排查。
 

@@ -102,7 +102,10 @@ provider_collect_session() {
 
   local cwd_hash
   cwd_hash="$(_claude_cwd_hash "${_RALPH_WORKSPACE}")"
-  local session_dir="$HOME/.claude/projects/$cwd_hash"
+  # session root 感知 CLAUDE_CONFIG_DIR（由 RALPH_PROVIDER_CONFIG_DIR 翻译而来，见 REQ-022）；
+  # 未设时回落 $HOME/.claude（Claude CLI 默认行为）
+  local claude_root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+  local session_dir="$claude_root/projects/$cwd_hash"
   local expected_file="$session_dir/${session_id}.jsonl"
   local dst="$iter_dir/session.claude.jsonl"
 
