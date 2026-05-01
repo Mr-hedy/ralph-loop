@@ -40,7 +40,7 @@
   - status.json 不存在时 stdout 输出"无运行中/已结束的 run"，exit 0，不创建任何文件
   - 在 `.ralph/bin/ralph` 加 `status` 子命令 dispatcher
 
-- [ ] DEV-2: 实现 ralph status --json 透传（SC-023-2）
+- [x] DEV-2: 实现 ralph status --json 透传（SC-023-2）
   - 加 `--json` flag 解析
   - cat `.ralph/status.json` 字节透传（不二次序列化）
 
