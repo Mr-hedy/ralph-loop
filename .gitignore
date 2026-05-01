@@ -16,6 +16,12 @@ analysis/
 .aip/
 *.log
 
+# Ralph runtime artifacts (REQ-017 — gitignored by design)
+.ralph/runs/
+.ralph/lock
+.ralph/status.json
+.ralph/.env
+
 # IDE / OS
 .DS_Store
 .idea/
