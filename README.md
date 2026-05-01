@@ -64,16 +64,21 @@ cd <your-workspace>
 ./.ralph/bin/ralph run
 ```
 
-### 4. 查看结果
+### 4. 观察运行
 
 ```bash
-cat .ralph/status.json                          # 当前运行状态
+ralph status                  # plain text：run_id / iter / tasks 进度 / state / exit_reason 等
+ralph status --json           # 透传 .ralph/status.json 原始 JSON
+ralph watch                   # 实时监控：底部 sticky bar + 上方 iter log tail（2 秒刷新，Ctrl-C 退出）
+```
+
+底层文件仍可直接读取：
+
+```bash
 cat .ralph/runs/<run_id>/result.json            # 运行总结
 ls  .ralph/runs/<run_id>/iterations/            # 每轮明细
 cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 ```
-
-（v0.1 没有 `ralph status` / `ralph watch` 真实功能；直接读文件）
 
 ### 退出原因速查
 

@@ -90,7 +90,7 @@
     - run_id 切换 separator（mock 修改 status.json `run_id` → 验证 separator 行出现 + tail 目标切换；用 timeout + tail -f 自身退出验证）
     - 非 TTY 退化（`ralph watch | cat` → exit 0 + 单次输出）
 
-- [ ] DEV-9: 同步 README + docs/usage.md status/watch 使用示例
+- [x] DEV-9: 同步 README + docs/usage.md status/watch 使用示例
   - `README.md` 加 `ralph status` / `ralph watch` 快速入口段（含 `--json` 示例）
   - 如 `docs/usage.md` 不存在则不创建（README 内嵌即可）
 
