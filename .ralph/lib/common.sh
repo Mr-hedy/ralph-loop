@@ -116,6 +116,51 @@ ralph_iso_to_local_find_fmt() {
     || date -d "@$epoch" +"%Y-%m-%d %H:%M:%S" 2>/dev/null
 }
 
+# ── ISO 8601 UTC → 人类可读本地时间（"YYYY-MM-DD HH:MM:SS +ZZZZ"）
+# 用于 status / watch / exit-message / 进度 marker 的人类渲染（Q1 双层时间格式）
+# JSON 文件保留 UTC ISO；只在文本输出时转本地。null/empty 返回 "-"。
+ralph_iso_to_local_display() {
+  local iso="$1"
+  if [[ -z "$iso" || "$iso" == "null" ]]; then
+    printf '%s' "-"
+    return 0
+  fi
+  local epoch
+  epoch="$(ralph_iso_to_epoch "$iso")"
+  if [[ -z "$epoch" ]]; then
+    printf '%s' "$iso"
+    return 0
+  fi
+  date -r "$epoch" +"%Y-%m-%d %H:%M:%S %z" 2>/dev/null \
+    || date -d "@$epoch" +"%Y-%m-%d %H:%M:%S %z" 2>/dev/null \
+    || printf '%s' "$iso"
+}
+
+# ── 秒数 → 人话格式（>= 60 升级到 mXs；>= 3600 升级到 hXmYs）
+# Q4 进度 marker / exit-message 用
+ralph_format_duration() {
+  local seconds="$1"
+  if [[ -z "$seconds" || "$seconds" -lt 60 ]]; then
+    printf '%ds' "${seconds:-0}"
+  elif [[ "$seconds" -lt 3600 ]]; then
+    local m=$((seconds / 60))
+    local s=$((seconds % 60))
+    if [[ "$s" -eq 0 ]]; then
+      printf '%dm' "$m"
+    else
+      printf '%dm%ds' "$m" "$s"
+    fi
+  else
+    local h=$((seconds / 3600))
+    local m=$(((seconds % 3600) / 60))
+    if [[ "$m" -eq 0 ]]; then
+      printf '%dh' "$h"
+    else
+      printf '%dh%dm' "$h" "$m"
+    fi
+  fi
+}
+
 # ── run_id 生成 ─────────────────────────────────────────────────────────────
 # 格式：YYYYMMDD-HHMMSS-<7位 git short sha>；无提交时用 nogit
 ralph_run_id() {

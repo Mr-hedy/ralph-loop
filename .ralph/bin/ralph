@@ -132,13 +132,16 @@ EOF
 }
 
 ralph_watch_cmd() {
+  local verbose=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --help | -h) ralph_watch_help; exit 0 ;;
-      --*)         ralph_usage_error "unknown flag: $1" ;;
-      *)           ralph_usage_error "unexpected argument: $1" ;;
+      --help | -h)         ralph_watch_help; exit 0 ;;
+      --verbose | -v)      verbose=1; shift ;;
+      --*)                 ralph_usage_error "unknown flag: $1" ;;
+      *)                   ralph_usage_error "unexpected argument: $1" ;;
     esac
   done
+  export RALPH_WATCH_VERBOSE="$verbose"
 
   # Non-TTY fallback: print status once and exit (SC-024-4)
   if [[ ! -t 1 ]]; then
@@ -185,15 +188,16 @@ ralph_run_cmd() {
   # flag 解析：CLI flag > 进程 env > .env > 默认
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --help | -h)    ralph_run_help; exit 0 ;;
-      --provider)     export RALPH_PROVIDER="$2"; shift 2 ;;
-      --model)        export RALPH_MODEL="$2";    shift 2 ;;
-      --effort)       export RALPH_EFFORT="$2";   shift 2 ;;
-      --max-iter)     export RALPH_MAX_ITER="$2"; shift 2 ;;
+      --help | -h)         ralph_run_help; exit 0 ;;
+      --verbose | -v)      export RALPH_VERBOSE=1; shift ;;
+      --provider)          export RALPH_PROVIDER="$2"; shift 2 ;;
+      --model)             export RALPH_MODEL="$2";    shift 2 ;;
+      --effort)            export RALPH_EFFORT="$2";   shift 2 ;;
+      --max-iter)          export RALPH_MAX_ITER="$2"; shift 2 ;;
       --timeout)           export RALPH_TIMEOUT="$2";          shift 2 ;;
       --stagnation-limit)  export RALPH_STAGNATION_LIMIT="$2"; shift 2 ;;
-      --*)            ralph_usage_error "unknown flag: $1" ;;
-      *)              ralph_usage_error "unexpected argument: $1" ;;
+      --*)                 ralph_usage_error "unknown flag: $1" ;;
+      *)                   ralph_usage_error "unexpected argument: $1" ;;
     esac
   done
 

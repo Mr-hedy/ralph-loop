@@ -42,17 +42,17 @@ provider_oneshot() {
         done < "$tasks_file"
         mv "$tmpout" "$tasks_file"
       fi
-      echo "fake: happy scenario completed" | tee -a "$log_path"
+      echo "fake: happy scenario completed" >> "$log_path"
       return 0
       ;;
     stagnation)
       # 不改 TASKS.md，不改 git，正常退出
-      echo "fake: stagnation scenario" | tee -a "$log_path"
+      echo "fake: stagnation scenario" >> "$log_path"
       return 0
       ;;
     crash)
       # 非零退出，无结构化错误
-      echo "fake: crash scenario" | tee -a "$log_path"
+      echo "fake: crash scenario" >> "$log_path"
       return 1
       ;;
     api-error)
@@ -83,13 +83,13 @@ provider_oneshot() {
         printf 'partial-progress-iter1\n' > "${RALPH_WORKSPACE:-.}/pp-test-file.txt"
         _RALPH_PP_DONE=1
       fi
-      echo "fake: partial_progress scenario (done=$_RALPH_PP_DONE)" | tee -a "$log_path"
+      echo "fake: partial_progress scenario (done=$_RALPH_PP_DONE)" >> "$log_path"
       return 0
       ;;
     slow)
       # sleep 远超 timeout；用于 timeout 用例
       local actual_sleep="${sleep_sec:-30}"
-      echo "fake: slow scenario, sleeping ${actual_sleep}s" | tee -a "$log_path"
+      echo "fake: slow scenario, sleeping ${actual_sleep}s" >> "$log_path"
       sleep "$actual_sleep"
       return 0
       ;;

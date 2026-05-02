@@ -989,7 +989,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
 SJEOF
 run_a_dir="$ws/.ralph/runs/20260501-120000-aaa1111/iterations/iter-001"
 mkdir -p "$run_a_dir"
-echo "log from run A" > "$run_a_dir/log"
+echo "log from run A" > "$run_a_dir/provider.stdout.log"
 # Source libs and init watch state (direct function test)
 # shellcheck source=/dev/null
 source "$REPO_ROOT/.ralph/lib/status.sh"
@@ -1023,7 +1023,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
 SJEOF
 run_b_dir="$ws/.ralph/runs/20260501-130000-bbb2222/iterations/iter-001"
 mkdir -p "$run_b_dir"
-echo "log from run B" > "$run_b_dir/log"
+echo "log from run B" > "$run_b_dir/provider.stdout.log"
 # Frame 2: run_id changed → separator + new tail target
 _ralph_watch_tail_draw "$ws" "$ws/.ralph/status.json" >> "$tmpout"
 separator_ok=0; log_a_ok=0; log_b_ok=0; trunc_ok=0

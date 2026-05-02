@@ -62,6 +62,14 @@ _ralph_print_summary() {
   fi
 
   local sep="────────────────────────────────────────────────"
+  local total_dur=""
+  if [[ -n "${_RALPH_START_TIME:-}" ]]; then
+    total_dur="$(ralph_format_duration $(( $(date -u +%s) - _RALPH_START_TIME )))"
+  fi
+  local started_local=""
+  if [[ -n "${_RALPH_STARTED_AT:-}" ]]; then
+    started_local="$(ralph_iso_to_local_display "$_RALPH_STARTED_AT")"
+  fi
   local lines=()
   lines+=("$sep")
   lines+=("Ralph Run Complete")
@@ -71,6 +79,8 @@ _ralph_print_summary() {
   lines+=("Exit Reason:   $exit_reason")
   lines+=("Iterations:    $iterations")
   lines+=("Tasks:         $tasks_checked_end / $tasks_total")
+  [[ -n "$started_local" ]] && lines+=("Started:       $started_local")
+  [[ -n "$total_dur" ]]     && lines+=("Duration:      $total_dur")
 
   case "$exit_reason" in
     done)
@@ -360,6 +370,18 @@ EOF
   # 解析 TASKS.md 顶部 "当前迭代" 声明（如有），用于 status.json / result.json / 退出打印
   _RALPH_CURRENT_ITERATION="$(parse_current_iteration "$tasks_md")"
 
+  # 启动 banner（D-2 进度 marker，stderr）
+  local _banner_iter="${_RALPH_CURRENT_ITERATION:-}"
+  [[ -z "$_banner_iter" || "$_banner_iter" == "null" ]] && _banner_iter="(no-iter)"
+  printf '[%s] ralph %s | run %s | %s | tasks %d/%d done | provider %s\n' \
+    "$(date +"%H:%M:%S")" \
+    "$RALPH_VERSION" \
+    "$run_id" \
+    "$_banner_iter" \
+    "$tasks_checked_start" \
+    "$tasks_total" \
+    "$provider" >&2
+
   # status.json 初始写入
   _ralph_write_status "running" "$run_id" "$provider" "$model" "$effort" \
     "$started_at" 0 "$tasks_total" "$tasks_checked_start"
@@ -441,6 +463,33 @@ EOF
     init_meta "$iter_dir" "$iteration" "$provider" 0 0
     update_meta_jq "$iter_dir" '.runtime_block = $rb' --arg rb "$runtime_block"
 
+    # 进度 marker：iter 启动（D-2 默认）
+    # max_iter=0 显示为 ∞；first task 描述截前 60 字符做提示
+    local _max_iter_disp="∞"
+    [[ "$max_iter" -gt 0 ]] && _max_iter_disp="$max_iter"
+    local _first_task=""
+    if declare -f first_unchecked_task >/dev/null 2>&1; then
+      _first_task="$(first_unchecked_task "$tasks_md" 2>/dev/null)" || _first_task=""
+    fi
+    local _now_local
+    _now_local="$(date +"%H:%M:%S")"
+    local _start_marker="[$_now_local] iter $iteration/$_max_iter_disp"
+    if [[ -n "$_first_task" ]]; then
+      _start_marker+=" → ${_first_task:0:80}"
+    fi
+    printf '%s\n' "$_start_marker" >&2
+
+    # 启动 -v live tail（如启用 RALPH_VERBOSE=1）：在 provider_oneshot 期间
+    # tail provider.stdout.log，过滤 stream-json events 实时打印 agent 行为
+    local _tail_pid=""
+    if [[ "${RALPH_VERBOSE:-0}" == "1" ]]; then
+      touch "$log_path"
+      ( tail -f "$log_path" 2>/dev/null \
+          | _ralph_filter_verbose 2>/dev/null \
+          >&2 ) &
+      _tail_pid=$!
+    fi
+
     # provider_oneshot（带 timeout 支持）
     local rc=0
     if [[ "$timeout_sec" -gt 0 ]]; then
@@ -470,6 +519,13 @@ EOF
       wait "$pid" 2>/dev/null || rc=$?
     else
       RALPH_WORKSPACE="$workspace" provider_oneshot "$prompt_file" "$log_path" "$iter_dir" || rc=$?
+    fi
+
+    # 停 -v live tail
+    if [[ -n "${_tail_pid:-}" ]]; then
+      kill "$_tail_pid" 2>/dev/null || true
+      wait "$_tail_pid" 2>/dev/null || true
+      _tail_pid=""
     fi
 
     # 清理 prompt 临时文件（provider 已经读完）
@@ -561,10 +617,54 @@ EOF
     # status.json 刷新
     _ralph_update_status "running" "" "$iteration" "$tasks_total" "$checked_after"
 
+    # 进度 marker：iter 完成（D-2 默认）
+    local _iter_dur_sec=$(( duration_ms / 1000 ))
+    local _run_dur_sec=$(( $(date -u +%s) - _RALPH_START_TIME ))
+    local _delta_tasks=$(( checked_after - checked_before ))
+    local _now_local
+    _now_local="$(date +"%H:%M:%S")"
+    local _end_status="✓ done"
+    [[ "$_delta_tasks" -eq 0 ]] && _end_status="◷ no progress"
+    printf '[%s] iter %d/%s %s | tasks %d/%d | iter %s | run %s\n' \
+      "$_now_local" "$iteration" "$_max_iter_disp" "$_end_status" \
+      "$checked_after" "$tasks_total" \
+      "$(ralph_format_duration "$_iter_dur_sec")" \
+      "$(ralph_format_duration "$_run_dur_sec")" >&2
+
     # stagnation 退出
     if [[ "$stagnation_count" -ge "$stagnation_limit" ]]; then
       _ralph_finish "stagnated" 5 "$iteration" "$tasks_total" \
         "$tasks_checked_start" "$checked_after" "$started_at" "null"
     fi
+  done
+}
+
+# ── _ralph_filter_verbose ────────────────────────────────────────────────────
+# stream-json events 流过滤器：在 -v 模式下把 events 转成简短人话行（stderr）
+# 输入：每行一个 JSON event（来自 provider.stdout.log）
+# 输出：精简事件标记（[user] / [assistant] / [tool-use] 等）
+_ralph_filter_verbose() {
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # 仅处理 JSON 行
+    [[ "$line" =~ ^[[:space:]]*\{ ]] || continue
+    # 对每个事件按 type 简化输出（jq 失败则跳过）
+    printf '%s\n' "$line" | jq -r '
+      if .type == "system" and .subtype == "init" then
+        "  ⚙ session " + ((.session_id // "") | .[0:8])
+      elif .type == "assistant" then
+        ((.message.content // []) | if type == "array" then . else [] end | .[]
+          | if .type == "thinking" then "  💭 " + ((.thinking // "") | .[0:120])
+            elif .type == "text"   then "  💬 " + ((.text // "") | .[0:120])
+            elif .type == "tool_use" then "  🔧 " + (.name // "?") + " " + ((.input // {}) | tostring | .[0:80])
+            else empty end)
+      elif .type == "user" then
+        ((.message.content // []) | if type == "array" then . else [] end | .[]
+          | select(.type == "tool_result")
+          | "  ⏎ result " + ((.content // "") | tostring | .[0:80]))
+      elif .type == "result" then
+        if .is_error then "  ❌ error: " + ((.result // "") | .[0:120])
+        else "  ✓ result " + ((.result // "") | .[0:120]) end
+      else empty end
+    ' 2>/dev/null
   done
 }

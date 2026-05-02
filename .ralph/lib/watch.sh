@@ -120,7 +120,7 @@ _ralph_watch_iter_log_path() {
   fi
   local zero_padded
   printf -v zero_padded '%03d' "$iter"
-  printf '%s/.ralph/runs/%s/iterations/iter-%s/log' "$workspace" "$run_id" "$zero_padded"
+  printf '%s/.ralph/runs/%s/iterations/iter-%s/provider.stdout.log' "$workspace" "$run_id" "$zero_padded"
 }
 
 # ── Tail area: print new lines from current iter log ─────────────────────────
@@ -172,9 +172,12 @@ _ralph_watch_tail_draw() {
 }
 
 # ── Render one frame: tail area + sticky bar ─────────────────────────────────
+# RALPH_WATCH_VERBOSE=1 时上方区域 tail iter log；默认 0 时只刷新 sticky bar
 ralph_watch_frame() {
   local workspace="$1" status_file="$2"
-  _ralph_watch_tail_draw "$workspace" "$status_file"
+  if [[ "${RALPH_WATCH_VERBOSE:-0}" == "1" ]]; then
+    _ralph_watch_tail_draw "$workspace" "$status_file"
+  fi
   _ralph_watch_bar_draw "$status_file"
 }
 
