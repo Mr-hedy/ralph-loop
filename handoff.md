@@ -1,78 +1,66 @@
 # 当前目标与约束
 
-- I1 dogfood 启动准备**已完成且通过真实 Claude smoke 验证**，等待 commit + checkpoint 后开始 T5 任务拆解。
-- v0.1.1-dev：HUMAN-N 阻塞机制 + 任务前缀全大写强约束 + iteration 命名 + Provider 配置目录隔离（中立抽象）+ dogfood 模式切换（`.ralph/TASKS.md` 取代 root `task.md`）。
-- 硬约束：root `task.md` 已封版（v0.1 历史），不再更新；新阶段统一用 `I` 前缀，I1 = dogfood T5（status + watch 真实功能）。
+- 本轮目标：完成 I1 dogfood observability 修复后的最终 adversarial review，随后按用户要求先更新 handoff，再创建 checkpoint。
+- 硬约束：中文回复；root `task.md` 已封版，不再更新；当前开发任务事实源是 `.ralph/TASKS.md`；`.ralph/runs/`、`.ralph/status.json`、`.ralph/lock`、`.env` 不入仓。
+- 用户已明确接受 O1：`.ralph/PROMPT.md` 对 `.spec/rules/tasks.md` 的路由问题等未来合并到 `agent-collab-kit` 再处理，本仓库不阻塞。
 
 # 当前阶段与范围
 
-- 阶段：I1 启动前置准备 + adversarial review fixes + 凭据隔离架构 — **已全部落地，未 commit**。
-- 影响模块：`.ralph/`（PROMPT/TASKS/lib/bin）、`.spec/rules/`、`docs/`（requirements / architecture / roadmap / README）、`scripts/integration-test.sh`、`CLAUDE.md`/`AGENTS.md`、root `task.md`。
-- 变更类型：代码 + 文档 + 测试 + 协议规范。
+- 阶段：I1 watch / run observability 收口，修复 review 中 M1/M2/O2/O3/O4，并完成 HUMAN-1 手工验证记录。
+- 影响模块：`.ralph/lib/run.sh`、`.ralph/lib/watch.sh`、`.ralph/lib/adapter-claude.sh`、`tests/fixtures/mock-claude`、`scripts/integration-test.sh`、`.ralph/TASKS.md`、`.ralph/README.md`、`docs/architecture/*`、`docs/requirements/ralph-loop/requirements.md`。
+- 变更类型：代码 + 测试 + 文档 + 任务事实源更新。
 
 # 稳定决策
 
-- **任务类型 8 类前缀**：REQ / SOL / ROADMAP / PLAN / DEV / QA / REVIEW（ralph oneshot 内 agent 执行）+ HUMAN（main agent 对话内人类协作）；前缀必须全大写英文，启动校验失败 exit 1。注：`PLAN-N` = 任务列表规划（trantor PLAN / sprint planning 同义）；`ROADMAP-N` = roadmap 阶段规划。
-- **HUMAN-N 阻塞**：双重保险 — 工具层 hardcode 入口扫描 + exit 7（`blocked_by_human`）；PROMPT.md 强约束 agent 不勾不执行；解锁路径 = 普通 Claude Code 对话内人类与 main agent 协作勾选。
-- **取消 SUMMARY.md**：信息已在 TASKS.md（任务事实）+ status.json（机器可读）+ 终端打印 + `exit-message.txt` 接力提示中分布；归档 = `cp .ralph/TASKS.md docs/requirements/ralph-loop/I<N>-FINAL-TASK.md`。
-- **Iteration 命名**：`I<N>` 单调递增；`.ralph/TASKS.md` 顶部 `> 当前迭代: I<N>` blockquote 声明（ASCII 冒号），ralph 解析写入 `iteration_name` 字段。
-- **Provider 配置目录隔离（中立抽象）**：`.env` 用 `RALPH_PROVIDER_CONFIG_DIR`，adapter source 时翻译为 provider 原生变量（Claude → `CLAUDE_CONFIG_DIR`；Codex/Gemini 在 T3/T4 落地时定义）；空值不 export（鲁棒性）；`.env` 加载支持 `~/` tilde 展开。
-- **退出原因 8 种**：done / provider_failed / timeout / max_iterations / stagnated / locked / blocked_by_human(exit 7) / interrupted；启动校验失败 exit 1。
-- **Escalation 两条路径**：A 路径 = `REVIEW-N [blocked-by <task>]`（ralph 内可解决）；B 路径 = HUMAN-N（需外部决策）；REVIEW 常规审查另一种格式 = `REVIEW-N: <对象> | review` 或 `| adversarial-review`，与 escalation 互斥。
-- **agent-collab-kit 同步建议**已写在 `docs/requirements/ralph-loop/I1-design.md` 末尾，由用户拿去 kit 工程那边推进，本仓库不跟踪状态。
+- `ralph run -v` live tail 必须有自动回归测试，覆盖 happy marker 和 provider error marker，避免 redirection 顺序问题再次静默。
+- `run -v` tail 生命周期改为全局 `_RALPH_TAIL_PID` / `_RALPH_TAIL_FILTER_PID` / `_RALPH_TAIL_FIFO`，由 `_ralph_finish` 统一清理，覆盖 Ctrl-C / timeout / provider_failed / normal exit。
+- `session.history.log` 是人类摘要视图：保留 user / assistant / thinking / tool_use 摘要 / tool_result；完整 tool input 仍以 `session.<provider>.jsonl` 作为复盘事实源。
+- `watch` sticky bar 显示 `iteration_name`；Ctrl-C cleanup 对 sleep 发送 `INT`，避免 macOS bash 打印 killed sleep 噪声。
+- REQ-025/REQ-026 已补 SC，且 SC-025-1 / SC-025-2 / SC-026-1 现在有集成测试证据；SC-025-3 仍按进程探针/手工验证处理。
 
 # 已完成工作
 
-- 协议层：`.ralph/PROMPT.md` 重写（去样板自我矮化注释 + 8 类任务前缀 + HUMAN-N 段 + Escalation 两条路径 + REVIEW 两种格式 + TASKS.md 顶部声明格式约定 + exit code 表 + 前缀强约束）。
-- 任务源切换：`.ralph/TASKS.md` 改为 dogfood 任务源（顶部 `> 当前迭代: I1`，四段结构）；hello world demo 挪到 `.ralph/TASKS.bak`；root `task.md` 顶部加封版 banner。
-- 工具层：`.ralph/lib/tasks.sh` 加 `first_unchecked_task` / `is_blocked_by_human` / `parse_current_iteration` / `validate_task_prefixes`（启动校验全大写）；`.ralph/lib/run.sh` 加 HUMAN-N 入口扫描 + `_ralph_print_summary` 退出打印 + `iteration_name` 字段 + status.json/result.json 扩展；`.ralph/lib/common.sh` `load_env` 加 tilde 展开；`.ralph/lib/adapter-claude.sh` 加 `RALPH_PROVIDER_CONFIG_DIR → CLAUDE_CONFIG_DIR` 翻译（空值不 export）；版本号 `0.1.0` → `0.1.1-dev`。
-- 文档同步：requirements.md（REQ-009 扩 + 新增 REQ-018/019/020/021/022 + SC-018-1/018-2/019-1/020-1/021-1/022-1/022-2 + §非目标 dogfood 修订）；architecture/overview.md 加 `blocked_by_human` 退出原因 + Iteration 协议段；architecture/integrations.md 加 Adapter 配置目录翻译契约段；architecture/security.md 加 tilde 展开例外 + Provider 凭据/配置目录隔离段；roadmap.md 加 T→I 编号约定 + dogfood Current State；`.spec/rules/roadmap.md` 加归档动作段；CLAUDE.md/AGENTS.md 任务类型路由 + iteration 归档约定；README.md exit_reason 7→8 + dogfood 入口 + `.env` 示例加 `RALPH_PROVIDER_CONFIG_DIR` 注释；docs/README.md 索引同步；`docs/requirements/ralph-loop/I1-design.md` 集中方案锚点（含 kit 同步建议）。
-- 集成测试：`scripts/integration-test.sh` 49→52 用例（5 HUMAN-N + 3 前缀大写 + 3 tilde/翻译/空值鲁棒性）。
+- M1：`scripts/integration-test.sh` 新增 `ralph run -v` happy/error live tail 回归测试；mock Claude 输出 assistant/tool_result 等 stream-json events。
+- M2：`.ralph/lib/run.sh` 加 `_ralph_stop_verbose_tail`，trap 路径通过 `_ralph_finish` 清理 live tail 相关进程；进程探针未发现残留 `tail -f provider.stdout.log`。
+- O2：`docs/requirements/ralph-loop/requirements.md` 补 SC-025-* / SC-026-*，追踪矩阵更新为完整。
+- O3：`.ralph/lib/adapter-claude.sh` 对长 tool_use input 做前段 + 尾段摘要，中间标注 truncation，完整内容保留在 `session.claude.jsonl`；mock fixture 和集成测试覆盖。
+- O4：`.ralph/lib/watch.sh` sticky bar 加 `iter_name`，非 TTY watch fallback 测试覆盖 `iteration_name:` 字段。
+- HUMAN-1：`.ralph/TASKS.md` 已勾选并记录 PTY 验证结论；真实 side-by-side 录屏未执行，使用临时 workspace / mock status / PTY 覆盖 UX 合约。
+- 最终 adversarial review：未发现新的必须修复项；仅保留已接受 O1 和 SC-025-3 的手工/探针验证边界。
 
 # 最新验证
 
-- 命令：`bash scripts/check.sh && bash scripts/integration-test.sh`
-- 结果：通过（check PASS，integration 52/52 PASS）
-- 命令：临时 workspace 跑 `~/.claude-glm/` 真实 Claude RT1 + RT2 smoke
-- 结果：
-  - **T1 默认账号 done**：exit 0 / 4 轮 / 3/3 任务 / 67s
-  - **T2 默认账号 HUMAN-N 拦截**：exit 7 / 0 iter
-  - **RT1 ~/.claude-glm/ done**：exit 0 / 4 轮 / 3/3 任务 / 105s；session jsonl 落 `~/.claude-glm/projects/`，main agent 的 `~/.claude/projects/` 未被污染（CLAUDE_CONFIG_DIR 切换 100% 生效硬证据）
-  - **RT2 ~/.claude-glm/ HUMAN-N 拦截**：exit 7 / 0 iter / `~/.claude-glm/projects/` 未含本次 session（未调 claude 硬证据）
-- 诊断：v0.1.1-dev 在真实 Claude provider + 独立账号 config dir 下行为完全符合预期，无 regression。
+- 命令：`bash -n scripts/integration-test.sh .ralph/lib/run.sh .ralph/lib/watch.sh .ralph/lib/adapter-claude.sh tests/fixtures/mock-claude`
+- 结果：通过。
+- 命令：`git diff --check`
+- 结果：通过。
+- 命令：`bash scripts/integration-test.sh`
+- 结果：通过，`PASS=59 FAIL=0`。
+- 命令：`bash scripts/check.sh`
+- 结果：通过，`ralph-loop check passed`。
+- 命令：`ps -axo pid=,command= | grep 'ralph/bin/ralph\|tail -f .*provider.stdout.log' | grep -v grep || true`
+- 结果：无输出，未发现残留 ralph/tail 进程。
 
 # 已验证与未验证
 
-- 已验证：内核 HUMAN-N 拦截、退出打印、status/result.json 字段扩展、前缀全大写校验、tilde 展开、adapter 翻译、空值鲁棒性、真实 Claude done 路径、真实 Claude HUMAN-N 拦截路径、`CLAUDE_CONFIG_DIR` 子进程继承生效（session 路径硬证据）。
-- 未验证：真实 Claude 在面对**真实需求歧义**时是否主动写 HUMAN-N（需要刻意构造模糊任务才能触发，dogfood I1 中暴露）；多轮 dogfood 完整流程（HUMAN 触发 → 人介入 → 解锁 → 继续）；Codex / Gemini 翻译契约（T3 / T4 落地时实现）；Linux 用户的 `CLAUDE_CONFIG_DIR` 行为（macOS 用户已验证）。
+- 已验证：默认 run progress marker + stdout silent；`run -v` happy/error stream-json marker；Claude session capture + history truncation marker + native jsonl 完整 input；status plain text 本地时间格式；status `--json` 原始 ISO UTC；watch non-TTY fallback 含 `iteration_name`；完整集成测试与项目检查。
+- 未验证：真实 Claude provider 的 side-by-side 录屏；真实长任务中 `-v` 最后一秒事件的人眼观感；SC-025-3 尚未转成自动化测试，当前靠进程探针和手工验证。
 
 # Checkpoint 与 Postmortem 状态
 
-- Checkpoint：尚无（本轮工作落地后立即创建本会话第一个 checkpoint）。最近已 commit 的稳定锚点：`docs/checkpoints/2026-04-28-06-v0.1-release.md`（commit `3e897b6 T6 done`）。
-- Postmortem：本轮无新增、无更新；adversarial review 暴露的所有可观察风险已修复（M1/M2/M3 必须修复全过；O1-O7 已处理或接受；无系统性失败模式产生）。
+- Checkpoint：按用户指定顺序，handoff 已先更新；checkpoint note 已创建为 `docs/checkpoints/2026-05-02-01-i1-observability-review-fixes.md`，待随本轮 coherent scope 一起提交。提交后以最新 git commit 为准。
+- Postmortem：checkpoint sweep 命中既有 PM-0003（REQ traceability / 可观察链路缺少自动化证据），已更新 `docs/postmortems/pm-task-closure-req-traceability.md`；无需新增并行 PM。
 
 # 工作区状态
 
 - 分支：`main`
-- 工作区：dirty（16 文件 modified + 2 文件 untracked），见 `git status -s`：
-  - 协议/工具：`.ralph/{PROMPT.md,TASKS.md,bin/ralph,lib/{adapter-claude,common,run,tasks}.sh}`
-  - 文档：`AGENTS.md`、`README.md`、`docs/{README.md,architecture/{integrations.md,overview.md,security.md},requirements/ralph-loop/requirements.md,roadmap.md}`、`.spec/rules/roadmap.md`、`task.md`
-  - 测试：`scripts/integration-test.sh`
-  - 新增：`.ralph/TASKS.bak`、`docs/requirements/ralph-loop/I1-design.md`
-- 临时 workspace（不入仓，验证证据）：
-  - T1: `/var/folders/.../ralph-i1-smoke-T1-XXXXXX.2um11tCbX7`
-  - T2: `/var/folders/.../ralph-i1-smoke-T2-XXXXXX.kDG6Le1aa8`
-  - RT1: `/var/folders/.../ralph-i1-rt1-glm-XXXXXX.SryIeZH4mv`
-  - RT2: `/var/folders/.../ralph-i1-rt2-glm-XXXXXX.FJyCN0ggUz`
-- main agent 的 `~/.claude/` 未被任何 smoke 污染（已验证）。
+- 当前 dirty scope：13 个 tracked 文件修改 + 1 个 checkpoint note，集中在 `.ralph/` runtime code/docs、requirements/architecture 文档、集成测试、mock fixture、handoff、checkpoint 和 PM-0003。
+- 最近提交：`6712934 fix: -v live tail redirection 顺序（>&2 必须在 2>/dev/null 之前）`、`4553070 docs: add .ralph/README.md (usage guide)`、`02b9c3c spec: tasks.md format rules + retrospective for kit sync (Q3)`。
 
 # 建议下一步
 
-1. `/checkpoint` 创建本会话第一个 checkpoint，note 记录 I1 prep + adversarial fixes + provider config dir 抽象闭环。
-2. commit 本轮全部变更（建议 message：`I1 prep + adversarial fixes + provider config dir abstraction`）。
-3. （独立动作）拆解 T5 任务到 `.ralph/TASKS.md` 当前任务区，准备启动 I1 dogfood 第一次 `ralph run`。
-4. （后置）把 `docs/requirements/ralph-loop/I1-design.md` 末尾的"对 agent-collab-kit 的同步建议"拿去 kit 工程推进 template 同步。
+- 立即按 checkpoint skill 创建 `docs/checkpoints/YYYY-MM-DD-NN-*.md`，做 postmortem sweep，stage 本轮 coherent scope 并提交。
 
 # 交接摘要
 
-- I1 dogfood 启动前置已全部落地并经真实 Claude smoke 双路径验证（默认账号 + ~/.claude-glm/ 独立账号），核心证据 = session jsonl 路径切换硬证据；下一步只需 checkpoint + commit + T5 任务拆解，即可开始 dogfood 第一次 `ralph run`。
+- 本轮核心是把 I1 observability 的审查缺口闭环：`run -v` 有回归测试且 Ctrl-C cleanup 不漏 tail，history 摘要不吞完整复盘数据，watch/status 的新需求有 SC 和验证证据；当前可进入 checkpoint。

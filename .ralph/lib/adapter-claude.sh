@@ -161,7 +161,7 @@ provider_collect_session() {
     fi
   fi
 
-  # 派生 session.history.log（人话视图，含 thinking + 完整 tool_use input）
+  # 派生 session.history.log（人话视图，含 thinking + tool_use input 摘要）
   if [[ -f "$dst" ]]; then
     _claude_derive_history "$dst" "$iter_dir/session.history.log"
   fi
@@ -174,7 +174,7 @@ provider_collect_session() {
 #   - [user] 文本消息
 #   - [assistant] 文本回复
 #   - [thinking] 思考块（保留全文，不过滤）
-#   - [tool-use name=X] 工具调用 + 完整 input（不截断）
+#   - [tool-use name=X] 工具调用 + input 摘要（完整 input 见 session.claude.jsonl）
 #   - [tool-result name=X] 工具结果（截前 2000 字符）
 # 替代旧 chat.log + tools.log 双视图
 
@@ -186,6 +186,12 @@ _claude_derive_history() {
       if   (c | type) == "array"  then [c[] | select(.type=="text") | .text] | join("")
       elif (c | type) == "string" then c
       else "" end;
+
+    def tool_input_summary:
+      (tostring) as $s |
+      if ($s | length) > 4000 then
+        ($s[0:2000] + "\n... [tool input truncated; see session.claude.jsonl for full input]\n" + $s[-1000:])
+      else $s end;
 
     # tool_use_id → name map（从 assistant 消息提取，供 tool_result 标注 name）
     ( [.[] | select(.type=="assistant") |
@@ -228,7 +234,7 @@ _claude_derive_history() {
       elif .type == "tool_use" then
         . as $tu |
         "[tool-use name=" + ($tu.name // "?") + "] " + ($e.timestamp // ""),
-        ($tu.input | tostring),
+        ($tu.input | tool_input_summary),
         ""
       else empty end
     else empty end

@@ -13,8 +13,25 @@ _RALPH_RUN_DIR=""
 _RALPH_WORKSPACE=""
 _RALPH_START_TIME=0
 _RALPH_CURRENT_ITERATION=""
+_RALPH_TAIL_PID=""
+_RALPH_TAIL_FILTER_PID=""
+_RALPH_TAIL_FIFO=""
 
 # ── 退出辅助函数 ─────────────────────────────────────────────────────────────
+_ralph_stop_verbose_tail() {
+  local pid
+  for pid in "${_RALPH_TAIL_PID:-}" "${_RALPH_TAIL_FILTER_PID:-}"; do
+    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
+  done
+  for pid in "${_RALPH_TAIL_PID:-}" "${_RALPH_TAIL_FILTER_PID:-}"; do
+    [[ -n "$pid" ]] && wait "$pid" 2>/dev/null || true
+  done
+  [[ -n "${_RALPH_TAIL_FIFO:-}" ]] && rm -f "$_RALPH_TAIL_FIFO" 2>/dev/null || true
+  _RALPH_TAIL_PID=""
+  _RALPH_TAIL_FILTER_PID=""
+  _RALPH_TAIL_FIFO=""
+}
+
 _ralph_write_result() {
   local exit_reason="$1"
   local iterations="$2"
@@ -153,6 +170,8 @@ _ralph_finish() {
   local tasks_checked_end="${6:-0}"
   local started_at="${7:-}"
   local last_error="${8:-null}"
+
+  _ralph_stop_verbose_tail
 
   if [[ "$_RALPH_LOCK_ACQUIRED" -eq 1 && -n "$_RALPH_RUN_DIR" ]]; then
     _ralph_write_result "$exit_reason" "$iterations" "$tasks_total" \
@@ -483,12 +502,16 @@ EOF
     # tail provider.stdout.log，过滤 stream-json events 实时打印 agent 行为
     # 重要：redirection 顺序 `>&2 2>/dev/null` —— stdout 先转 fd2（终端 stderr）
     # 再 stderr 转 /dev/null。反序会让 stdout 也跟去 /dev/null（fd2 已被覆盖）
-    local _tail_pid=""
     if [[ "${RALPH_VERBOSE:-0}" == "1" ]]; then
+      _ralph_stop_verbose_tail
       touch "$log_path"
-      ( tail -f "$log_path" 2>/dev/null \
-          | _ralph_filter_verbose >&2 2>/dev/null ) &
-      _tail_pid=$!
+      _RALPH_TAIL_FIFO="$(mktemp -t ralph-tail.XXXXXX)"
+      rm -f "$_RALPH_TAIL_FIFO"
+      mkfifo "$_RALPH_TAIL_FIFO"
+      tail -f "$log_path" > "$_RALPH_TAIL_FIFO" 2>/dev/null &
+      _RALPH_TAIL_PID=$!
+      _ralph_filter_verbose < "$_RALPH_TAIL_FIFO" >&2 2>/dev/null &
+      _RALPH_TAIL_FILTER_PID=$!
     fi
 
     # provider_oneshot（带 timeout 支持）
@@ -523,11 +546,7 @@ EOF
     fi
 
     # 停 -v live tail
-    if [[ -n "${_tail_pid:-}" ]]; then
-      kill "$_tail_pid" 2>/dev/null || true
-      wait "$_tail_pid" 2>/dev/null || true
-      _tail_pid=""
-    fi
+    _ralph_stop_verbose_tail
 
     # 清理 prompt 临时文件（provider 已经读完）
     rm -f "$prompt_file"

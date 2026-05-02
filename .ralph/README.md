@@ -133,7 +133,7 @@ RALPH_PROVIDER_CONFIG_DIR=~/.claude-glm    # tilde 自动展开为 $HOME
 | `meta.json` | 元数据（session_id / provider_started_at / runtime_block / capture_status / error / 任务进度 / changed_files / stagnation_count） |
 | `provider.stdout.log` | provider CLI stdout + stderr 合流（Claude stream-json events / Codex JSONL events / Gemini text） |
 | `session.<provider>.jsonl` | provider 原生 session 副本（Claude `~/.claude/projects/...` / Codex `~/.codex/sessions/...` / Gemini `~/.gemini/tmp/...`），保留 30 天后过期 + 派生 bug 回滚 anchor |
-| `session.history.log` | 跨 provider 人话视图（user / assistant / thinking / tool_use 完整 input / tool_result + 时间戳），从 `session.<provider>.jsonl` 派生 |
+| `session.history.log` | 跨 provider 人话视图（user / assistant / thinking / tool_use 摘要 / tool_result + 时间戳），从 `session.<provider>.jsonl` 派生；完整 tool input 保留在原生 session 副本 |
 
 **复盘建议**：
 - 看 agent 在做什么 → `cat session.history.log`
@@ -217,7 +217,7 @@ A：检查 `CLAUDE_CONFIG_DIR`（如使用 RALPH_PROVIDER_CONFIG_DIR）是否正
 A：违反 PROMPT.md 强约束。重跑前手动改回 `[ ]`；可能 agent 误判，需要在 PROMPT.md 加强约束或在任务描述明示。
 
 **Q：iter dir 里没有 `chat.log` / `tools.log`**
-A：v0.1.1 起合并为 `session.history.log`（同等可读视图，含 thinking + 完整 tool_use input）。
+A：v0.1.1 起合并为 `session.history.log`（同等可读视图，含 thinking + tool_use 摘要；完整 input 见 `session.<provider>.jsonl`）。
 
 **Q：时间戳为什么是 +0800？**
 A：人类终端输出（status / watch / 进度 marker / exit-message）渲染本地时间；JSON 文件（`status.json` / `result.json` / `meta.json`）保留 ISO 8601 UTC 用于机器解析（REQ-026 双层时间格式）。

@@ -1,6 +1,6 @@
 # Testing
 
-- 状态：T1/T2/T6 已稳定；当前 41 PASS
+- 状态：T1/T2/T6/I1 已稳定；当前 59 PASS
 - 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/architecture/overview.md`（启动校验、退出原因、运行目录 schema）、`docs/architecture/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
 - 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/testing.md`），不写具体用例的验证计划（写到任务事实源 `task.md` 对应任务的"验证计划"段）。
 - 变更条件：测试入口脚本变化、新增 fixture 或 mock 类型、隔离规则失效、新平台支持、测试覆盖目标变化。
@@ -81,6 +81,8 @@ tests/
 | T6.2 完成期 | +4（实际 40） | SC-014-1：effort=low/medium/high/none 各触发一次；mock-claude `_received_effort` 回显 |
 | T6.6 完成期 | +1（实际 41） | ralph --version 含 0.1.0（从 0.1.0-dev 提升） |
 | T6 总目标 | ≥41（实际 41） | 上述累计；macOS 实测通过 |
+| I1 status/watch + dogfood prep | +16（实际 57） | SC-023 status、SC-024 watch 自动化部分、HUMAN-N、iteration_name、任务前缀、Provider 配置目录、exit-message |
+| M1 live tail regression | +2（实际 59） | `ralph run -v` happy/error stream-json filter marker 回归覆盖 |
 
 未覆盖范围（已知，不计入失败）：
 

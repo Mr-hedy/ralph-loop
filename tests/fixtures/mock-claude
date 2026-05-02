@@ -44,12 +44,27 @@ _emit_result_err() {
     "$(printf '%s' "$msg" | jq -Rs .)" "$session_id"
 }
 
+_emit_conversation_events() {
+  cat << 'ENDJSONL'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me think about this task."},{"type":"text","text":"I will complete this"},{"type":"tool_use","id":"tool1","name":"Bash","input":{"command":"echo hello"}}]},"uuid":"u2","timestamp":"2024-01-01T00:00:01.000Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool1","content":"hello\n"}]},"uuid":"u3","timestamp":"2024-01-01T00:00:02.000Z"}
+ENDJSONL
+}
+
+_post_stream_sleep() {
+  local sleep_sec="${RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP:-0}"
+  [[ "$sleep_sec" == "0" || -z "$sleep_sec" ]] && return 0
+  sleep "$sleep_sec"
+}
+
 # 写 ~/.claude(_CONFIG_DIR)/projects/<cwd_hash>/<id>.jsonl —— provider native session
 _write_native_session() {
   local file="$1"
-  cat > "$file" << 'ENDJSONL'
+  local long_input
+  long_input="$(printf 'x%.0s' {1..5000})"
+  cat > "$file" << ENDJSONL
 {"type":"user","message":{"role":"user","content":"Do one task"},"uuid":"u1","timestamp":"2024-01-01T00:00:00.000Z"}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me think about this task."},{"type":"text","text":"I will complete this"},{"type":"tool_use","id":"tool1","name":"Bash","input":{"command":"echo hello"}}]},"uuid":"u2","timestamp":"2024-01-01T00:00:01.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me think about this task."},{"type":"text","text":"I will complete this"},{"type":"tool_use","id":"tool1","name":"Bash","input":{"command":"echo hello","content":"$long_input"}}]},"uuid":"u2","timestamp":"2024-01-01T00:00:01.000Z"}
 {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool1","content":"hello\n"}]},"uuid":"u3","timestamp":"2024-01-01T00:00:02.000Z"}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done."}]},"uuid":"u4","timestamp":"2024-01-01T00:00:03.000Z"}
 ENDJSONL
@@ -78,7 +93,9 @@ _check_first_task() {
 case "$scenario" in
   happy)
     _emit_init
+    _emit_conversation_events
     _emit_result_ok
+    _post_stream_sleep
 
     # 写 native session（供 collect + history 派生使用）
     cwd_hash="$(_cwd_hash "$PWD")"
@@ -94,6 +111,7 @@ case "$scenario" in
     # stream events 正常；但 native session 文件名 UUID 与 session_id 不匹配（触发 mtime 降级）
     _emit_init
     _emit_result_ok
+    _post_stream_sleep
     cwd_hash="$(_cwd_hash "$PWD")"
     jsonl_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$cwd_hash"
     mkdir -p "$jsonl_dir"
@@ -105,36 +123,42 @@ case "$scenario" in
     # stream events 正常，但不写任何 native session 文件
     _emit_init
     _emit_result_ok
+    _post_stream_sleep
     exit 0
     ;;
 
   is_error_auth)
     _emit_init
     _emit_result_err "Authentication failed: unauthorized"
+    _post_stream_sleep
     exit 0
     ;;
 
   is_error_rate)
     _emit_init
     _emit_result_err "Rate limited: 429 too many requests"
+    _post_stream_sleep
     exit 0
     ;;
 
   is_error_quota)
     _emit_init
     _emit_result_err "Usage quota exceeded: credits exhausted"
+    _post_stream_sleep
     exit 0
     ;;
 
   is_error_api)
     _emit_init
     _emit_result_err "API error: 500 internal server error"
+    _post_stream_sleep
     exit 0
     ;;
 
   is_error_concurrency)
     _emit_init
     _emit_result_err "tool_use_concurrency error: concurrent tool calls not allowed"
+    _post_stream_sleep
     exit 0
     ;;
 

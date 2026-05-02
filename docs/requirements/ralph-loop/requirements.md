@@ -182,6 +182,11 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | SC-024-3 | REQ-024 | run 进入 `state=finished` 后 watch 不自动退出，sticky bar 持续显示最终 `exit_reason`，仅 Ctrl-C 退出（退出时清屏） | 手工验证 + 进程存活检查 | 不自退出 / Ctrl-C 干净退出 | 手工验证 |
 | SC-024-4 | REQ-024 | watch 在非 TTY 环境（如 `ralph watch \| cat`）退化为 status 单次打印后退出 | 退出码 + 输出行为 | exit 0 / 单次打印 | 集成测试 |
 | SC-024-5 | REQ-024 | sticky bar 状态字段按 `isatty + NO_COLOR` 自适应上色：`state=running` / `exit_reason=done` 绿；`provider_failed` / `timeout` / `max_iterations` / `stagnated` 红；`blocked_by_human` / `locked` / `interrupted` 黄；`NO_COLOR=1` 或非 TTY 输出时不上色 | 终端录屏（含 8 类 exit_reason）+ `NO_COLOR=1` 验证 | 颜色映射正确 / 降级正确 | 手工验证 |
+| SC-025-1 | REQ-025 | `ralph run` 默认 stderr 输出启动 banner 和每轮 iter 启停 marker，stdout 保持 silent | stderr/stdout 捕获 | stderr 含 `ralph <version> \| run`、`iter N/M →`、`iter N/M ✓ done`；stdout 为空 | 集成测试 / dogfood 验证 |
+| SC-025-2 | REQ-025 | `ralph run -v` live tail 会把 stream-json events 过滤成人类可读 marker | stderr grep | happy 路径含 `⚙ session` / `💬` / `✓ result` 至少一种；error 路径含 `❌ error` | 集成测试 |
+| SC-025-3 | REQ-025 | `ralph run -v` 中断或退出时清理 live tail 相关进程，不遗留 `tail -f provider.stdout.log` | 进程表检查 | 退出后无指向本 run 的 `tail -f provider.stdout.log` | 进程探针 / 手工验证 |
+| SC-026-1 | REQ-026 | 人类终端输出将 ISO UTC 时间渲染为本地时间 + 时区偏移 | plain text grep | `YYYY-MM-DD HH:MM:SS +ZZZZ` | 集成测试（status plain text） |
+| SC-026-2 | REQ-026 | JSON 事实文件保持 ISO 8601 UTC 时间戳 | JSON grep/jq | `started_at` / `updated_at` 等字段为 `...Z` | 集成测试（status --json / run artifacts） |
 
 ## 业务流程
 
@@ -418,10 +423,10 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-006 | SC-006-1, BPF-001, FR-005-007, FR-008, NFR-OBS-001, NFR-REL-002 | 集成测试 | 完整 |
 | REQ-007 | SC-007-1, FR-002, FR-003 | 集成测试 + 手工验证 | 完整（边界细节由 REQ-023/024 接管） |
 | REQ-022 | SC-022-1, SC-022-2, SC-022-3, FR-005 | 集成测试 + adapter 翻译契约 + session 采集路径 | 完整（I1 dogfood 2026-05-01 暴露 SC-022-3 P0 bug 并修复）|
-| REQ-023 | SC-023-1, SC-023-2, SC-023-3, FR-002 | 集成测试 | 完整（待 I1 实施）|
-| REQ-024 | SC-024-1, SC-024-2, SC-024-3, SC-024-4, SC-024-5, FR-003 | 集成测试 + 手工验证 | 完整（-v flag 2026-05-02 + 待 HUMAN-1 验证）|
-| REQ-025 | (新增) | run 主循环 progress markers + -v live tail | 完整（待 dogfood 真实验证）|
-| REQ-026 | (新增) | 双层时间格式 helper + status/watch/exit-message 应用 | 完整（待 dogfood 真实验证）|
+| REQ-023 | SC-023-1, SC-023-2, SC-023-3, FR-002 | 集成测试 | 完整 |
+| REQ-024 | SC-024-1, SC-024-2, SC-024-3, SC-024-4, SC-024-5, FR-003 | 集成测试 + 手工验证 | 完整（HUMAN-1 已验证）|
+| REQ-025 | SC-025-1, SC-025-2, SC-025-3 | run 主循环 progress markers + -v live tail 集成测试 / 进程探针 | 完整 |
+| REQ-026 | SC-026-1, SC-026-2 | 双层时间格式 helper + status/watch/exit-message 应用 | 完整 |
 | REQ-008 | SC-008-1, TC-STK-002 | 单元 + 集成测试 | 完整 |
 | REQ-009 | SC-009-1, FR-001, TC-STK-003 | 单元测试 | 完整 |
 | REQ-010 | SC-010-1, TC-STK-004 | 集成测试 | 完整 |

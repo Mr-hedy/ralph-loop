@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# integration-test.sh — T1 集成测试，13 用例
+# integration-test.sh — 集成测试入口
 
 set -euo pipefail
 
@@ -105,12 +105,25 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
+stdout_file="$(mktemp)"
+stderr_file="$(mktemp)"
+RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake \
+  >"$stdout_file" 2>"$stderr_file" || rc=$?
 run_dir="$(latest_run_dir "$ws")"
-if [[ -n "$run_dir" && "$(get_exit_reason "$run_dir")" == "done" && "$rc" -eq 0 ]]; then
-  _pass "done: exit_reason=done, exit_code=0, run_dir exists"
+stdout_silent=0
+[[ ! -s "$stdout_file" ]] && stdout_silent=1
+progress_ok=0
+if grep -Eq 'ralph [^ ]+ \| run ' "$stderr_file" \
+  && grep -Eq 'iter 1/.*→' "$stderr_file" \
+  && grep -Eq 'iter 1/.*✓ done' "$stderr_file"; then
+  progress_ok=1
+fi
+rm -f "$stdout_file" "$stderr_file"
+if [[ -n "$run_dir" && "$(get_exit_reason "$run_dir")" == "done" && "$rc" -eq 0 \
+   && "$stdout_silent" -eq 1 && "$progress_ok" -eq 1 ]]; then
+  _pass "done: exit_reason=done, rc=0, stdout silent, progress markers on stderr"
 else
-  _fail "done: expected exit_reason=done rc=0, got rc=$rc run_dir=$run_dir"
+  _fail "done: expected done/rc=0 + stdout silent + progress markers, got rc=$rc run_dir=$run_dir stdout_silent=$stdout_silent progress_ok=$progress_ok"
 fi
 cleanup_ws "$ws"
 
@@ -538,6 +551,8 @@ history_ok=0
   grep -q '\[assistant\]' "$iter_dir/session.history.log" && \
   grep -q '\[thinking\]' "$iter_dir/session.history.log" && \
   grep -q '\[tool-use name=' "$iter_dir/session.history.log" && \
+  grep -q 'tool input truncated; see session.claude.jsonl' "$iter_dir/session.history.log" && \
+  grep -q '"content":"xxxxxxxx' "$iter_dir/session.claude.jsonl" && \
   grep -q '\[tool-result name=' "$iter_dir/session.history.log" && history_ok=1
 if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_ok" -eq 1 \
    && "$history_ok" -eq 1 ]]; then
@@ -545,6 +560,56 @@ if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_ok" 
 else
   _fail "claude happy: rc=$rc reason=$reason stdout_ok=$stdout_ok session_ok=$session_ok history_ok=$history_ok"
 fi
+cleanup_claude_ws
+
+# ────────────────────────────────
+# ralph run -v live tail regression（M1）
+# ────────────────────────────────
+
+echo ""
+echo "-- ralph run -v live tail: happy stream emits filter markers"
+setup_claude_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+stderr_file="$(mktemp)"
+RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
+  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
+  >/dev/null 2>"$stderr_file" || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+marker_ok=0
+grep -Eq '⚙ session|💬|✓ result' "$stderr_file" 2>/dev/null && marker_ok=1
+if [[ "$rc" -eq 0 && "$reason" == "done" && "$marker_ok" -eq 1 ]]; then
+  _pass "run -v happy: stderr contains stream-json filter marker"
+else
+  _fail "run -v happy: expected rc=0 done + marker, got rc=$rc reason=$reason marker_ok=$marker_ok"
+fi
+rm -f "$stderr_file"
+cleanup_claude_ws
+
+echo ""
+echo "-- ralph run -v live tail: is_error_auth emits error marker"
+setup_claude_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+stderr_file="$(mktemp)"
+RALPH_MOCK_CLAUDE_SCENARIO=is_error_auth RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
+  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
+  >/dev/null 2>"$stderr_file" || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+error_marker_ok=0
+grep -q '❌ error' "$stderr_file" 2>/dev/null && error_marker_ok=1
+if [[ "$rc" -eq 2 && "$reason" == "provider_failed" && "$error_marker_ok" -eq 1 ]]; then
+  _pass "run -v auth error: stderr contains error filter marker"
+else
+  _fail "run -v auth error: expected rc=2 provider_failed + error marker, got rc=$rc reason=$reason marker_ok=$error_marker_ok"
+fi
+rm -f "$stderr_file"
 cleanup_claude_ws
 
 # ────────────────────────────────
@@ -565,11 +630,13 @@ iter_dir="${run_dir}/iterations/iter-001"
 jsonl_ok=0; capture_ok=0; history_ok=0
 [[ -f "$iter_dir/session.claude.jsonl" ]] && jsonl_ok=1
 grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
-# session.history.log 含 thinking + 完整 tool_use input（不再过滤）
+# session.history.log 含 thinking + tool_use 摘要 + tool_result；完整 input 保留在 session.claude.jsonl
 [[ -f "$iter_dir/session.history.log" ]] && \
   grep -q '\[user\]' "$iter_dir/session.history.log" \
   && grep -q '\[thinking\]' "$iter_dir/session.history.log" \
   && grep -q '\[tool-use name=Bash\]' "$iter_dir/session.history.log" \
+  && grep -q 'tool input truncated; see session.claude.jsonl' "$iter_dir/session.history.log" \
+  && grep -q '"content":"xxxxxxxx' "$iter_dir/session.claude.jsonl" \
   && grep -q '\[tool-result name=Bash\]' "$iter_dir/session.history.log" && history_ok=1
 if [[ "$jsonl_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
   _pass "session collect happy: jsonl ok, capture_status=ok, session.history.log derived"
@@ -868,7 +935,7 @@ fi
 # ────────────────────────────────
 
 echo ""
-echo "-- SC-023-1: ralph status plain text — all 14 field labels + checked progress"
+echo "-- SC-023-1: ralph status plain text — all 15 field labels + checked progress"
 ws=$(setup_workspace)
 cat > "$ws/.ralph/status.json" <<'SJEOF'
 {
@@ -900,10 +967,14 @@ for f in run_id: run_dir: workspace: provider: model: effort: started_at: update
 done
 checked_ok=0
 [[ "$status_out" == *"2 / 5 checked"* ]] && checked_ok=1
-if [[ "$rc" -eq 0 && "$fields_ok" -eq 1 && "$checked_ok" -eq 1 ]]; then
-  _pass "SC-023-1: 14 field labels + '2 / 5 checked' present, exit 0"
+local_time_ok=0
+echo "$status_out" | grep -Eq 'started_at:[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} [+-][0-9]{4}' \
+  && echo "$status_out" | grep -Eq 'updated_at:[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} [+-][0-9]{4}' \
+  && local_time_ok=1
+if [[ "$rc" -eq 0 && "$fields_ok" -eq 1 && "$checked_ok" -eq 1 && "$local_time_ok" -eq 1 ]]; then
+  _pass "SC-023-1/SC-026-1: labels + checked progress + local time format present, exit 0"
 else
-  _fail "SC-023-1: rc=$rc fields_ok=$fields_ok checked_ok=$checked_ok"
+  _fail "SC-023-1/SC-026-1: rc=$rc fields_ok=$fields_ok checked_ok=$checked_ok local_time_ok=$local_time_ok"
 fi
 cleanup_ws "$ws"
 
@@ -1064,11 +1135,13 @@ SJEOF
 rc=0
 watch_out=$(bash "$ws/.ralph/bin/ralph" watch 2>/dev/null | cat) || rc=$?
 has_fields=0
-if echo "$watch_out" | grep -q "run_id:" && echo "$watch_out" | grep -q "state:"; then
+if echo "$watch_out" | grep -q "run_id:" \
+  && echo "$watch_out" | grep -q "iteration_name:" \
+  && echo "$watch_out" | grep -q "state:"; then
   has_fields=1
 fi
 if [[ "$rc" -eq 0 && "$has_fields" -eq 1 ]]; then
-  _pass "SC-024-4: watch non-TTY → status-like output, exit 0"
+  _pass "SC-024-4: watch non-TTY → status-like output with iteration_name, exit 0"
 else
   _fail "SC-024-4: rc=$rc has_fields=$has_fields"
 fi

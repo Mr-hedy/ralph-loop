@@ -99,7 +99,7 @@
   - 加 status/watch 数据流图 + 双区域布局说明
   - 引用 REQ-023 / REQ-024 / SC-023-* / SC-024-*
 
-- [ ] HUMAN-1: 手工验证 ralph watch UX（SC-024-1 / SC-024-3 / SC-024-5 + 新增 -v flag 行为）
+- [x] HUMAN-1: 手工验证 ralph watch UX（SC-024-1 / SC-024-3 / SC-024-5 + 新增 -v flag 行为）
   - 上下文：DEV-3 ~ DEV-8 + QA-2 已实现 ralph watch（sticky bar + 彩色 + iter log tail + run_id 切换 separator + 非 TTY 退化）。SC-024-2 / SC-024-4 由集成测试覆盖；其余 UX 类 SC（双区域布局、Ctrl-C 退出、彩色映射、不自动退出）必须人眼验证，agent 验不了。commit 5581001 后又新增了 `ralph watch -v` flag 切换上方 tail 区域，需要一并验证。
   - 选项：
     - 选项 A：本机直接跑 `ralph watch` + 另起一个终端跑 `ralph run`（fake provider 触发 stagnation / done / blocked_by_human 各一次），全程录屏
@@ -118,5 +118,7 @@
     9. Ctrl-C 退出后终端清屏 + cursor 恢复显示
     10. run 进入 finished 后 watch 不自动退出，sticky bar 持续显示最终 exit_reason
     11. -v 模式下双 run 切换：观察上方 tail 区域出现 `─── new run: <id>... ───` separator，tail 目标自动切到新 run iter log
-  - 答（待）：
-  - 落地：录屏或截图集合（路径 TBD），附在 I1-FINAL-TASK.md 归档
+  - 答（2026-05-02）：采用 A+B 的轻量等价验证：临时 workspace + PTY 动态验证 `ralph watch -v` 上方 tail、run_id 切换 separator、tail 目标切换、finished 后不自退；静态 PTY 验证 green/red/yellow/NO_COLOR 颜色映射；前台 PTY 验证默认 `ralph watch` 不输出上方 log、Ctrl-C 后 reset scroll region + clear + cursor restore。验证中发现 macOS bash 会在 Ctrl-C cleanup 时打印被 kill 的 `sleep 2` 状态噪声，已改为对 sleep 发送 `INT` 并复测无噪声。
+  - 落地：`.ralph/lib/watch.sh` 修复 Ctrl-C cleanup 噪声；本任务记录作为 I1 归档证据，未另存录屏/截图。
+  - 验证：PTY 动态 watch 验证通过；颜色映射验证通过；`bash scripts/check.sh` PASS；`git diff --check` PASS；`bash -n .ralph/lib/watch.sh .ralph/lib/status.sh .ralph/lib/adapter-claude.sh` PASS；`bash scripts/integration-test.sh` PASS=59 FAIL=0。
+  - 未验证：真实 Claude provider 运行时 side-by-side 录屏未执行；本次用临时 workspace/mock status.json 覆盖 UX 合约。

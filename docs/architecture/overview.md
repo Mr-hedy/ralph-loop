@@ -341,7 +341,7 @@ provider_collect_session <iter_dir>
 # 副作用：
 #   - 从 provider 原生 session 目录定位本轮 session 文件
 #   - 硬链接或复制到 <iter_dir>/session.<provider>.*
-#   - 派生 <iter_dir>/session.history.log（人话视图，含 user / assistant / thinking / tool_use 完整 input / tool_result）
+#   - 派生 <iter_dir>/session.history.log（人话视图，含 user / assistant / thinking / tool_use 摘要 / tool_result）
 #   - 更新 <iter_dir>/meta.json 的 capture_status / capture_warning / session_source_path / session_copied_path
 # 返回码：
 #   0 = 成功或受控降级（写了 warning 也算成功）
@@ -541,14 +541,14 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 <assistant text>
 
 [tool-use name=Bash] <timestamp>
-<full tool input as JSON, no truncation>
+<tool input JSON summary; long input is truncated with a pointer to session.<provider>.jsonl>
 
 [tool-result name=Bash] <timestamp>
 <truncated tool output, max 2000 chars>
 ```
 
 要素：
-- 用户消息 / assistant 文本 / thinking 块（**保留全文**）/ tool_use（含完整 input）/ tool_result（截 2000 字符）+ 时间戳
+- 用户消息 / assistant 文本 / thinking 块（**保留全文**）/ tool_use（长 input 摘要化，完整内容保留在 `session.<provider>.jsonl`）/ tool_result（截 2000 字符）+ 时间戳
 - 删除原 `chat.log` 中"thinking 不输出"的过滤；删除独立 `tools.log` 文件（合并进来）
 
 派生规则由各 adapter 实现（参考 `_claude_derive_history`）。

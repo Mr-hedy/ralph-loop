@@ -12,6 +12,7 @@ affected_modules:
 linked_commits:
   - "0cd99ab T2 done (T2 漏检的 commit)"
   - "pending T6 prep commit (本 PM 与 T6 prep 同包提交)"
+  - "pending I1 observability checkpoint (M1 live-tail regression coverage)"
 trigger_conditions:
   - "任务收口 adversarial review 只检查'本任务实现 vs 任务范围'，不重新跑 P0/P1 REQ → 实现 traceability"
   - "测试覆盖完全建立在 fake / mock 条件下，未对'mock 假设是否成立于真实长链路'做显式声明"
@@ -19,10 +20,12 @@ trigger_conditions:
 failure_pattern:
   - "fake/mock 路径通过 → 误判'内核能力已验证'，但 fake 隐含的简化条件（如 stagnation 场景从第 1 轮就不动）让真实长链路下才会暴露的 bug 永久潜伏"
   - "REQ 在 requirements.md 列出且有 SC 验收条目，但任务拆分时未显式列子任务 → adversarial review 只看任务范围内的实现 → SC 永远不被验证"
+  - "用户可见的诊断/可观察性行为只做手工验证，没有最小自动化断言 → 实现细节重写时可静默回归"
 prevention_checks:
   - "任务收口 adversarial review 必须包含 'REQ traceability rerun' 步骤：对该任务声明覆盖的每条 P0/P1 REQ，grep 实现代码确认接入；grep 集成测试确认 SC-NNN-N 有对应用例；对照 SC 文本和实际用例断言是否一致"
   - "任务范围段必须显式列出'本任务覆盖的 SC-NNN-N 清单'；任务收口检查清单与之机械对账"
   - "fake/mock 测试用例必须在测试文件或 fixture 注释中标注'此场景隐含假设：<X>；真实长链路触发条件需在 T_real_smoke 阶段 cover'"
+  - "新增或修改用户可见观测链路（status/watch/progress marker/live tail/session history）时，至少保留一条集成测试或进程探针断言主路径输出确实可见"
 ---
 
 # 任务收口 adversarial review 缺乏 REQ traceability + 现实条件外推，导致 P0 缺陷漏到下阶段
@@ -35,6 +38,16 @@ T2（Claude adapter）于 commit `0cd99ab` 收口，handoff 与 checkpoint 均�
 2. **`--effort` flag 完全未接入 Claude adapter**：`grep effort .ralph/lib/adapter-claude.sh` 空。REQ-014（P1）+ SC-014-1（"`--effort=low|medium|high` 翻译为各 provider 原生参数；`none` 或留空不传"）+ requirements §integrations Claude 节明文翻译为 `--thinking-budget`，但 adapter 完全没读 `$RALPH_EFFORT`，effort 被 run.sh 写进 context.json 后丢失。
 
 两个 bug 都不是"实现错"——是"实现根本没写却被认为已写"。T2 收口的 adversarial review 没有发现。
+
+## 2026-05-02 再次命中：`run -v` live tail 无回归测试
+
+I1 observability 收口时再次命中同一模式的轻量变体：
+
+1. commit `5581001` 引入 `ralph run -v` live tail，bash redirection 顺序错误导致 filter 输出全部静默。
+2. 当时没有自动化测试覆盖 `-v` happy/error marker；如果用户没有要求"完整测试验证"，该 P0 级观察性回归会被带入 I1 归档。
+3. 修复后在 `scripts/integration-test.sh` 中补了两条 `run -v` stream-json marker 回归测试，并补 SC-025-* / SC-026-* 的 traceability；默认 run progress marker 和 status 本地时间格式也并入现有集成断言。
+
+这不是新的 postmortem 类型，而是本 PM 的预防检查再次被验证：**任务收口不能只相信手工观察或退出码 0；用户可见观测链路也需要最小自动化证据。**
 
 ## 根因
 

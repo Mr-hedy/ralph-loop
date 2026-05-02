@@ -42,9 +42,10 @@ _ralph_watch_bar_text() {
     return 0
   fi
 
-  local run_id iter checked total state exit_reason provider short_id bar
+  local run_id iter iter_name checked total state exit_reason provider short_id bar
   run_id="$(_ralph_status_json_val "$f" "run_id")"
   iter="$(_ralph_status_json_val "$f" "iteration")"
+  iter_name="$(_ralph_status_json_val "$f" "iteration_name")"
   checked="$(_ralph_status_json_val "$f" "tasks_checked")"
   total="$(_ralph_status_json_val "$f" "tasks_total")"
   state="$(_ralph_status_json_val "$f" "state")"
@@ -72,6 +73,9 @@ _ralph_watch_bar_text() {
   esac
 
   bar="${dim}run:${reset} ${short_id}"
+  if [[ -n "$iter_name" && "$iter_name" != "null" ]]; then
+    bar+="  ${dim}iter_name:${reset} ${iter_name}"
+  fi
   bar+="  ${dim}iter${reset} ${iter}"
   bar+="  ${checked}/${total} ${dim}tasks${reset}"
   bar+="  ${dim}state:${reset} ${status_color}${state:-}${reset}"
@@ -194,7 +198,7 @@ _ralph_watch_cleanup() {
 }
 
 _ralph_watch_on_sigint() {
-  kill "${_RALPH_SLEEP_PID:-}" 2>/dev/null || true
+  kill -INT "${_RALPH_SLEEP_PID:-}" 2>/dev/null || true
   _ralph_watch_cleanup
   exit 130
 }
