@@ -481,12 +481,13 @@ EOF
 
     # 启动 -v live tail（如启用 RALPH_VERBOSE=1）：在 provider_oneshot 期间
     # tail provider.stdout.log，过滤 stream-json events 实时打印 agent 行为
+    # 重要：redirection 顺序 `>&2 2>/dev/null` —— stdout 先转 fd2（终端 stderr）
+    # 再 stderr 转 /dev/null。反序会让 stdout 也跟去 /dev/null（fd2 已被覆盖）
     local _tail_pid=""
     if [[ "${RALPH_VERBOSE:-0}" == "1" ]]; then
       touch "$log_path"
       ( tail -f "$log_path" 2>/dev/null \
-          | _ralph_filter_verbose 2>/dev/null \
-          >&2 ) &
+          | _ralph_filter_verbose >&2 2>/dev/null ) &
       _tail_pid=$!
     fi
 
