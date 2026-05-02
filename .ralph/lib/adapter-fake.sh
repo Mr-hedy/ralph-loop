@@ -104,7 +104,7 @@ provider_oneshot() {
 provider_collect_session() {
   local iter_dir="$1"
   # fake: 写占位派生视图
-  touch "$iter_dir/chat.log" "$iter_dir/tools.log"
+  touch "$iter_dir/session.history.log"
   # 更新 meta.json capture_status（若已存在）
   local meta="$iter_dir/meta.json"
   if [[ -f "$meta" ]]; then
@@ -117,7 +117,7 @@ provider_collect_session() {
 # ── provider_diagnose ────────────────────────────────────────────────────────
 provider_diagnose() {
   local iter_dir="$1"
-  local log_file="$iter_dir/log"
+  local log_file="$iter_dir/provider.stdout.log"
   local meta="$iter_dir/meta.json"
   [[ -f "$meta" ]] || return 0
 

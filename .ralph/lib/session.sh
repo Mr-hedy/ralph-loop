@@ -24,6 +24,8 @@ init_meta() {
   "iteration": ${iteration},
   "provider": "$(ralph_json_escape "$provider")",
   "session_id": null,
+  "provider_started_at": null,
+  "runtime_block": null,
   "session_source_path": null,
   "session_copied_path": null,
   "capture_status": "pending",

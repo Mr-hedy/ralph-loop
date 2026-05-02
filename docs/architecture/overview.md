@@ -14,7 +14,7 @@ Ralph 是一个 shell-first CLI harness。它不做推理，只把长任务组�
 1. 读 `.ralph/TASKS.md`，若全部勾选 → 退出 `done`
 2. 拼 prompt：`.ralph/PROMPT.md` 全文 + runtime 上下文块（run_id、iteration、git sha 等）
 3. 调 provider CLI oneshot，捕获 stdout/stderr
-4. 采集 provider 原生 session → 派生 `chat.log` / `tools.log`
+4. 采集 provider 原生 session → 派生 `session.history.log`（人话视图）
 5. 错误诊断 + 收集 `changed_files`
 6. 写 `iter-xxx/meta.json`、刷新 `status.json`
 7. 判断退出条件（见 [退出原因](#退出原因)）；否则进入下一轮
@@ -44,8 +44,8 @@ ralph run
     prompt_file = render_prompt(.ralph/PROMPT.md, run_id, iteration, tasks)
     source adapter-$provider.sh
     fp_before = worktree_fingerprint()         # 本轮前快照（方案 B，T6.1）
-    provider_oneshot $prompt_file iter-$N/log iter-$N/  # writes log, meta drafts
-    provider_collect_session iter-$N/      # writes session.*, chat.log, tools.log
+    provider_oneshot $prompt_file iter-$N/provider.stdout.log iter-$N/  # writes log + session_id/provider_started_at/runtime_block 到 meta
+    provider_collect_session iter-$N/      # writes session.<provider>.jsonl + session.history.log
     provider_diagnose iter-$N/             # writes error{type,message} to meta
     fp_after = worktree_fingerprint()          # 本轮后快照
     tasks_after = parse_tasks(.ralph/TASKS.md)
@@ -117,7 +117,7 @@ ralph help    # 帮助
       status.sh                     # ralph status
       watch.sh                      # ralph watch
       tasks.sh                      # TASKS.md 解析
-      session.sh                    # session 派生 chat.log / tools.log
+      session.sh                    # session 派生 session.history.log
       adapter-claude.sh             # provider 实现
       adapter-codex.sh
       adapter-gemini.sh
@@ -142,14 +142,15 @@ ralph help    # 帮助
   TASKS.md                          # run 结束时的任务板快照
   iterations/
     iter-001/
-      log                           # provider stdout/stderr 原始输出（tee）
-      session.<provider>.*          # provider 原生 session 副本（文件名由 adapter 决定）
-      chat.log                      # 派生：对话流（消息+tool result 纯文本）
-      tools.log                     # 派生：工具调用摘要（每行一条）
-      meta.json                     # 本轮元数据（见下）
+      meta.json                     # 元数据（含 runtime_block + provider_started_at + capture_status + error）
+      provider.stdout.log           # provider stdout (events 流) + stderr 全量 tee
+      session.<provider>.jsonl      # provider 原生 session 副本（Claude/Codex/Gemini）
+      session.history.log           # 跨 provider 人话视图（user / assistant / thinking / tool_use / tool_result）
     iter-002/
     ...
 ```
+
+iter dir **4 文件契约** —— 详细命名约定见 [`integrations.md#iter-目录文件结构-4-文件契约`](./integrations.md#iter-目录文件结构4-文件契约)。
 
 ### `run_id` 规则
 
@@ -221,6 +222,8 @@ run 结束时 `state` 变更为 `finished`，`exit_reason` 填入。
   "iteration": 3,
   "provider": "codex",
   "session_id": "abc-...",
+  "provider_started_at": "2026-04-24T10:03:12Z",
+  "runtime_block": "run_id: ...\niteration: 3\nstart_sha: ...\nworkspace: ...",
   "session_source_path": "/home/.../rollout-...jsonl",
   "session_copied_path": ".ralph/runs/.../iter-003/session.codex.jsonl",
   "capture_status": "ok",
@@ -228,12 +231,19 @@ run 结束时 `state` 变更为 `finished`，`exit_reason` 填入。
   "exit_code": 0,
   "duration_ms": 48000,
   "error": null,
-  "changed_files": ["src/foo.ts"],
+  "changed_files_total": ["src/foo.ts"],
+  "changed_files_iter": ["src/foo.ts"],
   "tasks_before": { "total": 10, "checked": 3 },
   "tasks_after":  { "total": 10, "checked": 4 },
   "stagnation_count": 0
 }
 ```
+
+字段说明：
+- `provider_started_at`：provider CLI 调用前的 ISO 8601 UTC 时间戳，用于 session 文件 mtime fallback 锚点（替代旧 `.session_start` 文件）
+- `runtime_block`：本轮 prompt 中动态部分（`<ralph-runtime>` 块内容），与 git `start_sha` 的 PROMPT.md 共同构成完整 prompt 还原源（替代旧 `prompt.md` 文件）
+- `changed_files_total`：自 run 启动至本轮结束的累计文件变更
+- `changed_files_iter`：本轮（vs 上轮）的文件变更，用于 stagnation 判定
 
 ## `.ralph/.env` 格式
 
@@ -331,8 +341,7 @@ provider_collect_session <iter_dir>
 # 副作用：
 #   - 从 provider 原生 session 目录定位本轮 session 文件
 #   - 硬链接或复制到 <iter_dir>/session.<provider>.*
-#   - 派生 <iter_dir>/chat.log（纯文本对话流）
-#   - 派生 <iter_dir>/tools.log（工具调用摘要，每行一条）
+#   - 派生 <iter_dir>/session.history.log（人话视图，含 user / assistant / thinking / tool_use 完整 input / tool_result）
 #   - 更新 <iter_dir>/meta.json 的 capture_status / capture_warning / session_source_path / session_copied_path
 # 返回码：
 #   0 = 成功或受控降级（写了 warning 也算成功）
@@ -517,30 +526,32 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 
 ## 派生视图
 
-`chat.log` 和 `tools.log` 是从 provider 原生 session 文件派生的**非权威**人类可读视图（REQ-006），目的是让复盘时不必直接读 JSONL：
+`session.history.log` 是从 provider 原生 session 文件（`session.<provider>.jsonl`）派生的**非权威**跨 provider 人话视图（REQ-006），目的是让复盘时不必直接读 JSONL；统一 chat + tools 双视图为单一文件：
 
-### `chat.log` 格式
+### `session.history.log` 格式
 
 ```text
 [user] <timestamp>
 <prompt text>
 
+[thinking] <timestamp>
+<assistant thinking block, full content, no filtering>
+
 [assistant] <timestamp>
 <assistant text>
 
+[tool-use name=Bash] <timestamp>
+<full tool input as JSON, no truncation>
+
 [tool-result name=Bash] <timestamp>
-<truncated text, max 2000 chars>
+<truncated tool output, max 2000 chars>
 ```
 
-### `tools.log` 格式
+要素：
+- 用户消息 / assistant 文本 / thinking 块（**保留全文**）/ tool_use（含完整 input）/ tool_result（截 2000 字符）+ 时间戳
+- 删除原 `chat.log` 中"thinking 不输出"的过滤；删除独立 `tools.log` 文件（合并进来）
 
-每行一条工具调用摘要：
-
-```text
-<timestamp>  <tool_name>  <brief_input>  <brief_output_or_status>
-```
-
-派生规则由各 adapter 实现（参考 trantor-skills 的 `deriveSessionViews` / `deriveGeminiSessionViews` / `deriveCodexSessionViews`）。
+派生规则由各 adapter 实现（参考 `_claude_derive_history`）。
 
 ## 状态观察
 
@@ -553,7 +564,7 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
                    │
                    └──→ ralph watch ──→ TTY 双区域循环刷新
                           │
-                          └──→ .ralph/runs/<run_id>/iterations/iter-NNN/log
+                          └──→ .ralph/runs/<run_id>/iterations/iter-NNN/provider.stdout.log
                                 ↑ 上方区域 tail 目标
 ```
 
@@ -566,7 +577,7 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 ┌─────────────────────────────────────────────────────┐
 │  上方区域（scroll region）                           │
 │  tail 当前活跃 iter log 的增量输出                   │
-│  路径: .ralph/runs/<run_id>/iterations/iter-NNN/log │
+│  路径: .ralph/runs/<run_id>/iterations/iter-NNN/provider.stdout.log │
 │  iter 切换时自动切换 tail 目标，重置偏移量            │
 │  文件不存在时留空（无占位文案）                       │
 │  ...                                                │

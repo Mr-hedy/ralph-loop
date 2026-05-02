@@ -524,23 +524,26 @@ run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 iter_dir="${run_dir}/iterations/iter-001"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 stdout_ok=0
-[[ -f "$iter_dir/session.claude.stdout.json" ]] && \
-  grep -q '"is_error":false' "$iter_dir/session.claude.stdout.json" 2>/dev/null && stdout_ok=1
+# stream-json 模式：provider.stdout.log 含 result 事件，is_error=false
+[[ -f "$iter_dir/provider.stdout.log" ]] && \
+  grep -E '^\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+  | jq -r 'select(.type == "result") | .is_error' 2>/dev/null \
+  | grep -q '^false$' && stdout_ok=1
 session_ok=0
 grep -qE '"session_id":[[:space:]]*"[0-9a-f-]{36}"' "$iter_dir/meta.json" 2>/dev/null && session_ok=1
-chat_ok=0
-[[ -f "$iter_dir/chat.log" ]] && \
-  grep -q '\[user\]' "$iter_dir/chat.log" && \
-  grep -q '\[assistant\]' "$iter_dir/chat.log" && \
-  grep -q '\[tool-result name=' "$iter_dir/chat.log" && \
-  ! grep -q '\[thinking\]' "$iter_dir/chat.log" && chat_ok=1
-tools_ok=0
-[[ -f "$iter_dir/tools.log" ]] && grep -q 'Bash' "$iter_dir/tools.log" && tools_ok=1
+history_ok=0
+# session.history.log 取代 chat.log + tools.log，含 user / assistant / thinking / tool-use / tool-result
+[[ -f "$iter_dir/session.history.log" ]] && \
+  grep -q '\[user\]' "$iter_dir/session.history.log" && \
+  grep -q '\[assistant\]' "$iter_dir/session.history.log" && \
+  grep -q '\[thinking\]' "$iter_dir/session.history.log" && \
+  grep -q '\[tool-use name=' "$iter_dir/session.history.log" && \
+  grep -q '\[tool-result name=' "$iter_dir/session.history.log" && history_ok=1
 if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_ok" -eq 1 \
-   && "$chat_ok" -eq 1 && "$tools_ok" -eq 1 ]]; then
-  _pass "claude happy: exit 0, done, stdout.json ok, session_id UUID, chat.log+tools.log derived"
+   && "$history_ok" -eq 1 ]]; then
+  _pass "claude happy: exit 0, done, stream-json result event, session_id UUID, session.history.log derived"
 else
-  _fail "claude happy: rc=$rc reason=$reason stdout_ok=$stdout_ok session_ok=$session_ok chat_ok=$chat_ok tools_ok=$tools_ok"
+  _fail "claude happy: rc=$rc reason=$reason stdout_ok=$stdout_ok session_ok=$session_ok history_ok=$history_ok"
 fi
 cleanup_claude_ws
 
@@ -559,17 +562,19 @@ RALPH_MOCK_CLAUDE_SCENARIO=happy \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 iter_dir="${run_dir}/iterations/iter-001"
-jsonl_ok=0; capture_ok=0; chat_ok=0; tools_ok=0
+jsonl_ok=0; capture_ok=0; history_ok=0
 [[ -f "$iter_dir/session.claude.jsonl" ]] && jsonl_ok=1
 grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
-[[ -f "$iter_dir/chat.log" ]] && grep -q '\[user\]' "$iter_dir/chat.log" \
-  && grep -q '\[tool-result name=' "$iter_dir/chat.log" \
-  && ! grep -q '\[thinking\]' "$iter_dir/chat.log" && chat_ok=1
-[[ -f "$iter_dir/tools.log" ]] && grep -q 'Bash' "$iter_dir/tools.log" && tools_ok=1
-if [[ "$jsonl_ok" -eq 1 && "$capture_ok" -eq 1 && "$chat_ok" -eq 1 && "$tools_ok" -eq 1 ]]; then
-  _pass "session collect happy: jsonl ok, capture_status=ok, chat.log+tools.log derived"
+# session.history.log 含 thinking + 完整 tool_use input（不再过滤）
+[[ -f "$iter_dir/session.history.log" ]] && \
+  grep -q '\[user\]' "$iter_dir/session.history.log" \
+  && grep -q '\[thinking\]' "$iter_dir/session.history.log" \
+  && grep -q '\[tool-use name=Bash\]' "$iter_dir/session.history.log" \
+  && grep -q '\[tool-result name=Bash\]' "$iter_dir/session.history.log" && history_ok=1
+if [[ "$jsonl_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
+  _pass "session collect happy: jsonl ok, capture_status=ok, session.history.log derived"
 else
-  _fail "session collect happy: jsonl_ok=$jsonl_ok capture_ok=$capture_ok chat_ok=$chat_ok tools_ok=$tools_ok"
+  _fail "session collect happy: jsonl_ok=$jsonl_ok capture_ok=$capture_ok history_ok=$history_ok"
 fi
 cleanup_claude_ws
 
@@ -636,16 +641,15 @@ RALPH_MOCK_CLAUDE_SCENARIO=missing_session \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-iter 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 iter_dir="${run_dir}/iterations/iter-001"
-no_jsonl=0; warn_ok=0; empty_views_ok=0
+no_jsonl=0; warn_ok=0; empty_history_ok=0
 [[ ! -f "$iter_dir/session.claude.jsonl" ]] && no_jsonl=1
 grep -q '"capture_status": "warning"' "$iter_dir/meta.json" 2>/dev/null && warn_ok=1
 # 派生视图文件存在但内容为空（warning 时不派生）
-[[ -f "$iter_dir/chat.log" && ! -s "$iter_dir/chat.log" ]] && \
-  [[ -f "$iter_dir/tools.log" && ! -s "$iter_dir/tools.log" ]] && empty_views_ok=1
-if [[ "$no_jsonl" -eq 1 && "$warn_ok" -eq 1 && "$empty_views_ok" -eq 1 ]]; then
-  _pass "session missing: no session.claude.jsonl, capture_status=warning, empty chat/tools logs"
+[[ -f "$iter_dir/session.history.log" && ! -s "$iter_dir/session.history.log" ]] && empty_history_ok=1
+if [[ "$no_jsonl" -eq 1 && "$warn_ok" -eq 1 && "$empty_history_ok" -eq 1 ]]; then
+  _pass "session missing: no session.claude.jsonl, capture_status=warning, empty session.history.log"
 else
-  _fail "session missing: no_jsonl=$no_jsonl warn_ok=$warn_ok empty_views_ok=$empty_views_ok"
+  _fail "session missing: no_jsonl=$no_jsonl warn_ok=$warn_ok empty_history_ok=$empty_history_ok"
 fi
 cleanup_claude_ws
 
@@ -704,7 +708,10 @@ _run_diagnose_case crash unknown "diagnose unknown (crash)"
 
 get_received_effort() {
   local iter_dir="$1"
-  jq -r '._received_effort // ""' "$iter_dir/session.claude.stdout.json" 2>/dev/null
+  # stream-json 模式：从 provider.stdout.log 末尾的 result 事件取 _received_effort
+  grep -E '^\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+    | jq -r 'select(.type == "result") | ._received_effort // ""' 2>/dev/null \
+    | tail -1
 }
 
 echo ""

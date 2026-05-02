@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # adapter-claude.sh — Claude provider adapter
 # source 本文件后即设置 RALPH_PROVIDER_CLI；三函数契约
+# stream-json 模式：stdout 是 JSONL events 流，逐行写入 provider.stdout.log
 # session 文件命名遵循 docs/architecture/integrations.md §Session 文件命名约定
 
 RALPH_PROVIDER_CLI="claude"
@@ -22,6 +23,7 @@ provider_check_deps() {
 
 # ── provider_oneshot ─────────────────────────────────────────────────────────
 # <prompt_file> <log_path> <iter_dir>
+# log_path 即 iter_dir/provider.stdout.log，stream-json events 一行一行写入
 provider_oneshot() {
   local prompt_file="$1"
   local log_path="$2"
@@ -33,9 +35,12 @@ provider_oneshot() {
   # session_id 写入 meta.json（meta.json 已由 run.sh 在本函数调用前建立骨架）
   update_meta_jq "$iter_dir" '.session_id = $sid' --arg sid "$session_id"
 
-  local stdout_file="$iter_dir/session.claude.stdout.json"
+  # provider_started_at（mtime fallback 锚点替代 .session_start）
+  local provider_started_at
+  provider_started_at="$(ralph_timestamp)"
+  update_meta_jq "$iter_dir" '.provider_started_at = $ts' --arg ts "$provider_started_at"
+
   touch "$log_path"
-  touch "$iter_dir/.session_start"   # mtime anchor: before provider CLI starts
 
   # ARG_MAX guard：命令行参数上限约 1MB；prompt 过大时报清晰错误而非静默崩溃
   local _prompt_size
@@ -45,8 +50,9 @@ provider_oneshot() {
     return 1
   fi
 
-  # --effort 直通（Claude CLI v2.1.114+ 原生支持 --effort low|medium|high|xhigh|max）
-  # none/空 → 不拼 flag；用数组避免空参数注入（SC-014-1）
+  # --output-format stream-json: events 逐行流式输出到 stdout（不再单独写 stdout.json）
+  # --verbose: stream-json 模式下需要（claude CLI 要求 stream-json 与 verbose 配对）
+  # --effort 直通（none/空 → 不拼 flag；用数组避免空参数注入，SC-014-1）
   local effort="${RALPH_EFFORT:-}"
   local -a claude_cmd
   claude_cmd=(
@@ -54,22 +60,23 @@ provider_oneshot() {
     --session-id "$session_id"
     --dangerously-skip-permissions
     --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
-    --output-format json
+    --output-format stream-json
+    --verbose
   )
   if [[ -n "$effort" && "$effort" != "none" ]]; then
     claude_cmd+=(--effort "$effort")
   fi
 
   local rc=0
-  "${claude_cmd[@]}" > "$stdout_file" 2>>"$log_path" || rc=$?
+  # stdout + stderr 合并写入 provider.stdout.log（stderr 罕见；diagnose 用 ^{ 前缀过滤）
+  "${claude_cmd[@]}" > "$log_path" 2>>"$log_path" || rc=$?
 
-  # stdout 同步追加到 log（保持全量日志约定）
-  cat "$stdout_file" >> "$log_path" 2>/dev/null || true
-
-  # is_error:true 视为 provider 失败（即使 CLI exit 0，错误信息在 JSON 中）
-  if [[ "$rc" -eq 0 && -f "$stdout_file" ]]; then
+  # 从 stream-json events 末尾找 result 事件，is_error=true 视为 provider 失败
+  if [[ "$rc" -eq 0 && -f "$log_path" ]]; then
     local _is_err
-    _is_err="$(jq -r '.is_error // false' "$stdout_file" 2>/dev/null)" || _is_err="false"
+    _is_err="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
+      | jq -r 'select(.type == "result") | .is_error // false' 2>/dev/null \
+      | tail -1)"
     [[ "$_is_err" == "true" ]] && rc=1
   fi
 
@@ -96,14 +103,13 @@ provider_collect_session() {
   if [[ -z "$session_id" || "$session_id" == "null" ]]; then
     update_meta_jq "$iter_dir" \
       '.capture_status = "warning" | .capture_warning = "session_id missing in meta.json"'
-    touch "$iter_dir/chat.log" "$iter_dir/tools.log"
+    touch "$iter_dir/session.history.log"
     return 0
   fi
 
   local cwd_hash
   cwd_hash="$(_claude_cwd_hash "${_RALPH_WORKSPACE}")"
-  # session root 感知 CLAUDE_CONFIG_DIR（由 RALPH_PROVIDER_CONFIG_DIR 翻译而来，见 REQ-022）；
-  # 未设时回落 $HOME/.claude（Claude CLI 默认行为）
+  # session root 感知 CLAUDE_CONFIG_DIR（由 RALPH_PROVIDER_CONFIG_DIR 翻译而来，REQ-022 / SC-022-3）
   local claude_root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
   local session_dir="$claude_root/projects/$cwd_hash"
   local expected_file="$session_dir/${session_id}.jsonl"
@@ -116,17 +122,31 @@ provider_collect_session() {
       '.capture_status = "ok" | .session_source_path = $src | .session_copied_path = $dst' \
       --arg src "$expected_file" --arg dst "$dst"
   else
-    # mtime 降级：找 session_dir 下比 meta.json 新的最新 .jsonl
+    # mtime 降级：用 meta.json 的 provider_started_at 作为参考时间（-1 秒缓冲，
+    # 避免同秒精度 -newermt 不命中）
     local fallback_file=""
     if [[ -d "$session_dir" ]]; then
-      local ref_file="$iter_dir/.session_start"
-      [[ -f "$ref_file" ]] || ref_file="$iter_dir/meta.json"
-      local candidates
-      candidates="$(find "$session_dir" -maxdepth 1 -name "*.jsonl" \
-        -newer "$ref_file" -type f 2>/dev/null)"
-      if [[ -n "$candidates" ]]; then
-        # xargs ls -1t 按 mtime 降序排列，取最新（find 不保证顺序）
-        fallback_file="$(echo "$candidates" | xargs ls -1t 2>/dev/null | head -1)"
+      local started_at
+      started_at="$(jq -r '.provider_started_at // empty' "$iter_dir/meta.json" 2>/dev/null)"
+      if [[ -n "$started_at" && "$started_at" != "null" ]]; then
+        # 转 BSD find -newermt 兼容格式（local "YYYY-MM-DD HH:MM:SS"），-1s 缓冲
+        local started_epoch
+        started_epoch="$(ralph_iso_to_epoch "$started_at")"
+        local anchor_local=""
+        if [[ -n "$started_epoch" ]]; then
+          local buffered_iso
+          buffered_iso="$(ralph_epoch_to_iso $((started_epoch - 1)))"
+          anchor_local="$(ralph_iso_to_local_find_fmt "$buffered_iso")"
+        fi
+        local candidates=""
+        if [[ -n "$anchor_local" ]]; then
+          candidates="$(find "$session_dir" -maxdepth 1 -name "*.jsonl" \
+            -newermt "$anchor_local" -type f 2>/dev/null)"
+        fi
+        if [[ -n "$candidates" ]]; then
+          # xargs ls -1t 按 mtime 降序排列，取最新（find 不保证顺序）
+          fallback_file="$(echo "$candidates" | xargs ls -1t 2>/dev/null | head -1)"
+        fi
       fi
     fi
 
@@ -141,19 +161,24 @@ provider_collect_session() {
     fi
   fi
 
-  # 派生视图（capture_status=ok 时 JSONL 已复制）
+  # 派生 session.history.log（人话视图，含 thinking + 完整 tool_use input）
   if [[ -f "$dst" ]]; then
-    _claude_derive_chat "$dst" "$iter_dir/chat.log"
-    _claude_derive_tools "$dst" "$iter_dir/tools.log"
+    _claude_derive_history "$dst" "$iter_dir/session.history.log"
   fi
-  touch "$iter_dir/chat.log" "$iter_dir/tools.log"   # 保证文件存在（warning 时写空文件）
+  touch "$iter_dir/session.history.log"   # 保证文件存在（warning 时写空文件）
   return 0
 }
 
-# ── _claude_derive_chat / _claude_derive_tools ───────────────────────────────
-# 从 session.claude.jsonl 派生人类可读视图，schema 遵循 docs/architecture/overview.md §派生视图
+# ── _claude_derive_history ───────────────────────────────────────────────────
+# 从 session.claude.jsonl 派生人话视图，含：
+#   - [user] 文本消息
+#   - [assistant] 文本回复
+#   - [thinking] 思考块（保留全文，不过滤）
+#   - [tool-use name=X] 工具调用 + 完整 input（不截断）
+#   - [tool-result name=X] 工具结果（截前 2000 字符）
+# 替代旧 chat.log + tools.log 双视图
 
-_claude_derive_chat() {
+_claude_derive_history() {
   local jsonl="$1" out="$2"
   [[ -f "$jsonl" ]] || return 0
   jq -r --slurp '
@@ -162,7 +187,7 @@ _claude_derive_chat() {
       elif (c | type) == "string" then c
       else "" end;
 
-    # tool_use_id → name map（从 assistant 消息提取）
+    # tool_use_id → name map（从 assistant 消息提取，供 tool_result 标注 name）
     ( [.[] | select(.type=="assistant") |
         (.message.content // []) |
         if type=="array" then .[] else empty end |
@@ -190,39 +215,23 @@ _claude_derive_chat() {
         else empty end
       else empty end
     elif .type == "assistant" then
-      (text_of($e.message.content // [])) as $t |
-      if ($t|length) > 0 then
-        "[assistant] " + ($e.timestamp // ""), $t, ""
+      ($e.message.content // []) as $c |
+      ( $c | if type=="array" then .[] else empty end ) |
+      if .type == "thinking" then
+        (.thinking // "") as $t |
+        if ($t|length) > 0 then "[thinking] " + ($e.timestamp // ""), $t, ""
+        else empty end
+      elif .type == "text" then
+        (.text // "") as $t |
+        if ($t|length) > 0 then "[assistant] " + ($e.timestamp // ""), $t, ""
+        else empty end
+      elif .type == "tool_use" then
+        . as $tu |
+        "[tool-use name=" + ($tu.name // "?") + "] " + ($e.timestamp // ""),
+        ($tu.input | tostring),
+        ""
       else empty end
     else empty end
-  ' "$jsonl" > "$out"
-}
-
-_claude_derive_tools() {
-  local jsonl="$1" out="$2"
-  [[ -f "$jsonl" ]] || return 0
-  jq -r --slurp '
-    # tool_use_id → tool_use 对象 map
-    ( [.[] | select(.type=="assistant") |
-        (.message.content // []) |
-        if type=="array" then .[] else empty end |
-        select(.type=="tool_use") |
-        {(.id): .}
-      ] | add // {} ) as $tuses |
-
-    .[] | . as $e |
-    select(.type=="user") |
-    (($e.message.content) | if type=="array" then .[] else empty end) |
-    select(.type=="tool_result") |
-    . as $tr |
-    ($tuses[$tr.tool_use_id]) as $tu |
-    ($tu.name // "unknown") as $name |
-    ($tu.input | tostring | .[0:80]) as $in |
-    ( if ($tr.content | type) == "array" then
-        [$tr.content[] | select(.type=="text") | .text] | join("")
-      else ($tr.content // "") | tostring end
-    | .[0:80]) as $out |
-    ($e.timestamp // "?") + "  " + $name + "  " + $in + "  " + $out
   ' "$jsonl" > "$out"
 }
 
@@ -248,24 +257,40 @@ _claude_classify_error() {
 }
 
 # ── provider_diagnose ────────────────────────────────────────────────────────
+# 从 provider.stdout.log 末尾找 result 事件（stream-json 模式）
 provider_diagnose() {
   local iter_dir="$1"
-  local stdout_file="$iter_dir/session.claude.stdout.json"
+  local log_path="$iter_dir/provider.stdout.log"
 
   # 读取 exit_code（provider_oneshot 回填后可用）
   local exit_code
   exit_code="$(jq -r '.exit_code // 0' "$iter_dir/meta.json" 2>/dev/null)" || exit_code=0
 
-  # stdout 文件不存在（CLI crash 无输出）→ unknown
-  if [[ ! -f "$stdout_file" ]]; then
+  # log 文件不存在（CLI crash 无输出）→ unknown
+  if [[ ! -f "$log_path" ]]; then
     update_meta_jq "$iter_dir" \
-      '.error = {"type": "unknown", "message": "no stdout file", "raw": ""}'
+      '.error = {"type": "unknown", "message": "no stdout log file", "raw": ""}'
     return 0
   fi
 
-  local is_error result_text
-  is_error="$(jq -r '.is_error // false' "$stdout_file" 2>/dev/null)" || is_error="false"
-  result_text="$(jq -r '.result // ""' "$stdout_file" 2>/dev/null)" || result_text=""
+  # 找 stream-json 末尾的 result 事件
+  local result_event is_error result_text
+  result_event="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
+    | jq -c 'select(.type == "result")' 2>/dev/null \
+    | tail -1)"
+
+  # 没找到 result 事件（CLI 在 init / mid-stream 崩溃）
+  if [[ -z "$result_event" ]]; then
+    if [[ "$exit_code" == "0" ]]; then
+      return 0
+    fi
+    update_meta_jq "$iter_dir" \
+      '.error = {"type": "unknown", "message": "no result event in stream", "raw": ""}'
+    return 0
+  fi
+
+  is_error="$(printf '%s' "$result_event" | jq -r '.is_error // false' 2>/dev/null)" || is_error="false"
+  result_text="$(printf '%s' "$result_event" | jq -r '.result // ""' 2>/dev/null)" || result_text=""
 
   # 正常完成：is_error=false && exit_code=0 → error 保持 null
   if [[ "$is_error" == "false" && "$exit_code" == "0" ]]; then

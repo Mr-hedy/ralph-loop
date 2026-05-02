@@ -415,7 +415,7 @@ EOF
     iter_label="$(printf 'iter-%03d' "$iteration")"
     local iter_dir="$run_dir/iterations/$iter_label"
     mkdir -p "$iter_dir"
-    local log_path="$iter_dir/log"
+    local log_path="$iter_dir/provider.stdout.log"
     local iter_start_ts
     iter_start_ts=$(( $(date -u +%s) * 1000 ))
 
@@ -424,16 +424,22 @@ EOF
     fingerprint_before="$(ralph_worktree_fingerprint)"
     before_iter_head="$(git rev-parse HEAD 2>/dev/null)" || before_iter_head=""
 
-    # 准备 prompt（PROMPT.md 全文 + runtime 块）
-    local prompt_file="$iter_dir/prompt.md"
+    # 准备 prompt（PROMPT.md 全文 + runtime 块）—— 写到 iter 外的临时文件，
+    # 不留 prompt.md 副本（动态部分见 meta.json.runtime_block，静态部分通过
+    # start_sha 还原 git show $start_sha:.ralph/PROMPT.md）
+    local prompt_file
+    prompt_file="$(mktemp -t "ralph-prompt-${iter_label}.XXXXXX")"
+    local runtime_block
+    printf -v runtime_block 'run_id: %s\niteration: %d\nstart_sha: %s\nworkspace: %s' \
+      "$run_id" "$iteration" "$start_sha" "$workspace"
     {
       cat "$workspace/.ralph/PROMPT.md"
-      printf '\n\n<ralph-runtime>\nrun_id: %s\niteration: %d\nstart_sha: %s\nworkspace: %s\n</ralph-runtime>\n' \
-        "$run_id" "$iteration" "$start_sha" "$workspace"
+      printf '\n\n<ralph-runtime>\n%s\n</ralph-runtime>\n' "$runtime_block"
     } > "$prompt_file"
 
     # meta.json 骨架（在 provider_oneshot 之前，让 adapter 可写入 session_id 等字段）
     init_meta "$iter_dir" "$iteration" "$provider" 0 0
+    update_meta_jq "$iter_dir" '.runtime_block = $rb' --arg rb "$runtime_block"
 
     # provider_oneshot（带 timeout 支持）
     local rc=0
@@ -465,6 +471,9 @@ EOF
     else
       RALPH_WORKSPACE="$workspace" provider_oneshot "$prompt_file" "$log_path" "$iter_dir" || rc=$?
     fi
+
+    # 清理 prompt 临时文件（provider 已经读完）
+    rm -f "$prompt_file"
 
     local iter_end_ts duration_ms
     iter_end_ts=$(( $(date -u +%s) * 1000 ))

@@ -91,6 +91,31 @@ ralph_timestamp() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+# ── ISO 时间戳 → epoch seconds（跨平台：BSD/GNU date）──────────────────────────
+ralph_iso_to_epoch() {
+  local iso="$1"
+  date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$iso" +%s 2>/dev/null \
+    || date -u -d "$iso" +%s 2>/dev/null
+}
+
+# ── epoch seconds → ISO8601 UTC（跨平台）──────────────────────────────────────
+ralph_epoch_to_iso() {
+  local epoch="$1"
+  date -u -r "$epoch" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+    || date -u -d "@$epoch" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null
+}
+
+# ── ISO 8601 UTC → "YYYY-MM-DD HH:MM:SS" 本地时间（BSD find -newermt 兼容格式）
+# BSD find 在 macOS 上不接受 T 分隔符或 Z 后缀，只接受 local time；GNU find 也支持。
+ralph_iso_to_local_find_fmt() {
+  local iso="$1"
+  local epoch
+  epoch="$(ralph_iso_to_epoch "$iso")"
+  [[ -n "$epoch" ]] || return 1
+  date -r "$epoch" +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
+    || date -d "@$epoch" +"%Y-%m-%d %H:%M:%S" 2>/dev/null
+}
+
 # ── run_id 生成 ─────────────────────────────────────────────────────────────
 # 格式：YYYYMMDD-HHMMSS-<7位 git short sha>；无提交时用 nogit
 ralph_run_id() {
