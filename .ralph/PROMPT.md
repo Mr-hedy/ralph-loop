@@ -133,34 +133,19 @@ HUMAN-N 是任务类型之一，但和其他类型不同：**必须由人类在 
 - 不能 → 路径 B（HUMAN-N）
 - 拿不准 → 走 B（宁可停一次）
 
-## TASKS.md 顶部声明（格式约定）
+## TASKS.md 结构、模板与自修改规则
 
-`.ralph/TASKS.md` 顶部用 markdown blockquote 声明当前迭代上下文（ralph 工具层和你都会读取这些声明）：
+→ 详见 `.spec/rules/tasks.md`（spec 层契约：4 段结构、顶部 blockquote 声明、未完成/已完成模板的 7 个必填字段（预期/输入/范围/验证计划/完成/验证/未验证）、HUMAN-N 模板、REVIEW-N 两种用法、自修改规则、归档约定）。
 
-```markdown
-> 当前迭代: I<N>
-> 主题: <一句话主题>
-> 关联 roadmap: <对应 roadmap 项，可选>
-> 起始: <YYYY-MM-DD>
-```
+**runtime 速查**（与 spec 层一致，本段为 oneshot 内自检）：
 
-冒号必须是 ASCII `:`（不接受全角 `：`）。"当前迭代"声明的值会被 ralph 写入 `status.json.iteration_name` 和 `result.json.iteration_name`。
-
-## TASKS.md 自修改规则
-
-**允许：**
-
-- **只追加**新任务到文件末尾。
-- 在阻塞任务**上方**插入 REVIEW-N（含 `[blocked-by]` escalation 用法）或 HUMAN-N 任务。
-- 将本轮**真正完成**的任务由 `- [ ]` 改 `- [x]`（HUMAN-N 除外）。
-
-**禁止：**
-
-- **禁止删任务**——已写入的任务不得移除。
-- **禁止改写**他人/上轮已读的任务文本。
-- **禁止 fake-mark**——未真正完成的任务绝对不标 `[x]`。
-- **禁止勾选 HUMAN-N**——见上文强约束（ralph oneshot 内）。
-- **禁止违反前缀全大写约束**——启动校验会拦住，但你写新任务时也要遵守。
+- 顶部 `> 当前迭代: I<N>` blockquote 是 ralph 工具层解析入口（写入 `status.json.iteration_name`），冒号必须 ASCII `:`。
+- 新任务**只追加**文件末尾；阻塞任务**上方**插入 REVIEW-N / HUMAN-N。
+- 已写入任务不删、不改写历史字段、不 fake-mark `[x]`。
+- HUMAN-N 在 ralph oneshot 内不可勾选（见上文 §HUMAN-N 阻塞机制）。
+- 前缀必须全大写英文（启动校验，违反 exit 1）。
+- 写新任务用 `.spec/rules/tasks.md` §未完成任务模板（预期/输入/范围/验证计划 4 个字段必填）。
+- 完成任务追加 `- 完成: <产出>` / `- 验证: <命令 + 结果>` / `- 未验证: <residual 或 None>`（"未验证"必填）。
 
 ## 退出语义（ralph 外层判定，agent 不主动控制）
 

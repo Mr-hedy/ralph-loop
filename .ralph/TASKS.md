@@ -10,7 +10,8 @@
 
 - 本仓库从 v0.1 发布后切换到 `.ralph/TASKS.md` 作为开发任务事实源；root `task.md` 已封版作为 v0.1 历史归档。
 - I1 启动前置准备：PROMPT.md 重构 + TASKS.md 四段结构 + ralph 内核加 HUMAN-N 阻塞 + iteration 归档约定（详见 `I1-design.md`）。
-- 任务前缀体系：REQ / SOL / PLAN / TASK / DEV / QA / REVIEW / HUMAN（详见 `.ralph/PROMPT.md`）。
+- 任务前缀体系：REQ / SOL / ROADMAP / PLAN / DEV / QA / REVIEW / HUMAN（详见 `.spec/rules/tasks.md`）。
+- 任务模板（2026-05-02 起新任务采用 7 字段结构化）：预期 / 输入 / 范围 / 验证计划 / 完成 / 验证 / 未验证（详见 `.spec/rules/tasks.md` + 回溯文档 `docs/research/tasks-md-format-spec-2026-05.md`）；DEV-1 ~ DEV-10 + QA-1/2 已 done 任务保留旧格式作为历史。
 - I1 完成动作：`cp .ralph/TASKS.md docs/requirements/ralph-loop/I1-FINAL-TASK.md`，清空当前任务段，"当前迭代"改为下一个。
 
 ## 历史索引
@@ -98,10 +99,24 @@
   - 加 status/watch 数据流图 + 双区域布局说明
   - 引用 REQ-023 / REQ-024 / SC-023-* / SC-024-*
 
-- [ ] HUMAN-1: 手工验证 watch UX（SC-024-1, SC-024-3, SC-024-5）
-  - 双区域布局视觉验证
-  - 8 类 exit_reason 颜色映射验证（构造 8 个 status.json 各对应一个 exit_reason，逐个看色彩）
-  - Ctrl-C 退出 + 清屏行为
-  - run 自然结束（state=finished）后 watch 不自动退出、最后一帧保留刷新
-  - 录屏 / 截图作为 I1 验收证据，附在 `I1-FINAL-TASK.md` 归档
+- [ ] HUMAN-1: 手工验证 ralph watch UX（SC-024-1 / SC-024-3 / SC-024-5 + 新增 -v flag 行为）
+  - 上下文：DEV-3 ~ DEV-8 + QA-2 已实现 ralph watch（sticky bar + 彩色 + iter log tail + run_id 切换 separator + 非 TTY 退化）。SC-024-2 / SC-024-4 由集成测试覆盖；其余 UX 类 SC（双区域布局、Ctrl-C 退出、彩色映射、不自动退出）必须人眼验证，agent 验不了。commit 5581001 后又新增了 `ralph watch -v` flag 切换上方 tail 区域，需要一并验证。
+  - 选项：
+    - 选项 A：本机直接跑 `ralph watch` + 另起一个终端跑 `ralph run`（fake provider 触发 stagnation / done / blocked_by_human 各一次），全程录屏
+    - 选项 B：用 mock status.json 构造 8 类 exit_reason 静态场景，逐个 `cat status.json` + `ralph watch` 截图
+    - A 覆盖动态行为（run_id 切换 / 自然结束保留），B 覆盖静态颜色映射；建议 A + B 互补
+  - 影响：HUMAN-1 解锁后 ralph 退出 done，cp `.ralph/TASKS.md` → `docs/requirements/ralph-loop/I1-FINAL-TASK.md` 归档。如发现实现缺陷，开 REVIEW-N [blocked-by HUMAN-1] 回炉
+  - 验证清单（人类逐项 check）：
+    1. 默认 `ralph watch`（无 -v）：仅 sticky bar，上方区域空白
+    2. `ralph watch -v`：sticky bar + 上方 iter log live tail
+    3. `state=running` 时 sticky bar `state` 字段绿色
+    4. `exit_reason=done` 时 sticky bar `exit_reason` 字段绿色
+    5. `exit_reason=provider_failed / timeout / max_iterations / stagnated` 红色
+    6. `exit_reason=blocked_by_human / locked / interrupted` 黄色
+    7. `NO_COLOR=1 ralph watch` 不上色
+    8. `ralph watch | cat`（非 TTY）退化为 status 单次打印
+    9. Ctrl-C 退出后终端清屏 + cursor 恢复显示
+    10. run 进入 finished 后 watch 不自动退出，sticky bar 持续显示最终 exit_reason
+    11. -v 模式下双 run 切换：观察上方 tail 区域出现 `─── new run: <id>... ───` separator，tail 目标自动切到新 run iter log
   - 答（待）：
+  - 落地：录屏或截图集合（路径 TBD），附在 I1-FINAL-TASK.md 归档
