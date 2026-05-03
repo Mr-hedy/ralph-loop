@@ -11,7 +11,7 @@
 - I1（dogfood T5 — Status + Watch 真实功能）已完成并归档到 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`；checkpoint 为 `bd85a2d checkpoint: I1 observability review fixes`。
 - I2 目标由用户确认（2026-05-03）：完成历史 T3，即在已闭环的 Ralph harness 上接入 Codex CLI adapter。
 - T3 验收口径：`RALPH_PROVIDER=codex` 能在真实 workspace 跑通至少一条任务到 `exit_reason=done`，并产出统一 iter 证据契约：`meta.json` / `provider.stdout.log` / `session.codex.jsonl` / `session.history.log`。
-- Codex 集成文档基线来自 2026-04-20 的 Codex CLI `0.121.0`，且当前 `docs/architecture/integrations.md` 的 Codex 小节仍有待 T3 落地确认的配置目录变量与 4 文件契约细节；I2 第一项必须先校准当前 CLI / 官方文档 / 本机行为，再改 runtime。
+- Codex 集成文档基线来自 2026-04-20 的 Codex CLI `0.121.0`，且当前 `docs/architecture/integrations.md` / `docs/requirements/ralph-loop/requirements.md` 的 Codex 小节仍有待 T3 落地确认的配置目录变量、4 文件契约和 `session.codex.stdout.jsonl` 旧描述；I2 第一项必须先校准当前 CLI / 官方文档 / 本机行为，再改 runtime。
 - 真实 Codex smoke 会调用外部 provider，若本机 Codex 未登录、配置目录未确认，或需要把 workspace 内容发出机器外，必须先插入 `HUMAN-N` 获取人类确认，不伪造验证。
 - I2 完成动作：`cp .ralph/TASKS.md docs/requirements/ralph-loop/I2-FINAL-TASK.md`，清空 `.ralph/TASKS.md` 当前任务段，"当前迭代"改为下一个，更新 `docs/roadmap.md`。
 
@@ -40,32 +40,32 @@
 - [ ] DEV-1: 校准 Codex CLI 集成契约
   - 预期：I2 后续实现基于当前可验证的 Codex CLI 行为，不继承过期或互相矛盾的集成假设。
   - 输入：用户决策 I2=T3（2026-05-03）；`docs/roadmap.md` T3；REQ-004 / REQ-005 / REQ-006 / REQ-014 / REQ-022；`docs/architecture/integrations.md` Codex 小节。
-  - 范围：更新 `docs/architecture/integrations.md` 的 Codex 命令、session 路径、配置目录变量、4 文件契约和降级策略；必要时同步 `docs/requirements/ralph-loop/requirements.md` 与 `docs/requirements/ralph-loop/I2-design.md`；不改 runtime 代码。
-  - 验证计划：运行本机 `codex --version` / `codex exec --help`（若可用），对照 OpenAI 官方 Codex CLI 文档；确认不使用 resume / ephemeral；确认 stdout JSONL 与 native rollout 文件的保留边界；若 CLI 或外部文档不可用，插入 `HUMAN-N` 说明缺口。
+  - 范围：更新 `docs/architecture/integrations.md` 的 Codex 命令、session 路径、配置目录变量、4 文件契约和降级策略；强制同步 `docs/requirements/ralph-loop/requirements.md` 的 REQ-006 / FR-006 / SC-006-1 / REQ-022 相关文字，移除或明确废弃 `session.codex.stdout.jsonl` 作为额外持久化文件的旧描述；新增 Codex 专属配置目录 SC（建议 `SC-022-4`：adapter-codex 配置目录翻译 + 空值鲁棒性；`SC-022-5`：Codex session capture 使用隔离 session root 且不读真实 HOME）；如设计锚点受影响，同步 `docs/requirements/ralph-loop/I2-design.md`；不改 runtime 代码。
+  - 验证计划：运行本机 `codex --version` / `codex exec --help`（若可用），对照 OpenAI 官方 Codex CLI 文档；确认不使用 resume / ephemeral；确认 stdout JSONL 与 native rollout 文件的保留边界；grep 确认 requirements / integrations 对 Codex iter 文件契约没有第二事实源；若 CLI 或外部文档不可用，插入 `HUMAN-N` 说明缺口。
 
 - [ ] DEV-2: 实现 Codex adapter oneshot 命令与 provider wiring
   - 预期：`RALPH_PROVIDER=codex` 能通过 Ralph 主循环调用 Codex fresh oneshot，命令参数符合 DEV-1 校准后的契约。
   - 输入：DEV-1；REQ-004 / REQ-005 / REQ-009 / REQ-010 / REQ-014 / REQ-015 / REQ-022；现有 Claude/fake adapter 模式。
   - 范围：新增或补齐 `.ralph/lib/adapter-codex.sh`；接入 `.ralph/lib/run.sh` / `.ralph/bin/ralph` 中的 provider loading（若现有逻辑尚未覆盖）；实现 Codex 配置目录翻译和 model/effort/sandbox 参数映射；避免改变 Claude/fake 行为。
-  - 验证计划：`bash -n .ralph/lib/adapter-codex.sh .ralph/lib/run.sh .ralph/bin/ralph`；mock Codex 命令记录断言含 workspace、JSONL 输出和 sandbox 参数，且不含 resume / ephemeral。
+  - 验证计划：`bash -n .ralph/lib/adapter-codex.sh .ralph/lib/run.sh .ralph/bin/ralph`；用临时 PATH stub（不入仓）直接调用 `provider_oneshot`，断言命令含 workspace、JSONL 输出和 sandbox 参数，且不含 resume / ephemeral；持久化 `tests/fixtures/mock-codex` 和完整集成断言归 QA-1。
 
 - [ ] DEV-3: 实现 Codex session capture 与 history 派生视图
   - 预期：Codex 每轮执行后能沉淀 `session.codex.jsonl` 和人类可读 `session.history.log`；采集失败时写 warning 但不把任务完成事实迁移到 session。
   - 输入：DEV-1；REQ-006；`docs/architecture/integrations.md` 4 文件 iter 契约；Claude adapter 的 session capture / history 派生实现。
   - 范围：`.ralph/lib/adapter-codex.sh` 的 `provider_collect_session` 与 Codex JSONL history formatter；必要时抽取共享 helper 但不做跨 provider 大重构。
-  - 验证计划：用 mock Codex session 目录验证 thread/session id 精确匹配、mtime/cwd fallback、`capture_status`/`session_source_path` meta 字段，以及 `session.history.log` 的 user / assistant / thinking / tool_use / tool_result 摘要。
+  - 验证计划：用临时 Codex session 目录或 here-doc JSONL（不入仓）验证 thread/session id 精确匹配、mtime/cwd fallback、`capture_status`/`session_source_path` meta 字段，以及 `session.history.log` 的 user / assistant / thinking / tool_use / tool_result 摘要；持久化 session fixture 和完整集成断言归 QA-1。
 
 - [ ] DEV-4: 实现 Codex provider_diagnose 错误分类
   - 预期：Codex provider 失败时 `last_error.type` 能区分常见 auth / quota / rate_limit / network / api / unknown 场景，便于接力复盘。
   - 输入：DEV-1；REQ-012；`docs/architecture/integrations.md` 错误诊断矩阵；现有 Claude diagnose 风格。
   - 范围：`.ralph/lib/adapter-codex.sh` 的 `provider_diagnose`；必要时更新 `docs/architecture/integrations.md` Codex 错误关键字；不改变 exit_reason 映射。
-  - 验证计划：fixture log 覆盖至少 auth、rate_limit、network、unknown；集成测试 grep `result.json.last_error.type` 或 iter meta 诊断字段。
+  - 验证计划：用临时 provider log / JSONL here-doc 覆盖至少 auth、rate_limit、network、unknown，并断言 meta 诊断字段；持久化 fixture 与 `result.json.last_error.type` 端到端断言归 QA-1。
 
 - [ ] QA-1: Codex adapter 自动化测试覆盖
   - 预期：Codex adapter 的命令构造、session 采集、history 派生、错误诊断和配置目录翻译都有最小自动化证据，避免只靠真实 smoke。
-  - 输入：DEV-2 / DEV-3 / DEV-4；PM-0003 的 REQ traceability 预防检查；SC-004-1 / SC-005-1 / SC-006-1 / SC-014-1 / SC-022-*。
-  - 范围：`scripts/integration-test.sh`、`tests/fixtures/mock-codex` 或等价 fixture、`docs/architecture/testing.md`；不扩大到 Gemini adapter。
-  - 验证计划：`bash scripts/integration-test.sh` 中新增 Codex 用例全部 PASS；`bash scripts/check.sh` PASS；测试名或断言能机械定位到覆盖的 SC。
+  - 输入：DEV-1 / DEV-2 / DEV-3 / DEV-4；PM-0003 的 REQ traceability 预防检查；SC-004-1 / SC-005-1 / SC-006-1 / SC-014-1，以及 DEV-1 新增的 Codex 专属配置目录 SC（建议 `SC-022-4` / `SC-022-5`）。
+  - 范围：`scripts/integration-test.sh`、`tests/fixtures/mock-codex` 或等价持久化 fixture、`docs/architecture/testing.md`；QA-1 拥有持久化 mock fixture 和完整集成断言，不扩大到 Gemini adapter。
+  - 验证计划：`bash scripts/integration-test.sh` 中新增 Codex 用例全部 PASS；`bash scripts/check.sh` PASS；测试名或断言能机械定位到覆盖的 SC，且 Codex 配置目录翻译/空值鲁棒性/session capture 隔离路径不是只复用 Claude 的 SC-022-2/3。
 
 - [ ] DEV-5: 同步 Codex adapter 文档与使用入口
   - 预期：使用者能按 README / `.ralph/README.md` 配置 `RALPH_PROVIDER=codex` 并理解当前支持边界。
@@ -83,4 +83,4 @@
   - 预期：T3 的实现、需求、架构、测试和真实 smoke 证据一致，未遗漏稳定契约或已知失败模式。
   - 输入：DEV-1 ~ QA-2；PM-0003；`docs/requirements/ralph-loop/requirements.md` REQ/SC；`docs/architecture/integrations.md` Codex 契约。
   - 范围：审查代码、测试、docs、`.ralph/TASKS.md`；如发现必须修复项，追加 REVIEW/DEV/QA 后续任务，不直接伪造完成。
-  - 验证计划：执行 REQ traceability rerun（REQ-004/005/006/014/022 → 实现 → 测试）；运行 `bash scripts/check.sh`、`bash scripts/integration-test.sh`、`git diff --check`；明确真实 smoke 已验证与未验证范围。
+  - 验证计划：执行 REQ traceability rerun（REQ-004/005/006/014/022 → 实现 → 测试），逐项对账 SC-006-1 / SC-014-1 / Codex 专属 SC-022-*；运行 `bash scripts/check.sh`、`bash scripts/integration-test.sh`、`git diff --check`；明确真实 smoke 已验证与未验证范围。

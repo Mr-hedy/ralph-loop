@@ -25,6 +25,8 @@
   - `session.codex.jsonl`
   - `session.history.log`
 - 实现 Codex 配置目录隔离变量翻译。变量名必须先由 I2 DEV-1 对照当前 Codex CLI 文档和本机行为确认，不能沿用待查占位。
+- 同步 `docs/requirements/ralph-loop/requirements.md` 与 `docs/architecture/integrations.md` 的 Codex 契约，消除 `session.codex.stdout.jsonl` 等旧描述造成的第二事实源。
+- 为 Codex 配置目录隔离补充专属 SC，并由 I2 自动化测试覆盖；不能用 Claude 专属的 SC-022-2/3 替代 Codex 验收。
 - 补充 mock 自动化测试和至少一次真实 Codex provider smoke。
 
 ## 非范围
@@ -39,6 +41,7 @@
 
 - `docs/architecture/integrations.md` 的 Codex 小节基线来自 2026-04-20，Codex CLI 可能已变化；实施前必须刷新本机 CLI help 和官方文档证据。
 - 当前 Codex 小节仍写有 `session.codex.stdout.jsonl`，与全局 4 文件 iter 契约存在潜在冲突；I2 DEV-1 必须先收敛该契约，再写 runtime。
+- 现有 SC-022-2/3 是 Claude 专属；若 I2 不补 Codex 专属配置目录 SC，QA 可能只验证 Claude 路径而误判 Codex 隔离能力完成。
 - 真实 Codex smoke 会调用外部 provider，可能把临时 workspace 内容发送到机器外；执行前需要确认 auth/config 与用户允许范围。
 
 ## 验收口径
@@ -46,6 +49,7 @@
 - `bash scripts/check.sh` 通过。
 - `bash scripts/integration-test.sh` 通过，且含 Codex adapter 的 mock 覆盖。
 - `git diff --check` 通过。
+- requirements / integrations 对 Codex iter 文件契约一致，不保留会误导实现的额外持久化文件描述；Codex 配置目录翻译、空值鲁棒性和 session capture 隔离路径有专属 SC 与测试证据。
 - 真实 Codex smoke 在临时 workspace 中跑到 `result.json.exit_reason=done`，并确认 iter 目录包含统一 4 文件证据契约。
 - 若真实 Codex CLI 不可用或授权不明确，必须通过 `HUMAN-N` 明确阻塞，不允许把 mock 通过包装成 T3 完成。
 
