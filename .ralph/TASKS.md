@@ -96,11 +96,20 @@
   - 影响：决定 QA-2 是否执行、T3 验收口径如何闭合。
   - 答（2026-05-03）：选择 A，允许在临时 workspace 中调用真实 `codex exec` 执行最小 smoke；用户已确认该调用可能把临时 workspace 内容发送到 OpenAI API（机器外）。
   - 落地：本任务记录；下一轮执行 QA-2。
-- [ ] QA-2: 真实 Codex provider smoke
+- [x] QA-2: 真实 Codex provider smoke
   - 预期：在临时 workspace 中用真实 Codex CLI 跑通 Ralph 一轮任务，证明 T3 不是只在 mock 路径可用。
   - 输入：DEV-2 ~ DEV-5；SC-004-1；T3 roadmap 验收口径。
   - 范围：临时 workspace + 本仓库 `.ralph/` 部署单元；只记录必要证据到 `.ralph/TASKS.md` 或 checkpoint，不提交 runtime artifacts、secrets、完整 provider transcript。
   - 验证计划：先确认 Codex CLI auth/config 与用户允许真实 provider 调用；运行最小任务到 `result.json.exit_reason=done`；检查 iter 目录包含 `meta.json` / `provider.stdout.log` / `session.codex.jsonl` / `session.history.log`；若无法确认授权或 CLI 不可用，插入 `HUMAN-N` 阻塞。
+  - 完成：在 `/tmp/ralph-smoke-*` 临时 workspace 部署 `.ralph/`，用 `ralph run --provider codex --max-iter 1 --timeout 300` 跑通一条最小任务（写 `hello.txt`），`result.json.exit_reason=done`，1/1 tasks completed，duration 2m47s。iter 目录 4 文件齐全：`meta.json`（session_id 精确匹配 + capture_status=ok + changed_files）、`provider.stdout.log`（42KB JSONL）、`session.codex.jsonl`（162KB，从 `~/.codex/sessions/` 精确匹配采集）、`session.history.log`（0 bytes — 发现见未验证）。
+  - 验证：`hello.txt` 内容 "hello from codex smoke test" 正确；`result.json.exit_reason=done`；meta.json 字段完整（session_id / capture_status=ok / session_source_path / tasks_before{1,0} / tasks_after{1,1} / changed_files=["hello.txt"] / exit_code=0 / error=null）；session.codex.jsonl 从 `~/.codex/sessions/2026/05/03/rollout-2026-05-03T19-29-38-<thread_id>.jsonl` 精确匹配采集成功。
+  - 未验证：`session.history.log` 为空——真实 Codex CLI `--json` 事件类型为 `agent_message` / `command_execution`（不是 OpenAI API 格式的 `message` / `function_call`），`_codex_derive_history` 的 jq 过滤器未匹配任何事件。这是 DEV-3 未验证风险的兑现（"item.completed 事件字段名基于 OpenAI API 格式推断"），需要修复 history 派生以匹配真实 CLI 格式（归 DEV-6）。同时发现 `RALPH_PROVIDER_CONFIG_DIR` 环境变量会将 `CODEX_HOME` 重定向到无 `auth.json` 的路径导致 401 auth 失败，需 unset 后才能正常工作（归 DEV-7 或 REVIEW-1 跟进）。
+
+- [ ] DEV-6: 修复 Codex session.history.log 派生匹配真实 CLI 事件类型
+  - 预期：`session.history.log` 能从真实 `codex exec --json` 输出派生出人类可读的 user/assistant/tool-use/tool-result 摘要。
+  - 输入：QA-2 真实 smoke 证据（`agent_message` / `command_execution` 事件结构）；DEV-3 `_codex_derive_history` 实现。
+  - 范围：更新 `.ralph/lib/adapter-codex.sh` 的 `_codex_derive_history` jq 过滤器，匹配真实 CLI 事件类型（`agent_message` → `[assistant]`，`command_execution` → `[tool-use name=Bash]` + `[tool-result name=Bash]`）；同步更新 `tests/fixtures/mock-codex` 事件类型以匹配真实格式；更新 `scripts/integration-test.sh` 中 history 派生断言。
+  - 验证计划：用 QA-2 保存的 provider.stdout.log（如有，否则重新 short smoke）验证 history.log 非空且包含 `[assistant]` / `[tool-use name=Bash]` / `[tool-result name=Bash]`；`bash scripts/integration-test.sh` Codex 用例全部 PASS；`bash scripts/check.sh` PASS。
 
 - [ ] REVIEW-1: I2 Codex adapter 收口 | adversarial-review
   - 预期：T3 的实现、需求、架构、测试和真实 smoke 证据一致，未遗漏稳定契约或已知失败模式。
