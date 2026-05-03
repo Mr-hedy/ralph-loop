@@ -63,11 +63,14 @@
   - 验证：临时测试 5/5 PASS：精确匹配（capture_status=ok + source_path 含 thread_id）、history 派生（user/assistant/tool-use(Bash)/tool-result(Bash) 含 arguments 摘要）、mtime 退化（capture_warning=fallback by mtime）、缺失 session_id（capture_status=warning + 空 history.log）、SC-022-5 隔离 CODEX_HOME（source_path 在隔离路径下）；`bash -n` 三个文件 PASS；`bash scripts/check.sh` PASS；`git diff --check` PASS；集成测试 56/59 PASS（3 个失败为预先存在的环境隔离问题，与 DEV-3 无关）。
   - 未验证：真实 `codex exec --json` 端到端输出（`item.completed` 事件字段名基于 OpenAI API 格式推断，归 QA-2 真实 smoke 验证）；rollout 文件格式解析（内部格式未实现解析，保留为长期归档用途）；持久化 mock fixture 和完整集成断言（归 QA-1）。
 
-- [ ] DEV-4: 实现 Codex provider_diagnose 错误分类
+- [x] DEV-4: 实现 Codex provider_diagnose 错误分类
   - 预期：Codex provider 失败时 `last_error.type` 能区分常见 auth / quota / rate_limit / network / api / unknown 场景，便于接力复盘。
   - 输入：DEV-1；REQ-012；`docs/architecture/integrations.md` 错误诊断矩阵；现有 Claude diagnose 风格。
   - 范围：`.ralph/lib/adapter-codex.sh` 的 `provider_diagnose`；必要时更新 `docs/architecture/integrations.md` Codex 错误关键字；不改变 exit_reason 映射。
   - 验证计划：用临时 provider log / JSONL here-doc 覆盖至少 auth、rate_limit、network、unknown，并断言 meta 诊断字段；持久化 fixture 与 `result.json.last_error.type` 端到端断言归 QA-1。
+  - 完成：实现 `_codex_classify_error`（互斥优先级：auth → rate_limit → quota → network → api → unknown）和 `provider_diagnose`（turn.failed 权威 → error 事件回退 → stderr 非 JSON 行回退三层降级）；更新 `docs/architecture/integrations.md` Codex 错误诊断添加 `network` 类别（ECONNRESET / ETIMEDOUT / ENOTFOUND / fetch failed / connection refused / network error）。
+  - 验证：临时测试 13/13 PASS（auth/401、rate_limit/429、quota/credits、network/ECONNRESET、network/ENOTFOUND、api/500、unknown、error 事件回退、stderr 回退、exit_code=0 无 error、无 log 文件、error 为 string、meta.json 字段完整）；`bash -n` PASS；`bash scripts/check.sh` PASS；`bash scripts/integration-test.sh` PASS；`git diff --check` PASS。
+  - 未验证：真实 `codex exec --json` 端到端错误输出（归 QA-2 真实 smoke）；`result.json.last_error.type` 端到端断言（归 QA-1 持久化 fixture）。
 
 - [ ] QA-1: Codex adapter 自动化测试覆盖
   - 预期：Codex adapter 的命令构造、session 采集、history 派生、错误诊断和配置目录翻译都有最小自动化证据，避免只靠真实 smoke。

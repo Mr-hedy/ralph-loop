@@ -282,7 +282,8 @@ provider exit code 0 不等于 agent 成功。Ralph 需要按 provider 协议做
   1. `401` / `unauthor` / `invalid api key` / `not logged in` → `auth`
   2. `429` / `rate.?limit` / `too many requests` → `rate_limit`
   3. `quota` / `credits exhausted` / `billing` → `quota`
-  4. 其他 provider 明确错误（含 5xx） → `api`
+  4. `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `fetch failed` / `connection refused` / `network error` → `network`
+  5. 其他 provider 明确错误（含 5xx） → `api`
 - **Gemini**：`-p` 模式下 stdout 不是结构化 JSON，只能依赖 exit code 和 stderr 关键字，若 session 文件里最后 `gemini` 消息带错误信息可以作为补充。
 
 诊断结果写入 `iterations/iter-xxx/meta.json`，并作为 `result.json` 的聚合错误摘要。诊断本身不决定是否退出循环，但会影响：
