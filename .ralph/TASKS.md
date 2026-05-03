@@ -46,12 +46,14 @@
   - 验证：`codex --version` = `codex-cli 0.125.0`；`codex exec --help` 确认无 `--reasoning-effort` flag，确认 `-c` / `--json` / `--sandbox` / `-C` / `--ephemeral` 存在；`~/.codex/sessions/` rollout 文件名格式确认；grep 确认无残留 `session.codex.stdout.jsonl` 作为持久化文件描述；`git diff --check` PASS；`bash scripts/check.sh` PASS。
   - 未验证：真实 `codex exec --json` 端到端输出（需要调用外部 provider，归 QA-2 真实 smoke）；`CODEX_HOME` 设为自定义路径后的 session 采集行为（归 DEV-2/DEV-3 实现 + QA-1 集成测试）。
 
-- [ ] DEV-2: 实现 Codex adapter oneshot 命令与 provider wiring
+- [x] DEV-2: 实现 Codex adapter oneshot 命令与 provider wiring
   - 预期：`RALPH_PROVIDER=codex` 能通过 Ralph 主循环调用 Codex fresh oneshot，命令参数符合 DEV-1 校准后的契约。
   - 输入：DEV-1；REQ-004 / REQ-005 / REQ-009 / REQ-010 / REQ-014 / REQ-015 / REQ-022；现有 Claude/fake adapter 模式。
   - 范围：新增或补齐 `.ralph/lib/adapter-codex.sh`；接入 `.ralph/lib/run.sh` / `.ralph/bin/ralph` 中的 provider loading（若现有逻辑尚未覆盖）；实现 Codex 配置目录翻译和 model/effort/sandbox 参数映射；避免改变 Claude/fake 行为。
   - 验证计划：`bash -n .ralph/lib/adapter-codex.sh .ralph/lib/run.sh .ralph/bin/ralph`；用临时 PATH stub（不入仓）直接调用 `provider_oneshot`，断言命令含 workspace、JSONL 输出和 sandbox 参数，且不含 resume / ephemeral；持久化 `tests/fixtures/mock-codex` 和完整集成断言归 QA-1。
-
+  - 完成：新增 `.ralph/lib/adapter-codex.sh`，实现 `provider_oneshot`（`codex exec --json -C <workspace> --sandbox workspace-write [--model] [-c model_reasoning_effort=] <prompt>`，从 stdout JSONL 解析 `thread.started.thread_id` 写入 meta.json session_id，检测 `turn.failed` 事件作为 is_error 等价物）；`provider_collect_session` / `provider_diagnose` 为 stub（分别归 DEV-3/DEV-4）；配置目录翻译（SC-022-4：RALPH_PROVIDER_CONFIG_DIR → CODEX_HOME，空值不 export）。
+  - 验证：`bash -n` 三个文件 PASS；临时 stub 断言命令含 `--json`、`-C <workspace>`、`--sandbox workspace-write`、`--model`、`model_reasoning_effort=`；不含 resume/ephemeral；effort=none 不拼 effort flag；空 model 不拼 model flag；SC-022-4 翻译 + 空值鲁棒 PASS；`bash scripts/check.sh` PASS；`git diff --check` PASS。
+  - 未验证：真实 `codex exec` 端到端（归 QA-2）；`provider_collect_session` 完整实现（归 DEV-3）；`provider_diagnose` 完整实现（归 DEV-4）；`RALPH_PROVIDER=codex` 在 `ralph run` 中完整跑通（归 QA-1/QA-2）。
 - [ ] DEV-3: 实现 Codex session capture 与 history 派生视图
   - 预期：Codex 每轮执行后能沉淀 `session.codex.jsonl` 和人类可读 `session.history.log`；采集失败时写 warning 但不把任务完成事实迁移到 session。
   - 输入：DEV-1；REQ-006；`docs/architecture/integrations.md` 4 文件 iter 契约；Claude adapter 的 session capture / history 派生实现。
