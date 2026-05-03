@@ -37,11 +37,14 @@
 
 ## 当前任务
 
-- [ ] DEV-1: 校准 Codex CLI 集成契约
+- [x] DEV-1: 校准 Codex CLI 集成契约
   - 预期：I2 后续实现基于当前可验证的 Codex CLI 行为，不继承过期或互相矛盾的集成假设。
   - 输入：用户决策 I2=T3（2026-05-03）；`docs/roadmap.md` T3；REQ-004 / REQ-005 / REQ-006 / REQ-014 / REQ-022；`docs/architecture/integrations.md` Codex 小节。
   - 范围：更新 `docs/architecture/integrations.md` 的 Codex 命令、session 路径、配置目录变量、4 文件契约和降级策略；强制同步 `docs/requirements/ralph-loop/requirements.md` 的 REQ-006 / FR-006 / SC-006-1 / REQ-022 相关文字，移除或明确废弃 `session.codex.stdout.jsonl` 作为额外持久化文件的旧描述；新增 Codex 专属配置目录 SC（建议 `SC-022-4`：adapter-codex 配置目录翻译 + 空值鲁棒性；`SC-022-5`：Codex session capture 使用隔离 session root 且不读真实 HOME）；如设计锚点受影响，同步 `docs/requirements/ralph-loop/I2-design.md`；不改 runtime 代码。
   - 验证计划：运行本机 `codex --version` / `codex exec --help`（若可用），对照 OpenAI 官方 Codex CLI 文档；确认不使用 resume / ephemeral；确认 stdout JSONL 与 native rollout 文件的保留边界；grep 确认 requirements / integrations 对 Codex iter 文件契约没有第二事实源；若 CLI 或外部文档不可用，插入 `HUMAN-N` 说明缺口。
+  - 完成：校准基于本机 Codex CLI `0.125.0` / Desktop `0.128.0-alpha.1`、官方 non-interactive mode / command line options / config-reference 文档、本机 session 目录观测。更新 integrations.md（版本、CODEX_HOME、effort 用 `-c model_reasoning_effort`、移除 `session.codex.stdout.jsonl`、区分 stdout 事件流与 rollout 文件格式）；更新 requirements.md FR-006（effort 映射改为 config override）、REQ-022（填入 CODEX_HOME、Codex session 采集路径）、新增 SC-022-4（Codex 配置目录翻译 + 空值鲁棒性）、SC-022-5（Codex session capture 隔离）；更新 I2-design.md（标注已确认项）。
+  - 验证：`codex --version` = `codex-cli 0.125.0`；`codex exec --help` 确认无 `--reasoning-effort` flag，确认 `-c` / `--json` / `--sandbox` / `-C` / `--ephemeral` 存在；`~/.codex/sessions/` rollout 文件名格式确认；grep 确认无残留 `session.codex.stdout.jsonl` 作为持久化文件描述；`git diff --check` PASS；`bash scripts/check.sh` PASS。
+  - 未验证：真实 `codex exec --json` 端到端输出（需要调用外部 provider，归 QA-2 真实 smoke）；`CODEX_HOME` 设为自定义路径后的 session 采集行为（归 DEV-2/DEV-3 实现 + QA-1 集成测试）。
 
 - [ ] DEV-2: 实现 Codex adapter oneshot 命令与 provider wiring
   - 预期：`RALPH_PROVIDER=codex` 能通过 Ralph 主循环调用 Codex fresh oneshot，命令参数符合 DEV-1 校准后的契约。

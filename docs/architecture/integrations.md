@@ -1,18 +1,18 @@
 # Integrations
 
-- 状态：已确认
-- 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-005 / REQ-006 / REQ-011 / FR-006 / FR-008 / NFR-SEC-002）、2026-04-20 三家官方文档、本机 CLI help 与会话目录观测。
+- 状态：已确认（I2 DEV-1 校准 2026-05-03）
+- 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-005 / REQ-006 / REQ-011 / FR-006 / FR-008 / NFR-SEC-002）、2026-04-20 三家官方文档、I2 DEV-1 本机 CLI help 与会话目录观测（2026-05-03）、OpenAI 官方 non-interactive mode / command line options / config reference 文档。
 - 范围：本文定义 Ralph harness 与三个外部 provider CLI（Claude Code / Codex CLI / Gemini CLI）的集成契约：命令构造、session 采集、错误诊断关键字、UUID 依赖和降级策略。跨 provider 的公共主循环、运行目录 schema 在 [`overview.md`](./overview.md)；approval/sandbox 的安全边界在 [`security.md`](./security.md)。本文不重写需求正文、不描述 adapter 之外的命令封装形式。
 - 变更条件：任一 provider CLI 升级改变 session 路径、事件格式或 flag 语义；新增第四个 provider；NFR-SEC-002 变更导致 approval 策略调整；`.ralph/runs/` 布局变化影响 session 拷贝位置。
 
 ## 证据范围
 
-本文基于 2026-04-20 的官方文档、本机 CLI help 和本机会话目录观测。
+本文基于 2026-04-20 的官方文档、I2 DEV-1（2026-05-03）本机 CLI help 和本机会话目录观测。
 
 本机版本：
 
 - Claude Code：`2.1.114`
-- Codex CLI：`0.121.0`
+- Codex CLI：`0.125.0`（CLI）；Desktop app 内核 `0.128.0-alpha.1`
 - Gemini CLI：`0.38.2`
 
 参考资料：
@@ -72,7 +72,7 @@ REQ-022 引入的隐式契约（不增三函数签名）。每个 adapter 在 so
 | Provider | 原生环境变量 | 来源 / 备注 |
 |---|---|---|
 | Claude Code | `CLAUDE_CONFIG_DIR` | 官方 [authentication.md](https://code.claude.com/docs/en/authentication.md)；macOS 上当 settings.json 含 API key / apiKeyHelper / `ANTHROPIC_BASE_URL` 时切换该目录 = 切换账号（OAuth/Keychain 不参与） |
-| Codex CLI | （T3 落地时确定） | 待查 codex 官方文档 |
+| Codex CLI | `CODEX_HOME` | 官方 config-reference `log_dir` 说明"defaults to `$CODEX_HOME/log`"；CLI `--ignore-user-config` help 明确"auth still uses `CODEX_HOME`"；默认 `~/.codex` |
 | Gemini CLI | （T4 落地时确定） | 待查 gemini 官方文档 |
 | fake adapter | n/a | 测试用，不读真实 provider 配置 |
 
@@ -164,18 +164,21 @@ codex exec resume <SESSION_ID> "next task"
 Codex 文档还说明：
 
 - `codex exec` 用于脚本和 CI 风格的非交互任务。
-- `codex exec --json` 会把运行事件输出为 JSONL，事件包括 `thread.started`、`turn.started`、`turn.completed`、`turn.failed`、`item.*` 和 `error`。
-- `thread.started` 事件包含 `thread_id`。
+- `codex exec --json` 会把运行事件输出为 JSONL（到 stdout），事件类型包括 `thread.started`、`turn.started`、`item.started`、`item.completed`、`turn.completed`、`turn.failed` 和 `error`。
+- `thread.started` 事件含 `thread_id` 字段（与 rollout 文件名中的 session ID 一致）。
 - `codex exec --ephemeral` 会跳过 session rollout 文件持久化。
+- `--full-auto` 已废弃，推荐 `--sandbox workspace-write`（CLI 会打印弃用警告）。
 - session ID 可从 picker、`/status` 或 `~/.codex/sessions/` 下的文件获取。
+- `CODEX_API_KEY` 环境变量仅在 `codex exec` 中支持，用于 CI 认证。
+- effort 通过 config key `model_reasoning_effort` 控制（值：`minimal | low | medium | high | xhigh`），CLI 传递方式为 `-c model_reasoning_effort=<value>`；不存在 `--reasoning-effort` flag。
 
 本机观测到的文件形态：
 
 ```text
-~/.codex/sessions/YYYY/MM/DD/rollout-<timestamp>-<session-id>.jsonl
+${CODEX_HOME:-$HOME/.codex}/sessions/YYYY/MM/DD/rollout-<timestamp>-<session-id>.jsonl
 ```
 
-JSONL 首行是 `session_meta`，其中包含 `payload.id`、`payload.cwd`、`payload.cli_version` 等元数据。
+Rollout 文件首行是 `session_meta` 类型，其中包含 `payload.id`、`payload.cwd`、`payload.cli_version` 等元数据。后续行使用与 stdout JSONL 不同的事件格式：`event_msg`、`response_item`、`turn_context` 等（rollout 是 Codex 内部 transcript 格式，用于 resume；stdout `--json` 是面向外部消费的结构化事件流）。
 
 ### Ralph 采集方式
 
@@ -191,18 +194,22 @@ codex exec --json \
 采集步骤：
 
 - 使用 `-C "$workspace"` 明确 workspace root。
-- 使用 `--json` 获取 JSONL 事件流。
+- 使用 `--json` 获取 JSONL 事件流（到 stdout）。
 - 使用 `--sandbox workspace-write` 让 Codex 在自带 sandbox 下写 workspace。
 - 不传 `--ephemeral`。
 - 不使用 `codex exec resume`；resume 是明确非目标（见需求文档非目标段）。
+- 不传 `--full-auto`（已废弃）。
 - stdout/stderr 全量保存为 `iterations/iter-xxx/provider.stdout.log`。
-- 从 stdout JSONL 中解析 `thread.started.thread_id`。
-- provider 退出后，在 `~/.codex/sessions/` 下查找文件名包含该 `thread_id` 的 `rollout-*.jsonl`。
+- 从 stdout JSONL 中解析 `thread.started` 事件的 `thread_id` 字段。
+- provider 退出后，在 `${CODEX_HOME:-$HOME/.codex}/sessions/` 下递归查找文件名包含该 `thread_id` 的 `rollout-*.jsonl`。
 - 找到后复制为 `iterations/iter-xxx/session.codex.jsonl`。
-- 同时把 Codex 的 `--json` stdout 原文保存为 `iterations/iter-xxx/session.codex.stdout.jsonl`，它本身就是 Codex 非交互模式下完整的事件流。
 - 若没有拿到 `thread_id`，退化为查找 started_at 之后修改、且首行 `session_meta.payload.cwd` 等于 workspace 的候选文件。
 
-Codex 的 `--json` 事件流本身也有复盘价值，但 Ralph 仍应复制 native rollout 文件，因为它是 Codex resume 使用的本地 transcript。
+Ralph 不额外保存 `session.codex.stdout.jsonl`：`--json` stdout 事件流已作为 `provider.stdout.log` 全量保存，与 4 文件 iter 契约一致，不引入额外持久化文件。
+
+### Effort 映射
+
+Ralph `--effort=low|medium|high` 映射为 `-c model_reasoning_effort=<value>`。`none` 或留空不传。Codex 原生支持 `minimal | low | medium | high | xhigh`，Ralph 不暴露 `minimal` 和 `xhigh`。
 
 ## Gemini CLI
 
