@@ -103,9 +103,9 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 
 ## 当前状态
 
-- 版本：v0.1.1-dev（v0.1.0 已发布于 2026-04-28；I1 dogfood 准备中）
+- 版本：v0.1.1-dev（v0.1.0 已发布于 2026-04-28；I1 已完成，I2 进行 T3 Codex adapter）
 - 当前开发任务：`.ralph/TASKS.md`（dogfood 模式，root `task.md` 已封版）
-- 当前 iteration 设计方案：`docs/requirements/ralph-loop/I1-design.md`
+- 当前 iteration 设计方案：`docs/requirements/ralph-loop/I2-design.md`
 - 续接状态：`handoff.md`
 - 工具入口：`.ralph/bin/ralph`
 

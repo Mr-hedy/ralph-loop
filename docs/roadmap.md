@@ -12,16 +12,18 @@
   - v0.1 release = T0+T1+T2+T6 历史集合（已完成）
   - v0.1.x / v0.2+ release = I1+I2+... 新 iteration 集合（dogfood 模式推进）
 - **未实施的历史 phase（T3 / T4 / T5 / T7）后续作为新 iteration 推进，编号与 T 不绑定**：
-  - I1 = dogfood T5（status + watch 真实功能）+ HUMAN-N 阻塞机制 + 任务类型路由
-  - I2 / I3 / I4 等 = T3 / T4 / T7 或新议题，由用户在 I1 完成后排序
+  - I1 = dogfood T5（status + watch 真实功能）+ HUMAN-N 阻塞机制 + 任务类型路由（已完成，归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`）
+  - I2 = T3（Codex adapter），设计方案见 `docs/requirements/ralph-loop/I2-design.md`
+  - I3 / I4 等 = T4 / T7 或新议题，由用户在 I2 完成后排序
   - 历史 T 编号仅作为"该 iteration 关联的 v0.1 规划项"出现在 iteration 主题里，不再是 phase 单位
 
 ## Current State
 
 - **v0.1 已发布（2026-04-28）**。T6 全部子任务闭环，版本号 `0.1.0`。
 - **进入 dogfood 模式（2026-04-30）**：本仓库切换到 `.ralph/TASKS.md` 作为开发任务事实源；root `task.md` 已封版作为 v0.1 历史归档。
-- **I1 准备中**：dogfood T5（status + watch 真实功能），设计方案见 `docs/requirements/ralph-loop/I1-design.md`；启动前置完成后开始执行。
-- 后续 iteration 候选：T3（Codex adapter）/ T4（Gemini adapter）/ T7（skill 封装），等用户决定优先级（与 I1 完成后排程）。
+- **I1 已完成（2026-05-03）**：dogfood T5（status + watch 真实功能），归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`。
+- **I2 当前迭代**：T3（Codex adapter），设计方案见 `docs/requirements/ralph-loop/I2-design.md`，当前任务源为 `.ralph/TASKS.md`。
+- 后续 iteration 候选：T4（Gemini adapter）/ T7（skill 封装）/ 新议题，等用户在 I2 完成后排序。
 - 协作壳已初始化，`.spec/`、`docs/` 结构稳定。
 - Ralph v0.1 需求已收敛为 22 条决策，沉淀在 `requirements.md`（REQ-001 ~ REQ-016）。
 - 架构和稳定契约沉淀在 `docs/architecture/overview.md`；provider 集成细节沉淀在 `docs/architecture/integrations.md`；安全边界沉淀在 `docs/architecture/security.md`。
@@ -36,9 +38,9 @@
 | **T1 Run 骨架 + Adapter 契约 + Fake 实现** | ralph run 主循环 + adapter 三函数契约 + fake adapter 跑通最小闭环 | `.ralph/lib/run.sh` / `tasks.sh` / `session.sh` / `adapter-fake.sh` | fake provider smoke：预置 TASKS，跑到 `exit_reason=done`；stagnation 和 locked 各有集成测试 |
 | T2 Claude Adapter | 把 fake 替换为真实 Claude adapter 实现 | `.ralph/lib/adapter-claude.sh`、chat/tools 派生视图 | 真实 workspace 跑一轮 `--provider=claude`，产生 session + 派生视图 |
 | **T6 v0.1 闭环验证 + 使用指南**（提前到 T2 之后）| 用 Claude 单 provider 把多任务长链路、stagnation、TASKS.md self-mutation、样板/使用指南**整体闭环**；暴露内核未验证假设并就地补丁 | `.ralph/PROMPT.md` + `.ralph/TASKS.md`（部署单元内入仓样板）、`docs/usage.md`、3+ 条 task 真实 smoke、内核 bug fix patches | 真实 multi-task workspace 跑到 `exit_reason=done`；stagnation / max_iter / timeout 兜底在真实 Claude 下各触发一次 |
-| T3 Codex Adapter（T6 之后）| 在已闭环的内核上接入 Codex 真实 adapter | `.ralph/lib/adapter-codex.sh` | 真实 workspace 跑一轮 `--provider=codex` |
+| T3 Codex Adapter（I2 当前）| 在已闭环的内核上接入 Codex 真实 adapter | `.ralph/lib/adapter-codex.sh` | 真实 workspace 跑一轮 `--provider=codex` |
 | T4 Gemini Adapter | 同上，Gemini 实现 | `.ralph/lib/adapter-gemini.sh` | 真实 workspace 跑一轮 `--provider=gemini` |
-| T5 Status + Watch | 观察性子命令 | `.ralph/lib/status.sh` / `watch.sh` | `ralph status` 一次性输出；`ralph watch` 2 秒刷新 sticky bar |
+| T5 Status + Watch（I1 已完成） | 观察性子命令 | `.ralph/lib/status.sh` / `watch.sh` | `ralph status` 一次性输出；`ralph watch` 2 秒刷新 sticky bar |
 | T7 Skill 封装（post-v0.1） | `ralph-loop` skill | `.agents/skills/ralph-loop/` | skill 能在空 workspace 引导生成 `.ralph/` 结构 |
 
 ### 阶段重排序决策（2026-04-28）
@@ -54,7 +56,7 @@
 
 - 实现 `provider_oneshot` / `provider_collect_session` / `provider_diagnose` 三函数
 - 按 `docs/architecture/integrations.md` 构造 oneshot 命令
-- 按 provider 协议采集 session、派生 `chat.log` / `tools.log`
+- 按 provider 协议采集 native session、派生 `session.history.log`
 - 按错误诊断矩阵识别 `auth` / `quota` / `rate_limit` / `network` / `api` / `concurrency`（仅 Claude）
 - 至少一次真实 workspace 单轮 smoke 验证
 
