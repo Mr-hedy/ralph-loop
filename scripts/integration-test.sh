@@ -1458,7 +1458,7 @@ fi
 cleanup_codex_ws
 
 echo ""
-echo "-- Codex session: missing thread_id → capture_status=warning + empty history.log"
+echo "-- Codex session: missing thread_id → capture_status=warning + history from stdout"
 setup_codex_workspace
 printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
 git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
@@ -1468,14 +1468,15 @@ RALPH_MOCK_CODEX_SCENARIO=missing_thread_id \
   bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-iter 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 iter_dir="${run_dir}/iterations/iter-001"
-warn_ok=0; empty_history_ok=0
+warn_ok=0; history_ok=0
 grep -q '"capture_status": "warning"' "$iter_dir/meta.json" 2>/dev/null && warn_ok=1
-# 派生视图文件存在但内容为空（warning 时不派生）
-[[ -f "$iter_dir/session.history.log" && ! -s "$iter_dir/session.history.log" ]] && empty_history_ok=1
-if [[ "$warn_ok" -eq 1 && "$empty_history_ok" -eq 1 ]]; then
-  _pass "codex missing thread_id: capture_status=warning, empty session.history.log"
+# history 派生从 provider.stdout.log 读取，不依赖 session 文件
+[[ -f "$iter_dir/session.history.log" && -s "$iter_dir/session.history.log" ]] && \
+  grep -q '\[assistant\]' "$iter_dir/session.history.log" && history_ok=1
+if [[ "$warn_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
+  _pass "codex missing thread_id: capture_status=warning, session.history.log derived from stdout"
 else
-  _fail "codex missing thread_id: warn_ok=$warn_ok empty_history_ok=$empty_history_ok"
+  _fail "codex missing thread_id: warn_ok=$warn_ok history_ok=$history_ok"
 fi
 cleanup_codex_ws
 

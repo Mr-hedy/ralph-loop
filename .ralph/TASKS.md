@@ -123,8 +123,11 @@
   - 验证：`bash scripts/check.sh` PASS；`bash scripts/integration-test.sh` 74/77 PASS（3 个预先存在的环境隔离失败）；`git diff --check` PASS；REQ traceability rerun 全覆盖；修复后无回归。
   - 未验证：DEV-7 history gate 修复（追加为后续任务）；command_execution completed output 字段名真实 CLI 验证（可观察风险 #6）。
 
-- [ ] DEV-7: 修复 Codex history derivation gate 检查错误
+- [x] DEV-7: 修复 Codex history derivation gate 检查错误
   - 预期：`session.history.log` 在 provider.stdout.log 有可用事件数据时都能派生，不受 session 采集成功与否限制。
   - 输入：REVIEW-1 finding #2；`adapter-codex.sh` provider_collect_session 和 _codex_derive_history。
   - 范围：将 `_codex_derive_history` 调用从 session file 存在时触发改为 provider.stdout.log 存在时触发；确保 missing_thread_id 和 capture 失败场景也能派生 history；更新对应集成测试断言。
   - 验证计划：`bash scripts/integration-test.sh` Codex 用例全部 PASS；missing_thread_id 场景 history.log 非空；`bash scripts/check.sh` PASS。
+  - 完成：修复 `provider_collect_session` 两处 gate：1) missing_thread_id 早期 return 前调用 `_codex_derive_history`（从 provider.stdout.log 派生）；2) 移除 session file 存在性 gate，直接调用 `_codex_derive_history`（内部已检查 provider.stdout.log 存在性）。更新集成测试 missing_thread_id 断言从空 history 改为验证含 `[assistant]`。
+  - 验证：`bash scripts/integration-test.sh` Codex 19/19 PASS（总 74/77，3 个失败为预先存在的环境隔离问题）；`bash scripts/check.sh` PASS；`git diff --check` PASS；missing_thread_id 场景 history.log 含 `[assistant]`。
+  - 未验证：真实 `codex exec --json` 端到端 history 派生（需要真实 provider 调用，归后续迭代验证）。

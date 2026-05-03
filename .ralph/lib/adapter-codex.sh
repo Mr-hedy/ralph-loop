@@ -109,6 +109,7 @@ provider_collect_session() {
   if [[ -z "$session_id" || "$session_id" == "null" ]]; then
     update_meta_jq "$iter_dir" \
       '.capture_status = "warning" | .capture_warning = "session_id missing in meta.json"'
+    _codex_derive_history "$iter_dir/session.codex.jsonl" "$iter_dir/session.history.log"
     touch "$iter_dir/session.history.log"
     return 0
   fi
@@ -176,10 +177,8 @@ provider_collect_session() {
     fi
   fi
 
-  # 派生 session.history.log
-  if [[ -f "$dst" ]]; then
-    _codex_derive_history "$dst" "$iter_dir/session.history.log"
-  fi
+  # 派生 session.history.log（从 provider.stdout.log 事件流，不依赖 session 文件）
+  _codex_derive_history "$dst" "$iter_dir/session.history.log"
   touch "$iter_dir/session.history.log"
   return 0
 }
