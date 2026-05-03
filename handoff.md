@@ -6,7 +6,7 @@
 
 # 当前阶段与范围
 
-- 阶段：I2 收口前 checkpoint 准备，主题仍为 dogfood T3 — Codex adapter。
+- 阶段：I2 checkpoint 已创建，主题仍为 dogfood T3 — Codex adapter 收口。
 - 影响模块：`.ralph/` 部署单元、run/status/watch/provider observability、Codex/fake adapter、集成测试、README/requirements/architecture docs、任务事实源。
 - 变更类型：代码、测试、文档、任务源、流程记录。
 
@@ -63,21 +63,21 @@
 
 # Checkpoint 与 Postmortem 状态
 
-- Checkpoint：本 handoff 写入时尚未创建；下一步将创建 `docs/checkpoints/2026-05-04-01-i2-codex-observability-hardening.md` 并提交。
-- Postmortem：checkpoint sweep 已命中既有 PM-0003，下一步会更新 `docs/postmortems/pm-task-closure-req-traceability.md`，记录 2026-05-04 的观测面误定位与 timeout 子进程测试缺口。
+- Checkpoint：已创建 `docs/checkpoints/2026-05-04-01-i2-codex-observability-hardening.md`，commit `de01779 checkpoint: I2 codex observability hardening`。
+- Postmortem：已更新既有 PM-0003：`docs/postmortems/pm-task-closure-req-traceability.md`，记录 2026-05-04 的观测面误定位与 timeout 子进程测试缺口。
 
 # 工作区状态
 
 - 分支：`main`
-- 最近提交：`694aed8 fix(codex): derive history.log from provider.stdout.log, not session file`
-- 当前 dirty scope：`.ralph/README.md`、`.ralph/TASKS.md`、`.ralph/bin/ralph`、`.ralph/lib/adapter-fake.sh`、`.ralph/lib/run.sh`、`README.md`、`docs/README.md`、`docs/architecture/overview.md`、`docs/architecture/security.md`、`docs/architecture/testing.md`、`docs/requirements/ralph-loop/requirements.md`、`scripts/integration-test.sh`、`tests/fixtures/mock-codex`，以及本文件。
-- diff 范围为 I2 收口修复同一 coherent scope；未发现需要拆出的无关 dirty 改动。
+- 最近提交：`de01779 checkpoint: I2 codex observability hardening`
+- 当前工作区：checkpoint commit 后曾 clean；本 handoff 仅为补入 checkpoint commit id 的后续刷新。
+- diff 范围：仅 `handoff.md` 状态刷新；不改 runtime、测试或任务事实源。
 
 # 建议下一步
 
-- 立即完成 checkpoint note、postmortem 更新、验证与 commit；commit 后再轻量刷新本 handoff，补入 checkpoint commit id。
-- checkpoint 之后若继续 I2，优先做一次最终 adversarial review 或按迭代归档约定生成 `docs/requirements/ralph-loop/I2-FINAL-TASK.md` 并推进 roadmap。
+- 提交本 handoff 刷新后，若继续 I2，优先做一次最终 adversarial review。
+- 若 review 无新问题，再按 iteration 归档约定生成 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`，清空 `.ralph/TASKS.md` 当前任务段并更新 roadmap。
 
 # 交接摘要
 
-- I2 已从 Codex adapter 扩展到用户可见 observability 与 timeout hardening；当前核心事实是：真实 Codex happy path 已复验，剩余真实长 timeout smoke 不是 checkpoint 阻塞项，checkpoint 前必须把 PM-0003 再次命中记录下来。
+- I2 已从 Codex adapter 扩展到用户可见 observability 与 timeout hardening；当前核心事实是：真实 Codex happy path 已复验，checkpoint `de01779` 已保存稳定点，剩余真实长 timeout smoke 不是继续 I2 的阻塞项。
