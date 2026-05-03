@@ -16,6 +16,7 @@ _RALPH_CURRENT_ITERATION=""
 _RALPH_TAIL_PID=""
 _RALPH_TAIL_FILTER_PID=""
 _RALPH_TAIL_FIFO=""
+_RALPH_HEARTBEAT_PID=""
 
 # ── 退出辅助函数 ─────────────────────────────────────────────────────────────
 _ralph_stop_verbose_tail() {
@@ -30,6 +31,80 @@ _ralph_stop_verbose_tail() {
   _RALPH_TAIL_PID=""
   _RALPH_TAIL_FILTER_PID=""
   _RALPH_TAIL_FIFO=""
+}
+
+_ralph_stop_provider_heartbeat() {
+  local pid="${_RALPH_HEARTBEAT_PID:-}"
+  if [[ -n "$pid" ]]; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  fi
+  _RALPH_HEARTBEAT_PID=""
+}
+
+_ralph_child_pids() {
+  local parent="$1"
+  if command -v pgrep >/dev/null 2>&1; then
+    pgrep -P "$parent" 2>/dev/null || true
+  else
+    ps -eo pid=,ppid= 2>/dev/null \
+      | awk -v ppid="$parent" '$2 == ppid { print $1 }' || true
+  fi
+}
+
+_ralph_process_tree_pids() {
+  local root="$1"
+  [[ "$root" =~ ^[0-9]+$ ]] || return 0
+  printf '%s\n' "$root"
+
+  local child
+  while IFS= read -r child; do
+    [[ "$child" =~ ^[0-9]+$ ]] || continue
+    _ralph_process_tree_pids "$child"
+  done < <(_ralph_child_pids "$root")
+}
+
+_ralph_terminate_process_tree() {
+  local root="$1"
+  [[ "$root" =~ ^[0-9]+$ ]] || return 0
+
+  local pids pid
+  pids="$(_ralph_process_tree_pids "$root" | awk '!seen[$0]++')" || pids="$root"
+  for pid in $pids; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  sleep 1
+  for pid in $pids; do
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+}
+
+_ralph_start_provider_heartbeat() {
+  local log_path="$1"
+  local iteration="$2"
+  local max_iter_disp="$3"
+
+  local interval="${RALPH_PROGRESS_HEARTBEAT_SEC:-60}"
+  if ! [[ "$interval" =~ ^[0-9]+$ ]] || [[ "$interval" -le 0 ]]; then
+    return 0
+  fi
+
+  (
+    local elapsed=0
+    while :; do
+      sleep "$interval" || exit 0
+      elapsed=$(( elapsed + interval ))
+      local bytes=0 lines=0 now_local
+      if [[ -f "$log_path" ]]; then
+        bytes="$(wc -c < "$log_path" 2>/dev/null)" || bytes=0
+        lines="$(wc -l < "$log_path" 2>/dev/null)" || lines=0
+      fi
+      now_local="$(date +"%H:%M:%S")"
+      printf '[%s] iter %s/%s still running | elapsed %ss | provider log %s bytes/%s lines | tail -f %s\n' \
+        "$now_local" "$iteration" "$max_iter_disp" "$elapsed" "$bytes" "$lines" "$log_path" >&2
+    done
+  ) &
+  _RALPH_HEARTBEAT_PID=$!
 }
 
 _ralph_write_result() {
@@ -172,6 +247,7 @@ _ralph_finish() {
   local last_error="${8:-null}"
 
   _ralph_stop_verbose_tail
+  _ralph_stop_provider_heartbeat
 
   if [[ "$_RALPH_LOCK_ACQUIRED" -eq 1 && -n "$_RALPH_RUN_DIR" ]]; then
     _ralph_write_result "$exit_reason" "$iterations" "$tasks_total" \
@@ -430,24 +506,26 @@ EOF
     checked_before="$(count_checked "$tasks_md")"
     local total_now
     total_now="$(count_total "$tasks_md")"
+    tasks_total="$total_now"
+    _RALPH_TASKS_TOTAL="$tasks_total"
 
     if [[ "$checked_before" -ge "$total_now" && "$total_now" -gt 0 ]]; then
       _RALPH_TASKS_CHECKED_END="$checked_before"
-      _ralph_finish "done" 0 "$iteration" "$tasks_total" \
+      _ralph_finish "done" 0 "$(( iteration - 1 ))" "$tasks_total" \
         "$tasks_checked_start" "$checked_before" "$started_at" "null"
     fi
 
     # blocked_by_human 检查（done 之后，max_iter 之前）：第一个未勾选任务前缀是 HUMAN- → 不调 provider，exit 7
     if is_blocked_by_human "$tasks_md"; then
       _RALPH_TASKS_CHECKED_END="$checked_before"
-      _ralph_finish "blocked_by_human" 7 "$iteration" "$tasks_total" \
+      _ralph_finish "blocked_by_human" 7 "$(( iteration - 1 ))" "$tasks_total" \
         "$tasks_checked_start" "$checked_before" "$started_at" "null"
     fi
 
     # max_iter 检查
     if [[ "$max_iter" -gt 0 && "$iteration" -gt "$max_iter" ]]; then
       _RALPH_TASKS_CHECKED_END="$checked_before"
-      _ralph_finish "max_iterations" 4 "$iteration" "$tasks_total" \
+      _ralph_finish "max_iterations" 4 "$(( iteration - 1 ))" "$tasks_total" \
         "$tasks_checked_start" "$checked_before" "$started_at" "null"
     fi
 
@@ -457,8 +535,10 @@ EOF
     local iter_dir="$run_dir/iterations/$iter_label"
     mkdir -p "$iter_dir"
     local log_path="$iter_dir/provider.stdout.log"
+    touch "$log_path"
     local iter_start_ts
     iter_start_ts=$(( $(date -u +%s) * 1000 ))
+    _RALPH_TASKS_CHECKED_END="$checked_before"
 
     # 捕获本轮开始时的 worktree 状态（方案 B：in-memory hash，不写 .git/refs）
     local fingerprint_before before_iter_head
@@ -481,6 +561,10 @@ EOF
     # meta.json 骨架（在 provider_oneshot 之前，让 adapter 可写入 session_id 等字段）
     init_meta "$iter_dir" "$iteration" "$provider" 0 0
     update_meta_jq "$iter_dir" '.runtime_block = $rb' --arg rb "$runtime_block"
+
+    # status 必须在 provider_oneshot 前指向当前 iter；watch -v 依赖它定位
+    # 当前正在写入的 provider.stdout.log。
+    _ralph_update_status "running" "" "$iteration" "$tasks_total" "$checked_before"
 
     # 进度 marker：iter 启动（D-2 默认）
     # max_iter=0 显示为 ∞；first task 描述截前 60 字符做提示
@@ -512,6 +596,8 @@ EOF
       _RALPH_TAIL_PID=$!
       _ralph_filter_verbose < "$_RALPH_TAIL_FIFO" >&2 2>/dev/null &
       _RALPH_TAIL_FILTER_PID=$!
+    else
+      _ralph_start_provider_heartbeat "$log_path" "$iteration" "$_max_iter_disp"
     fi
 
     # provider_oneshot（带 timeout 支持）
@@ -525,7 +611,7 @@ EOF
         sleep 1
         elapsed=$(( elapsed + 1 ))
         if [[ "$elapsed" -ge "$timeout_sec" ]]; then
-          kill "$pid" 2>/dev/null || true
+          _ralph_terminate_process_tree "$pid"
           local timeout_pid_rc=0
           wait "$pid" 2>/dev/null || timeout_pid_rc=$?
           local timeout_end_ts timeout_dur_ms
@@ -535,9 +621,14 @@ EOF
           update_meta_field "$iter_dir" duration_ms "$timeout_dur_ms"
           provider_collect_session "$iter_dir" || true
           provider_diagnose "$iter_dir" || true
-          _RALPH_TASKS_CHECKED_END="$checked_before"
+          local total_after_timeout checked_after_timeout
+          total_after_timeout="$(count_total "$tasks_md")"
+          checked_after_timeout="$(count_checked "$tasks_md")"
+          tasks_total="$total_after_timeout"
+          _RALPH_TASKS_TOTAL="$tasks_total"
+          _RALPH_TASKS_CHECKED_END="$checked_after_timeout"
           _ralph_finish "timeout" 3 "$iteration" "$tasks_total" \
-            "$tasks_checked_start" "$checked_before" "$started_at" "null"
+            "$tasks_checked_start" "$checked_after_timeout" "$started_at" "null"
         fi
       done
       wait "$pid" 2>/dev/null || rc=$?
@@ -547,6 +638,7 @@ EOF
 
     # 停 -v live tail
     _ralph_stop_verbose_tail
+    _ralph_stop_provider_heartbeat
 
     # 清理 prompt 临时文件（provider 已经读完）
     rm -f "$prompt_file"
@@ -573,9 +665,14 @@ EOF
       else
         last_error_json="{\"type\":\"unknown\",\"message\":\"provider exited with code $rc\",\"raw\":\"\"}"
       fi
-      _RALPH_TASKS_CHECKED_END="$checked_before"
+      local total_after_failure checked_after_failure
+      total_after_failure="$(count_total "$tasks_md")"
+      checked_after_failure="$(count_checked "$tasks_md")"
+      tasks_total="$total_after_failure"
+      _RALPH_TASKS_TOTAL="$tasks_total"
+      _RALPH_TASKS_CHECKED_END="$checked_after_failure"
       _ralph_finish "provider_failed" 2 "$iteration" "$tasks_total" \
-        "$tasks_checked_start" "$checked_before" "$started_at" "$last_error_json"
+        "$tasks_checked_start" "$checked_after_failure" "$started_at" "$last_error_json"
     fi
 
     # session 采集 + 诊断
@@ -586,6 +683,10 @@ EOF
     local checked_after
     checked_after="$(count_checked "$tasks_md")"
     _RALPH_TASKS_CHECKED_END="$checked_after"
+    local total_after
+    total_after="$(count_total "$tasks_md")"
+    tasks_total="$total_after"
+    _RALPH_TASKS_TOTAL="$tasks_total"
 
     local fingerprint_after
     fingerprint_after="$(ralph_worktree_fingerprint)"
@@ -607,8 +708,8 @@ EOF
     fi
 
     # 更新 meta.json
-    local tasks_before_json="{\"total\":${tasks_total},\"checked\":${checked_before}}"
-    local tasks_after_json="{\"total\":${tasks_total},\"checked\":${checked_after}}"
+    local tasks_before_json="{\"total\":${total_now},\"checked\":${checked_before}}"
+    local tasks_after_json="{\"total\":${total_after},\"checked\":${checked_after}}"
     sed -i.bak \
       -e "s|\"tasks_before\": null|\"tasks_before\": ${tasks_before_json}|" \
       -e "s|\"tasks_after\": null|\"tasks_after\": ${tasks_after_json}|" \
@@ -669,6 +770,7 @@ _ralph_filter_verbose() {
     [[ "$line" =~ ^[[:space:]]*\{ ]] || continue
     # 对每个事件按 type 简化输出（jq 失败则跳过）
     printf '%s\n' "$line" | jq -r '
+      def trunc($n): tostring | if length > $n then .[0:$n] else . end;
       if .type == "system" and .subtype == "init" then
         "  ⚙ session " + ((.session_id // "") | .[0:8])
       elif .type == "assistant" then
@@ -684,6 +786,20 @@ _ralph_filter_verbose() {
       elif .type == "result" then
         if .is_error then "  ❌ error: " + ((.result // "") | .[0:120])
         else "  ✓ result " + ((.result // "") | .[0:120]) end
+      elif .type == "thread.started" then
+        "  ⚙ session " + ((.thread_id // "") | .[0:12])
+      elif .type == "item.completed" and (.item.type // "") == "agent_message" then
+        "  💬 " + ((.item.text // "") | trunc(120))
+      elif .type == "item.started" and (.item.type // "") == "command_execution" then
+        "  🔧 " + ((.item.command // "?") | trunc(80))
+      elif .type == "item.completed" and (.item.type // "") == "command_execution" then
+        "  ⏎ result " + ((.item.output // "") | trunc(80))
+      elif .type == "turn.completed" then
+        "  ✓ result"
+      elif .type == "turn.failed" then
+        "  ❌ error: " + ((.error.message // .message // "") | trunc(120))
+      elif .type == "error" then
+        "  ❌ error: " + ((.error.message // .message // "") | trunc(120))
       else empty end
     ' 2>/dev/null
   done

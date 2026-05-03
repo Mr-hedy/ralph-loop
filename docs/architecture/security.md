@@ -50,7 +50,8 @@ REQ-022 引入的中立抽象：
 - ralph 内核中立变量 `RALPH_PROVIDER_CONFIG_DIR`：在 `.env` 里声明，由 ralph load_env 解析（含 tilde 展开）+ export。
 - 每个 adapter 在 source 时把它翻译为 provider 原生环境变量（详见 `integrations.md` §Adapter 配置目录翻译契约）：
   - `adapter-claude.sh` → `CLAUDE_CONFIG_DIR`
-  - `adapter-codex.sh` / `adapter-gemini.sh` → 对应 provider 原生变量（T3 / T4 落地时实现）
+  - `adapter-codex.sh` → `CODEX_HOME`
+  - Gemini adapter 的原生变量将在 T4 落地时定义
 - **鲁棒性约束**：变量未设或值为空时**不**做翻译 export，避免空值干扰 provider 默认行为。
 - 子进程 env 继承走 bash 默认行为（fork+exec），无需 adapter 在每次调用时重设。
 - 凭据值（API key / OAuth token）**不**写入 status.json / result.json / 任何运行证据。
@@ -62,7 +63,7 @@ NFR-SEC-003 的禁入规则（本仓库和 `.ralph/` 部署包均适用）：
 
 - `.ralph/.env`、使用者 API key、provider 登录态、完整凭据：**不入仓**。
 - provider 原生 session 文件（`~/.claude/projects/`、`~/.codex/sessions/`、`~/.gemini/tmp/`）通常包含完整 prompts、tool outputs、命令结果，可能带敏感信息：默认**不入仓**。
-- `.ralph/runs/` 及其下的 `log`、`session.*`、`chat.log`、`tools.log`、`meta.json`、`result.json` 是本地复盘材料，**默认不入仓**；使用者应在 `.ralph/.gitignore` 忽略 `runs/`、`status.json`、`lock`。
+- `.ralph/runs/` 及其下的 `provider.stdout.log`、`session.*`、`session.history.log`、`meta.json`、`result.json` 是本地复盘材料，**默认不入仓**；使用者应在 `.ralph/.gitignore` 忽略 `runs/`、`status.json`、`lock`。
 - `docs/`、`handoff.md`、`checkpoints/`、`postmortems/`、`task.md` 不得写入 secrets、完整凭据或会话 transcript；协作文档只承载结构性事实。
 
 Ralph 工具本身不对 session 文件做脱敏，因为 provider 的 transcript 结构是 provider 内部实现，任何脱敏都可能误伤。使用者在分享 run 目录前自行审查。

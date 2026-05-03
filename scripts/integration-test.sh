@@ -185,6 +185,32 @@ cleanup_ws "$ws"
 
 # ────────────────────────────────
 echo ""
+echo "-- Timeout kills provider child process tree"
+ws=$(setup_workspace)
+git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=slow_child RALPH_FAKE_SLEEP=30 \
+  bash "$ws/.ralph/bin/ralph" run --provider fake --timeout 2 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+iter_dir="${run_dir}/iterations/iter-001"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+child_pid="$(cat "$iter_dir/slow-child.pid" 2>/dev/null || true)"
+child_dead=0
+if [[ -n "$child_pid" ]] && ! kill -0 "$child_pid" 2>/dev/null; then
+  child_dead=1
+fi
+if [[ "$child_dead" -ne 1 && -n "$child_pid" ]]; then
+  kill "$child_pid" 2>/dev/null || true
+fi
+if [[ "$reason" == "timeout" && "$rc" -eq 3 && -n "$child_pid" && "$child_dead" -eq 1 ]]; then
+  _pass "timeout process tree: provider child process is cleaned up"
+else
+  _fail "timeout process tree: reason=$reason rc=$rc child_pid=${child_pid:-missing} child_dead=$child_dead"
+fi
+cleanup_ws "$ws"
+
+# ────────────────────────────────
+echo ""
 echo "-- Exit reason: max_iterations"
 ws=$(setup_workspace)
 # 两条任务，max-iter=1，happy 只勾一条
@@ -266,6 +292,58 @@ if [[ "$(get_exit_reason "$run_dir")" == "done" ]]; then
   fi
 else
   _fail "happy stagnation_count: expected exit_reason=done"
+fi
+cleanup_ws "$ws"
+
+# ────────────────────────────────
+echo ""
+echo "-- Long provider oneshot emits heartbeat without -v"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+stderr_file="$(mktemp)"
+RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=2 RALPH_PROGRESS_HEARTBEAT_SEC=1 \
+  bash "$ws/.ralph/bin/ralph" run --provider fake --max-iter 1 \
+  >/dev/null 2>"$stderr_file" || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+heartbeat_ok=0
+grep -Eq 'still running .*provider log .*tail -f .*/provider.stdout.log' "$stderr_file" 2>/dev/null && heartbeat_ok=1
+if [[ "$rc" -eq 4 && "$reason" == "max_iterations" && "$heartbeat_ok" -eq 1 ]]; then
+  _pass "provider heartbeat: default run prints still-running marker for long oneshot"
+else
+  _fail "provider heartbeat: expected rc=4 max_iterations + heartbeat, got rc=$rc reason=$reason heartbeat_ok=$heartbeat_ok"
+fi
+rm -f "$stderr_file"
+cleanup_ws "$ws"
+
+# ────────────────────────────────
+echo ""
+echo "-- Dynamic TASKS.md growth updates run totals"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=append_task_once bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+result_total="$(jq '.tasks_total // 0' "$run_dir/result.json" 2>/dev/null)" || result_total=0
+result_checked="$(jq '.tasks_checked_end // 0' "$run_dir/result.json" 2>/dev/null)" || result_checked=0
+status_total="$(jq '.tasks_total // 0' "$ws/.ralph/status.json" 2>/dev/null)" || status_total=0
+status_checked="$(jq '.tasks_checked // 0' "$ws/.ralph/status.json" 2>/dev/null)" || status_checked=0
+iter1_after_total="$(jq '.tasks_after.total // 0' "$run_dir/iterations/iter-001/meta.json" 2>/dev/null)" || iter1_after_total=0
+iter1_after_checked="$(jq '.tasks_after.checked // 0' "$run_dir/iterations/iter-001/meta.json" 2>/dev/null)" || iter1_after_checked=0
+summary_ok=0
+grep -q 'Tasks:         2 / 2' "$run_dir/exit-message.txt" 2>/dev/null && summary_ok=1
+if [[ "$rc" -eq 0 && "$reason" == "done" \
+  && "$result_total" -eq 2 && "$result_checked" -eq 2 \
+  && "$status_total" -eq 2 && "$status_checked" -eq 2 \
+  && "$iter1_after_total" -eq 2 && "$iter1_after_checked" -eq 1 \
+  && "$summary_ok" -eq 1 ]]; then
+  _pass "dynamic task totals: result/status/meta/summary show 2/2 after appended task"
+else
+  _fail "dynamic task totals: rc=$rc reason=$reason result=$result_checked/$result_total status=$status_checked/$status_total iter1_after=$iter1_after_checked/$iter1_after_total summary_ok=$summary_ok"
 fi
 cleanup_ws "$ws"
 
@@ -930,6 +1008,17 @@ else
   _fail "ralph run --help: rc=$rc out=$run_help_out"
 fi
 
+echo ""
+echo "-- ralph watch --help"
+rc=0
+watch_help_out=$(bash "$REPO_ROOT/.ralph/bin/ralph" watch --help 2>/dev/null) || rc=$?
+if [[ "$rc" -eq 0 && "$watch_help_out" == *"--verbose"* && "$watch_help_out" == *"-v"* \
+  && "$watch_help_out" == *"provider.stdout.log"* ]]; then
+  _pass "ralph watch --help: exit 0, documents -v live log tail"
+else
+  _fail "ralph watch --help: rc=$rc out=$watch_help_out"
+fi
+
 # ────────────────────────────────
 # SC-023: status 集成测试（QA-1）
 # ────────────────────────────────
@@ -1108,6 +1197,48 @@ else
   _fail "SC-024-2: sep=$separator_ok logA=$log_a_ok logB=$log_b_ok trunc=$trunc_ok"
 fi
 rm -f "$tmpout"
+cleanup_ws "$ws"
+
+echo ""
+echo "-- SC-024-2: watch -v follows active iter while provider oneshot is running"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+stderr_file="$(mktemp)"
+rc=0
+RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=3 RALPH_PROGRESS_HEARTBEAT_SEC=0 \
+  bash "$ws/.ralph/bin/ralph" run --provider fake --max-iter 1 \
+  >/dev/null 2>"$stderr_file" &
+run_pid=$!
+status_iter_ok=0
+for _ in 1 2 3 4 5; do
+  if [[ -f "$ws/.ralph/status.json" ]] \
+    && [[ "$(jq -r '.iteration // 0' "$ws/.ralph/status.json" 2>/dev/null)" == "1" ]]; then
+    run_id="$(jq -r '.run_id // empty' "$ws/.ralph/status.json" 2>/dev/null)"
+    if [[ -n "$run_id" && -f "$ws/.ralph/runs/$run_id/iterations/iter-001/provider.stdout.log" ]]; then
+      status_iter_ok=1
+      break
+    fi
+  fi
+  sleep 1
+done
+tmpout=$(mktemp)
+_RALPH_TAIL_OFFSET=0
+_RALPH_TAIL_PREV_PATH=""
+_RALPH_WATCH_RUN_ID=""
+if [[ "$status_iter_ok" -eq 1 ]]; then
+  _ralph_watch_tail_draw "$ws" "$ws/.ralph/status.json" >> "$tmpout"
+fi
+wait "$run_pid" 2>/dev/null || rc=$?
+reason="$(get_exit_reason "$(latest_run_dir "$ws")" 2>/dev/null)"
+tail_ok=0
+grep -q "fake: slow scenario" "$tmpout" 2>/dev/null && tail_ok=1
+if [[ "$status_iter_ok" -eq 1 && "$tail_ok" -eq 1 && "$rc" -eq 4 && "$reason" == "max_iterations" ]]; then
+  _pass "watch -v active iter: status points to iter-001 while provider is running and tail reads current log"
+else
+  _fail "watch -v active iter: status_iter_ok=$status_iter_ok tail_ok=$tail_ok rc=$rc reason=$reason"
+fi
+rm -f "$tmpout" "$stderr_file"
 cleanup_ws "$ws"
 
 echo ""
@@ -1394,6 +1525,29 @@ fi
 cleanup_codex_ws
 
 echo ""
+echo "-- Codex adapter: run -v live tail emits Codex event markers"
+setup_codex_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+stderr_file="$(mktemp)"
+RALPH_MOCK_CODEX_SCENARIO=happy RALPH_MOCK_CODEX_POST_STREAM_SLEEP=2 \
+  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
+  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex -v \
+  >/dev/null 2>"$stderr_file" || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+marker_ok=0
+grep -Eq '⚙ session|💬|🔧|⏎ result|✓ result' "$stderr_file" 2>/dev/null && marker_ok=1
+if [[ "$rc" -eq 0 && "$reason" == "done" && "$marker_ok" -eq 1 ]]; then
+  _pass "codex run -v: stderr contains Codex JSONL filter marker"
+else
+  _fail "codex run -v: expected rc=0 done + marker, got rc=$rc reason=$reason marker_ok=$marker_ok"
+fi
+rm -f "$stderr_file"
+cleanup_codex_ws
+
+echo ""
 echo "-- SC-022-4: adapter-codex.sh translates RALPH_PROVIDER_CONFIG_DIR → CODEX_HOME"
 out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
   export RALPH_PROVIDER_CONFIG_DIR=/tmp/ralph-test-codex-cfg
@@ -1548,50 +1702,57 @@ RALPH_MOCK_CODEX_SCENARIO=happy RALPH_EFFORT=low \
   bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 iter_dir="${run_dir}/iterations/iter-001"
-session_id_ok=0
-grep -qE '"session_id"' "$iter_dir/meta.json" 2>/dev/null && session_id_ok=1
-if [[ "$rc" -eq 0 && "$session_id_ok" -eq 1 ]]; then
-  _pass "SC-014-1 codex effort=low: run succeeded with session_id"
+received_effort="$(grep -E '^[[:space:]]*\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+  | jq -r 'select(.type == "thread.started") | ._received_effort // empty' 2>/dev/null \
+  | head -1)" || received_effort=""
+if [[ "$rc" -eq 0 && "$received_effort" == "model_reasoning_effort=low" ]]; then
+  _pass "SC-014-1 codex effort=low: mock-codex received model_reasoning_effort=low"
 else
-  _fail "SC-014-1 codex effort=low: rc=$rc session_id_ok=$session_id_ok"
+  _fail "SC-014-1 codex effort=low: rc=$rc received_effort='$received_effort'"
 fi
 cleanup_codex_ws
 
 echo ""
 echo "-- SC-014-1: RALPH_EFFORT=none → codex effort flag not passed"
-out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
-  source '$REPO_ROOT/.ralph/lib/common.sh'
-  source '$REPO_ROOT/.ralph/lib/adapter-codex.sh'
-  effort='none'
-  if [[ -n \"\$effort\" && \"\$effort\" != \"none\" ]]; then
-    echo 'HAS_EFFORT=yes'
-  else
-    echo 'HAS_EFFORT=no'
-  fi
-")
-if [[ "$out" == *"HAS_EFFORT=no"* ]]; then
-  _pass "SC-014-1 codex effort=none: effort flag not constructed"
+setup_codex_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CODEX_SCENARIO=happy RALPH_EFFORT=none \
+  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
+  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+iter_dir="${run_dir}/iterations/iter-001"
+received_effort="$(grep -E '^[[:space:]]*\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+  | jq -r 'select(.type == "thread.started") | ._received_effort // empty' 2>/dev/null \
+  | head -1)" || received_effort=""
+if [[ "$rc" -eq 0 && -z "$received_effort" ]]; then
+  _pass "SC-014-1 codex effort=none: mock-codex received no effort override"
 else
-  _fail "SC-014-1 codex effort=none: expected no effort, got '$out'"
+  _fail "SC-014-1 codex effort=none: rc=$rc received_effort='$received_effort'"
 fi
+cleanup_codex_ws
 
 echo ""
 echo "-- SC-014-1: RALPH_MODEL empty → codex model flag not passed"
-out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
-  source '$REPO_ROOT/.ralph/lib/common.sh'
-  source '$REPO_ROOT/.ralph/lib/adapter-codex.sh'
-  model=''
-  if [[ -n \"\$model\" ]]; then
-    echo 'HAS_MODEL=yes'
-  else
-    echo 'HAS_MODEL=no'
-  fi
-")
-if [[ "$out" == *"HAS_MODEL=no"* ]]; then
-  _pass "SC-014-1 codex empty model: model flag not constructed"
+setup_codex_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CODEX_SCENARIO=happy RALPH_MODEL="" \
+  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
+  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+iter_dir="${run_dir}/iterations/iter-001"
+received_model="$(grep -E '^[[:space:]]*\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+  | jq -r 'select(.type == "thread.started") | ._received_model // empty' 2>/dev/null \
+  | head -1)" || received_model=""
+if [[ "$rc" -eq 0 && -z "$received_model" ]]; then
+  _pass "SC-014-1 codex empty model: mock-codex received no model flag"
 else
-  _fail "SC-014-1 codex empty model: expected no model, got '$out'"
+  _fail "SC-014-1 codex empty model: rc=$rc received_model='$received_model'"
 fi
+cleanup_codex_ws
 
 echo ""
 echo "-- Dep check: codex + jq both missing (codex adapter, non-fail-fast)"

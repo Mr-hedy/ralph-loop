@@ -17,7 +17,8 @@
 | bash 4+ | 运行 ralph |
 | git | workspace 变更追踪 |
 | jq | meta.json 写入 |
-| Claude CLI (`claude`) | provider CLI（v0.1 仅 Claude）—— 参考 [安装文档](https://docs.anthropic.com/en/docs/claude-code) |
+| Claude CLI (`claude`) | Claude provider CLI —— 参考 [安装文档](https://docs.anthropic.com/en/docs/claude-code) |
+| Codex CLI (`codex`) | Codex provider CLI（I2 / T3 已落地） |
 
 ### 1. 部署到 workspace
 
@@ -32,16 +33,17 @@ cp -r <ralph-loop-repo>/.ralph/ <your-workspace>/.ralph/
 在 workspace 根创建 `.ralph/.env`（最小配置）：
 
 ```bash
-RALPH_PROVIDER=claude
+RALPH_PROVIDER=claude                         # claude / codex
 # 可选：
 # RALPH_EFFORT=low                       # low / medium / high / none（默认不传）
 # RALPH_MAX_ITER=20                      # 最大轮数，0 = 无限（默认 0）
 # RALPH_TIMEOUT=3600                     # 超时秒数，0 = 无限（默认 0）
 # RALPH_STAGNATION_LIMIT=5               # 连续无进展轮数（默认 5）
 # RALPH_MODEL=<name>                     # 覆盖 provider 默认模型
-# RALPH_PROVIDER_CONFIG_DIR=~/.claude-x  # 用独立账号 / API 配置跑 ralph，不占 main agent 的 limit
-                                         # ralph 自动翻译为 provider 原生变量（Claude → CLAUDE_CONFIG_DIR）
-                                         # 该目录下 settings.json 配 ANTHROPIC_BASE_URL / API key 即可切账号
+# RALPH_PROVIDER_CONFIG_DIR=~/.claude-x  # 用独立账号 / API 配置跑 ralph
+                                         # ralph 自动翻译为 provider 原生变量：
+                                         # Claude → CLAUDE_CONFIG_DIR；Codex → CODEX_HOME
+                                         # 该目录必须已包含对应 provider 登录态 / 配置
 ```
 
 按需裁剪 `.ralph/TASKS.md`（样板含 hello-world 示例；ralph 只识别顶层 `- [ ]` / `- [x]`，子 bullet 供 agent 读）。
@@ -70,7 +72,12 @@ cd <your-workspace>
 ralph status                  # plain text：run_id / iter / tasks 进度 / state / exit_reason 等
 ralph status --json           # 透传 .ralph/status.json 原始 JSON
 ralph watch                   # 实时监控：底部 sticky bar + 上方 iter log tail（2 秒刷新，Ctrl-C 退出）
+ralph run -v                  # 重跑时直接把 provider stream 过滤到 stderr
 ```
+
+无 `-v` 的 `ralph run` 默认仍保持 stdout silent；stderr 会打印 iter 启停 marker。长 provider oneshot 未返回时，每 60 秒打印 heartbeat，包含 elapsed、当前 `provider.stdout.log` 大小和可直接 `tail -f` 的路径。
+
+`ralph watch -v` 通过 `.ralph/status.json` 的当前 `run_id` / `iteration` tail 对应 `provider.stdout.log`；v0.1.1 起 run 会在 provider oneshot 启动前更新 status 到当前 iter，避免 watch 盯到 `iter-000` 或上一轮。
 
 底层文件仍可直接读取：
 
@@ -86,7 +93,7 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 |---|---|---|
 | `done` | 0 | 全部任务完成 |
 | `provider_failed` | 2 | provider CLI 报错或崩溃 |
-| `timeout` | 3 | 超过总超时 |
+| `timeout` | 3 | 单轮执行超时 |
 | `max_iterations` | 4 | 达到最大轮数 |
 | `stagnated` | 5 | 连续 N 轮无进展 |
 | `locked` | 6 | workspace 已有 ralph 在跑（lock） |
@@ -103,7 +110,7 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 
 ## 当前状态
 
-- 版本：v0.1.1-dev（v0.1.0 已发布于 2026-04-28；I1 已完成，I2 进行 T3 Codex adapter）
+- 版本：v0.1.1-dev（v0.1.0 已发布于 2026-04-28；I1 已完成，I2 已落地 T3 Codex adapter，当前收口修复）
 - 当前开发任务：`.ralph/TASKS.md`（dogfood 模式，root `task.md` 已封版）
 - 当前 iteration 设计方案：`docs/requirements/ralph-loop/I2-design.md`
 - 续接状态：`handoff.md`

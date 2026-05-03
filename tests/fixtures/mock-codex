@@ -32,7 +32,13 @@ thread_id="${RALPH_MOCK_CODEX_THREAD_ID:-thread-aaa111-bbb222}"
 
 # stdout JSONL events（--json 模式）
 _emit_thread_started() {
-  printf '{"type":"thread.started","thread_id":"%s"}\n' "$thread_id"
+  jq -nc \
+    --arg thread_id "$thread_id" \
+    --arg model "$received_model" \
+    --arg effort "$received_effort" \
+    --arg sandbox "$received_sandbox" \
+    --arg workspace "$received_workspace" \
+    '{type:"thread.started",thread_id:$thread_id,_received_model:$model,_received_effort:$effort,_received_sandbox:$sandbox,_received_workspace:$workspace}'
 }
 
 _emit_item_completed_agent_message() {
@@ -123,6 +129,9 @@ case "$scenario" in
     _write_native_session >/dev/null
 
     _check_first_task
+    if [[ -n "${RALPH_MOCK_CODEX_POST_STREAM_SLEEP:-}" ]]; then
+      sleep "$RALPH_MOCK_CODEX_POST_STREAM_SLEEP"
+    fi
     exit 0
     ;;
 
@@ -179,11 +188,10 @@ case "$scenario" in
     ;;
 
   error_event_auth)
-    # error 事件 + turn.failed（error event 后 Codex 最终报告 turn.failed）
+    # error 事件 fallback：无 turn.failed，CLI 以非零退出
     _emit_thread_started
     _emit_error "Invalid API key: not logged in"
-    _emit_turn_failed "Invalid API key: not logged in"
-    exit 0
+    exit 1
     ;;
 
   stderr_error)

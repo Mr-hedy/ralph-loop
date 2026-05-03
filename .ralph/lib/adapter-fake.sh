@@ -4,6 +4,7 @@
 
 RALPH_PROVIDER_CLI="${RALPH_FAKE_CLI:-bash}"
 _RALPH_PP_DONE=0  # partial_progress 状态跟踪；每次 adapter 被 source 时重置
+_RALPH_APPEND_DONE=0  # append_task_once 状态跟踪；每次 adapter 被 source 时重置
 
 # ── provider_check_deps ──────────────────────────────────────────────────────
 provider_check_deps() {
@@ -86,13 +87,47 @@ provider_oneshot() {
       echo "fake: partial_progress scenario (done=$_RALPH_PP_DONE)" >> "$log_path"
       return 0
       ;;
-    slow)
-      # sleep 远超 timeout；用于 timeout 用例
-      local actual_sleep="${sleep_sec:-30}"
-      echo "fake: slow scenario, sleeping ${actual_sleep}s" >> "$log_path"
-      sleep "$actual_sleep"
+    append_task_once)
+      # iter 1：勾选第 1 条任务并追加一条新任务；iter 2：勾选追加任务。
+      # 用于验证 run/status/result 的 tasks_total 会随 TASKS.md 变化刷新。
+      local tasks_file="${RALPH_WORKSPACE:-.}/.ralph/TASKS.md"
+      if [[ -f "$tasks_file" ]]; then
+        local found=0 tmpout
+        tmpout="$(mktemp)"
+        while IFS= read -r line || [[ -n "$line" ]]; do
+          if [[ "$found" -eq 0 && "$line" =~ ^([[:space:]]*-[[:space:]]+)\[[[:space:]]\](.*)$ ]]; then
+            printf '%s[x]%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" >> "$tmpout"
+            found=1
+          else
+            printf '%s\n' "$line" >> "$tmpout"
+          fi
+        done < "$tasks_file"
+        if [[ "${_RALPH_APPEND_DONE:-0}" -eq 0 ]]; then
+          printf '%s\n' "- [ ] Task B" >> "$tmpout"
+          _RALPH_APPEND_DONE=1
+        fi
+        mv "$tmpout" "$tasks_file"
+      fi
+      echo "fake: append_task_once scenario (appended=$_RALPH_APPEND_DONE)" >> "$log_path"
       return 0
       ;;
+	    slow)
+	      # sleep 远超 timeout；用于 timeout 用例
+	      local actual_sleep="${sleep_sec:-30}"
+	      echo "fake: slow scenario, sleeping ${actual_sleep}s" >> "$log_path"
+	      sleep "$actual_sleep"
+	      return 0
+	      ;;
+	    slow_child)
+	      # 启动外部子进程并等待；用于验证 timeout 会清理 provider 子进程树。
+	      local actual_sleep="${sleep_sec:-30}"
+	      sleep "$actual_sleep" &
+	      local child_pid=$!
+	      printf '%s\n' "$child_pid" > "$iter_dir/slow-child.pid"
+	      echo "fake: slow_child scenario, child ${child_pid} sleeping ${actual_sleep}s" >> "$log_path"
+	      wait "$child_pid"
+	      return 0
+	      ;;
     *)
       echo "fake: unknown scenario: $scenario" >&2
       return 1

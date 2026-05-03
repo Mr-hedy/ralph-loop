@@ -11,7 +11,7 @@
 - I1（dogfood T5 — Status + Watch 真实功能）已完成并归档到 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`；checkpoint 为 `bd85a2d checkpoint: I1 observability review fixes`。
 - I2 目标由用户确认（2026-05-03）：完成历史 T3，即在已闭环的 Ralph harness 上接入 Codex CLI adapter。
 - T3 验收口径：`RALPH_PROVIDER=codex` 能在真实 workspace 跑通至少一条任务到 `exit_reason=done`，并产出统一 iter 证据契约：`meta.json` / `provider.stdout.log` / `session.codex.jsonl` / `session.history.log`。
-- Codex 集成文档基线来自 2026-04-20 的 Codex CLI `0.121.0`，且当前 `docs/architecture/integrations.md` / `docs/requirements/ralph-loop/requirements.md` 的 Codex 小节仍有待 T3 落地确认的配置目录变量、4 文件契约和 `session.codex.stdout.jsonl` 旧描述；I2 第一项必须先校准当前 CLI / 官方文档 / 本机行为，再改 runtime。
+- Codex 集成文档基线已在 DEV-1 用本机 Codex CLI `0.125.0` / Desktop `0.128.0-alpha.1` 与官方文档校准；I2 收口修复已再次同步 README、`.ralph/README.md`、requirements、security/testing 文档，当前稳定证据契约为 `meta.json` / `provider.stdout.log` / `session.codex.jsonl` / `session.history.log`。
 - 真实 Codex smoke 会调用外部 provider，若本机 Codex 未登录、配置目录未确认，或需要把 workspace 内容发出机器外，必须先插入 `HUMAN-N` 获取人类确认，不伪造验证。
 - I2 完成动作：`cp .ralph/TASKS.md docs/requirements/ralph-loop/I2-FINAL-TASK.md`，清空 `.ralph/TASKS.md` 当前任务段，"当前迭代"改为下一个，更新 `docs/roadmap.md`。
 
@@ -86,6 +86,9 @@
   - 输入：DEV-1 ~ QA-1 的最终实现事实；README 入口地图；`docs/README.md` 文档地图维护规则。
   - 范围：`README.md`、`.ralph/README.md`、`docs/README.md`、`docs/architecture/integrations.md`、`docs/architecture/security.md`、`docs/architecture/testing.md`；必要时同步 `docs/requirements/ralph-loop/requirements.md` SC 文字。
   - 验证计划：`git diff --check`；`bash scripts/check.sh`；README 和 docs/README 的当前状态、provider 索引、配置说明不互相矛盾。
+  - 完成：补齐 README / `.ralph/README.md` 的 Codex 使用入口（前置依赖、`RALPH_PROVIDER=codex`、`RALPH_PROVIDER_CONFIG_DIR` → `CODEX_HOME`、Codex session 采集路径和 history 派生来源）；同步 `docs/README.md`、`docs/architecture/security.md`、`docs/architecture/testing.md`、`docs/architecture/overview.md` 与当前部署单元；同步 `docs/requirements/ralph-loop/requirements.md` 中 REQ-006 / US-003 / SC-006-1 / BPF-001 / FR-005 / NFR-OBS-001 的 `provider.stdout.log` + `session.history.log` 契约。
+  - 验证：待本轮收口验证统一记录于 DEV-8。
+  - 未验证：None（真实 Codex provider 复验已由 QA-2 run `20260503-145326-3085d11` 关闭）。
 
 - [x] HUMAN-1: 确认是否允许真实 Codex CLI provider smoke
   - 上下文：QA-2（真实 Codex provider smoke）需要在临时 workspace 中调用真实 `codex exec` 命令，这会把 workspace 内容发送到 OpenAI API（机器外）。
@@ -103,7 +106,8 @@
   - 验证计划：先确认 Codex CLI auth/config 与用户允许真实 provider 调用；运行最小任务到 `result.json.exit_reason=done`；检查 iter 目录包含 `meta.json` / `provider.stdout.log` / `session.codex.jsonl` / `session.history.log`；若无法确认授权或 CLI 不可用，插入 `HUMAN-N` 阻塞。
   - 完成：在 `/tmp/ralph-smoke-*` 临时 workspace 部署 `.ralph/`，用 `ralph run --provider codex --max-iter 1 --timeout 300` 跑通一条最小任务（写 `hello.txt`），`result.json.exit_reason=done`，1/1 tasks completed，duration 2m47s。iter 目录 4 文件齐全：`meta.json`（session_id 精确匹配 + capture_status=ok + changed_files）、`provider.stdout.log`（42KB JSONL）、`session.codex.jsonl`（162KB，从 `~/.codex/sessions/` 精确匹配采集）、`session.history.log`（0 bytes — 发现见未验证）。
   - 验证：`hello.txt` 内容 "hello from codex smoke test" 正确；`result.json.exit_reason=done`；meta.json 字段完整（session_id / capture_status=ok / session_source_path / tasks_before{1,0} / tasks_after{1,1} / changed_files=["hello.txt"] / exit_code=0 / error=null）；session.codex.jsonl 从 `~/.codex/sessions/2026/05/03/rollout-2026-05-03T19-29-38-<thread_id>.jsonl` 精确匹配采集成功。
-  - 未验证：`session.history.log` 为空——真实 Codex CLI `--json` 事件类型为 `agent_message` / `command_execution`（不是 OpenAI API 格式的 `message` / `function_call`），`_codex_derive_history` 的 jq 过滤器未匹配任何事件。这是 DEV-3 未验证风险的兑现（"item.completed 事件字段名基于 OpenAI API 格式推断"），需要修复 history 派生以匹配真实 CLI 格式（归 DEV-6）。同时发现 `RALPH_PROVIDER_CONFIG_DIR` 环境变量会将 `CODEX_HOME` 重定向到无 `auth.json` 的路径导致 401 auth 失败，需 unset 后才能正常工作（归 DEV-7 或 REVIEW-1 跟进）。
+  - 复验（2026-05-03，main-agent）：在 `/tmp/ralph-codex-smoke-dIZREa` 用当前未提交 `.ralph/` 部署单元重新运行真实 `codex` smoke：`./.ralph/bin/ralph run --provider codex --max-iter 1`，不设 shell timeout，run id `20260503-145326-3085d11`，自然结束 `exit_reason=done`，duration 3m29s，`hello.txt` 内容严格为 `hello from codex smoke test`。iter 目录 4 文件齐全且 history 非空：`meta.json` 984B、`provider.stdout.log` 42333B、`session.codex.jsonl` 171752B、`session.history.log` 4836B；`capture_status=ok`，session 精确匹配 `~/.codex/sessions/2026/05/03/rollout-2026-05-03T22-53-28-019dee54-7f40-7131-9bf4-faf3b5b28e46.jsonl`；`tasks_before={total:1,checked:0}`，`tasks_after={total:1,checked:1}`。
+  - 原发现（已由 DEV-6/DEV-7/DEV-8 关闭）：首次 smoke 的 `session.history.log` 为空，因为真实 Codex CLI `--json` 事件类型为 `agent_message` / `command_execution`（不是 OpenAI API 格式的 `message` / `function_call`）；复验中 `session.history.log` 已非空。首次 smoke 还发现 `RALPH_PROVIDER_CONFIG_DIR` 会将 `CODEX_HOME` 重定向到无 `auth.json` 的路径导致 401 auth；复验显式 unset `RALPH_PROVIDER_CONFIG_DIR` / `CODEX_HOME` 后用默认 Codex 登录态跑通。
 
 - [x] DEV-6: 修复 Codex session.history.log 派生匹配真实 CLI 事件类型
   - 预期：`session.history.log` 能从真实 `codex exec --json` 输出派生出人类可读的 user/assistant/tool-use/tool-result 摘要。
@@ -112,7 +116,7 @@
   - 验证计划：用 QA-2 保存的 provider.stdout.log（如有，否则重新 short smoke）验证 history.log 非空且包含 `[assistant]` / `[tool-use name=Bash]` / `[tool-result name=Bash]`；`bash scripts/integration-test.sh` Codex 用例全部 PASS；`bash scripts/check.sh` PASS。
   - 完成：更新 `_codex_derive_history` jq 过滤器匹配真实 CLI `--json` 事件类型（`item.completed` + `agent_message` → `[assistant]` + text；`item.started` + `command_execution` → `[tool-use name=Bash]` + command；`item.completed` + `command_execution` → `[tool-result name=Bash]` + output）；移除旧的 `message`/`function_call`/`function_call_output` 处理分支和 call_map 逻辑。更新 `mock-codex` 事件发射器：`_emit_item_completed_agent_message`（agent_message + text）、`_emit_item_started_command_execution`（command_execution + command）、`_emit_item_completed_command_execution`（command_execution + command + output + exit_code）；移除旧的 `_emit_item_completed_message`/`_emit_item_completed_function_call`/`_emit_item_completed_function_output`；更新 happy/happy_no_session/missing_thread_id 场景不再发射 user message。更新集成测试 Codex happy history 断言：移除 `[user]` 检查（真实 CLI 不发射 user 事件）。
   - 验证：`bash -n` 三个文件 PASS；`bash scripts/integration-test.sh` Codex 19/19 PASS（总 74/77，3 个失败为预先存在的环境隔离问题）；`bash scripts/check.sh` PASS；`git diff --check` PASS。
-  - 未验证：真实 `codex exec --json` 端到端 history.log 输出（需要真实 provider 调用，归 REVIEW-1 验证范围）。`command_execution` completed 事件的 `output` 字段名基于文档推断（`item.started` sample 只展示了 `command` 字段，completed 事件字段名未在文档中出现）；若真实 CLI 使用不同字段名，需再次调整。
+  - 未验证（历史）：真实 `codex exec --json` 端到端 history.log 输出当时尚未复验；已由 QA-2 复验 run `20260503-145326-3085d11` 关闭。
 
 - [x] REVIEW-1: I2 Codex adapter 收口 | adversarial-review
   - 预期：T3 的实现、需求、架构、测试和真实 smoke 证据一致，未遗漏稳定契约或已知失败模式。
@@ -121,7 +125,7 @@
   - 验证计划：执行 REQ traceability rerun（REQ-004/005/006/014/022 → 实现 → 测试），逐项对账 SC-006-1 / SC-014-1 / Codex 专属 SC-022-*；运行 `bash scripts/check.sh`、`bash scripts/integration-test.sh`、`git diff --check`；明确真实 smoke 已验证与未验证范围。
   - 完成：adversarial review 完成。REQ traceability：REQ-004/005/006/009/011/012/014/015/022 全部可追溯到实现和测试；SC-004-1/005-1/006-1/014-1/022-4/022-5 全部有测试证据。发现 3 个必须修复项（已修复 2 + 追加 DEV-7 任务 1）、3 个可观察风险、2 个接受风险。已修复：integrations.md history.log 派生来源描述（区分 Claude/Codex 不同数据源和内容差异）；adapter-codex.sh truncation message 从 session.codex.jsonl 改为 provider.stdout.log。需 DEV-7 修复：history derivation gate 检查 session file 但读 stdout，session 采集失败时丢失可读事件记录。
   - 验证：`bash scripts/check.sh` PASS；`bash scripts/integration-test.sh` 74/77 PASS（3 个预先存在的环境隔离失败）；`git diff --check` PASS；REQ traceability rerun 全覆盖；修复后无回归。
-  - 未验证：DEV-7 history gate 修复（追加为后续任务）；command_execution completed output 字段名真实 CLI 验证（可观察风险 #6）。
+  - 未验证（历史）：DEV-7 history gate 修复当时追加为后续任务；command_execution completed output 字段名当时尚未真实验证。已由 DEV-7 和 QA-2 复验 run `20260503-145326-3085d11` 关闭。
 
 - [x] DEV-7: 修复 Codex history derivation gate 检查错误
   - 预期：`session.history.log` 在 provider.stdout.log 有可用事件数据时都能派生，不受 session 采集成功与否限制。
@@ -130,4 +134,44 @@
   - 验证计划：`bash scripts/integration-test.sh` Codex 用例全部 PASS；missing_thread_id 场景 history.log 非空；`bash scripts/check.sh` PASS。
   - 完成：修复 `provider_collect_session` 两处 gate：1) missing_thread_id 早期 return 前调用 `_codex_derive_history`（从 provider.stdout.log 派生）；2) 移除 session file 存在性 gate，直接调用 `_codex_derive_history`（内部已检查 provider.stdout.log 存在性）。更新集成测试 missing_thread_id 断言从空 history 改为验证含 `[assistant]`。
   - 验证：`bash scripts/integration-test.sh` Codex 19/19 PASS（总 74/77，3 个失败为预先存在的环境隔离问题）；`bash scripts/check.sh` PASS；`git diff --check` PASS；missing_thread_id 场景 history.log 含 `[assistant]`。
-  - 未验证：真实 `codex exec --json` 端到端 history 派生（需要真实 provider 调用，归后续迭代验证）。
+  - 未验证（历史）：真实 `codex exec --json` 端到端 history 派生当时尚未复验；已由 QA-2 复验 run `20260503-145326-3085d11` 关闭。
+
+- [x] DEV-8: 修复 main-agent adversarial-review findings
+  - 预期：I2 收口 review 提出的 6 个问题都有可追踪修复，任务源、使用入口、requirements、自动化测试和 run 状态证据重新一致。
+  - 输入：main-agent review findings 1-6（Codex 使用入口待实施、requirements 旧 evidence artifact、DEV-5 无完成证据、Codex effort 测试未断言真实命令参数、error-event fallback fixture 含 turn.failed、动态追加任务导致 tasks_checked > tasks_total）。
+  - 范围：`README.md`、`.ralph/README.md`、`.ralph/bin/ralph`、`.ralph/lib/run.sh`、`.ralph/lib/adapter-fake.sh`、`tests/fixtures/mock-codex`、`scripts/integration-test.sh`、`docs/README.md`、`docs/architecture/overview.md`、`docs/architecture/security.md`、`docs/architecture/testing.md`、`docs/requirements/ralph-loop/requirements.md`、`.ralph/TASKS.md`。
+  - 完成：补齐 Codex 使用入口和 CODEX_HOME 映射；requirements 全面改为 `provider.stdout.log` + `session.history.log` 契约；DEV-5 追加完成/验证证据；mock-codex 回显真实收到的 model/effort 参数且 error-event fallback 不再发 `turn.failed`；Codex effort/model 测试改为运行 ralph 后断言 mock 实收参数；fake adapter 增加动态追加任务场景；run 主循环在每轮开始/结束/失败/timeout 时重新读取任务总数并写入 status/result/meta/summary。
+  - 验证：`bash -n .ralph/lib/run.sh .ralph/lib/adapter-fake.sh .ralph/bin/ralph scripts/integration-test.sh tests/fixtures/mock-codex` PASS；`bash scripts/check.sh` PASS；`bash scripts/integration-test.sh` PASS（78/78）；`git diff --check` PASS；`codex --help` 确认存在 `codex login`；真实 Codex provider 复验 PASS（run id `20260503-145326-3085d11`，见 QA-2 复验记录）。
+  - 未验证：None
+
+- [x] DEV-9: 修复 Codex `ralph run -v` live tail 无输出
+  - 预期：使用 Codex provider 运行 `ralph run -v` 时，`provider.stdout.log` 中的 Codex JSONL events 能实时过滤成人类可读 marker 输出到 stderr，避免长时间看起来无响应。
+  - 输入：用户反馈“one-shot 采集了 stream 但运行后没有任何反应”；REQ-025 / SC-025-2；真实 Codex smoke 已确认 `provider.stdout.log` 含 `thread.started` / `item.started` / `item.completed` / `turn.completed`。
+  - 范围：`.ralph/lib/run.sh` `_ralph_filter_verbose`；`tests/fixtures/mock-codex`；`scripts/integration-test.sh`；同步 `docs/requirements/ralph-loop/requirements.md`、`docs/architecture/testing.md`。
+  - 完成：`_ralph_filter_verbose` 在保留 Claude stream-json 过滤的同时新增 Codex JSONL 事件处理：`thread.started` → session marker，`agent_message` → text marker，`command_execution` start/complete → tool/result marker，`turn.completed` → result marker，`turn.failed` / `error` → error marker。mock-codex 增加 `RALPH_MOCK_CODEX_POST_STREAM_SLEEP`，新增 Codex `run -v` 集成回归用例。
+  - 验证：`bash -n .ralph/lib/run.sh scripts/integration-test.sh tests/fixtures/mock-codex` PASS；直接喂 Codex JSONL 到 `_ralph_filter_verbose` 输出 `⚙ session` / `💬` / `🔧` / `⏎ result` / `✓ result`；`bash scripts/integration-test.sh` PASS（79/79）；`bash scripts/check.sh` PASS；`git diff --check` PASS。
+  - 未验证：真实 Codex `ralph run -v` 手工观察未重跑；当前自动化已覆盖 Codex JSONL filter 与 live tail 时序。
+
+- [x] DEV-10: 修复 Claude provider 长 oneshot 默认无反馈
+  - 预期：即使不加 `-v`，Claude provider 单轮长时间运行时也会定期给人类反馈，不再出现 10 分钟以上看起来完全无响应。
+  - 输入：用户反馈“provider 是 Claude 时 10 来分钟没反应”；真实 dogfood run `20260503-103350-0c4263e` 证据显示 iter-001 4686s、iter-002 804s、iter-003 862s、iter-004 3504s 均在 Claude CLI oneshot 内，期间 `provider.stdout.log` 已持续沉淀事件。
+  - 范围：`.ralph/lib/run.sh` 默认 provider heartbeat；`.ralph/bin/ralph` help；`scripts/integration-test.sh`；README / `.ralph/README.md`；`docs/requirements/ralph-loop/requirements.md`；`docs/architecture/testing.md`。
+  - 完成：无 `-v` 时，provider oneshot 启动并进入等待后每 `RALPH_PROGRESS_HEARTBEAT_SEC` 秒（默认 60）向 stderr 输出 still-running heartbeat，包含 elapsed、`provider.stdout.log` bytes/lines 和可直接 `tail -f` 的路径；`RALPH_PROGRESS_HEARTBEAT_SEC=0` 可关闭。`-v` 模式保留 live tail，不额外插入 heartbeat。
+  - 验证：新增 fake slow provider 集成用例用 `RALPH_PROGRESS_HEARTBEAT_SEC=1` 断言 stderr 含 `still running` + `provider.stdout.log` + `tail -f`；完整验证记录见本轮最终回复。
+  - 未验证：真实 Claude provider 手工长跑未重跑；修复点为 Ralph 主循环默认 heartbeat，与 provider 类型无关，fake slow 已覆盖等待路径。
+
+- [x] DEV-11: 修复 `ralph watch -v` 盯错 iter 导致长时间空白
+  - 预期：`ralph watch -v` 在 provider oneshot 正在运行时 tail 当前 iter 的 `provider.stdout.log`，而不是 `iter-000` 或上一轮。
+  - 输入：用户澄清“之前通过 `ralph watch -v` 卡了很久也一直没有任何输出”；真实 run `20260503-103350-0c4263e` 证据显示最终 `status.json.iteration=5` 但只存在 `iter-001`~`iter-004`，且运行中 status 旧逻辑只在 iter 结束后更新，第一轮期间会保持 `iteration=0`。
+  - 范围：`.ralph/lib/run.sh` status 更新时间和 completed iteration 计数；`scripts/integration-test.sh` watch active iter 回归；README / `.ralph/README.md`；`docs/requirements/ralph-loop/requirements.md`；`docs/architecture/testing.md`。
+  - 完成：run 主循环在创建当前 iter 目录并 touch `provider.stdout.log` 后、调用 provider 前立即写 `status.json`，让 watch 以当前 `iteration` 定位当前 log；done / blocked_by_human / max_iterations 在未启动新 provider 时用已完成轮数 `iteration - 1` 写 result/status，避免 finished status 指向不存在的 iter。
+  - 验证：新增 fake slow provider 回归用例：provider sleep 期间断言 `status.json.iteration=1`、`iter-001/provider.stdout.log` 已存在，直接调用 `_ralph_watch_tail_draw` 能读到当前 log；完整验证记录见本轮最终回复。
+  - 未验证：真实 Claude provider 手工长跑 + watch TTY 观察未重跑；自动化覆盖的是导致 watch 空白的 status/log 定位路径。
+
+- [x] DEV-12: 修复 review findings（timeout 进程树 + 文档/help 对齐）
+  - 预期：adversarial review 发现的 timeout 子进程残留风险和 3 个 P2 文档/help 漂移都关闭。
+  - 输入：review findings：SC-012 漏 `blocked_by_human`、root README timeout 写成总超时、`ralph watch --help` 未暴露 `-v` 且描述默认 scroll area、timeout 只杀 provider_oneshot shell 不保证清理真实 provider 子进程。
+  - 范围：`.ralph/lib/run.sh` timeout 清理；`.ralph/lib/adapter-fake.sh` fake child fixture；`.ralph/bin/ralph` help；`scripts/integration-test.sh`；`README.md`；`docs/requirements/ralph-loop/requirements.md`；`docs/architecture/testing.md`；`docs/architecture/overview.md`。
+  - 完成：timeout 分支改为收集并终止 provider oneshot 进程树（TERM 后 KILL）；fake adapter 增加 `slow_child` 场景，测试真实 child pid 被清理；SC-012 更新为 8 种 exit reason 并新增 timeout 进程树 SC；root README timeout 改为“单轮执行超时”；`ralph watch --help` 增加 `--verbose/-v` 选项并区分默认 sticky bar 与 `-v` tail；run help exit reasons 补 `blocked_by_human`。
+  - 验证：`bash -n .ralph/lib/run.sh .ralph/lib/adapter-fake.sh .ralph/bin/ralph scripts/integration-test.sh tests/fixtures/mock-codex` PASS；定向 fake `slow_child` timeout 复现 PASS（`exit_reason=timeout`，child pid 已退出）；`bash scripts/check.sh` PASS；`bash scripts/integration-test.sh` PASS（83/83）；`git diff --check` PASS。
+  - 未验证：真实 Claude/Codex timeout 手工杀进程树未重跑；自动化用 fake 外部 child 覆盖同一 shell 子进程残留风险。

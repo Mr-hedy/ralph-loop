@@ -1,6 +1,6 @@
 # Testing
 
-- 状态：T1/T2/T6/I1 已稳定；当前 59 PASS
+- 状态：T1/T2/T6/I1/I2 已稳定；当前 83 PASS
 - 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/architecture/overview.md`（启动校验、退出原因、运行目录 schema）、`docs/architecture/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
 - 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/testing.md`），不写具体用例的验证计划（写到任务事实源 `task.md` 对应任务的"验证计划"段）。
 - 变更条件：测试入口脚本变化、新增 fixture 或 mock 类型、隔离规则失效、新平台支持、测试覆盖目标变化。
@@ -24,6 +24,7 @@ scripts/
 tests/
   fixtures/
     mock-claude                         # claude CLI 测试替身（单一来源）
+    mock-codex                          # codex CLI 测试替身（单一来源）
     claude-session-sample.jsonl         # Claude session jsonl 样本（T2.4 起）
 ```
 
@@ -73,7 +74,7 @@ tests/
 | T2.1 完成期 | +1（实际 18） | claude adapter 骨架 happy |
 | T2.2 完成期 | +3（实际 21） | session 采集 happy / mtime fallback / missing |
 | T2.3 完成期 | +6（实际 28） | 错误诊断 6 种类别 |
-| T2.4 完成期 | +0（复用 T2.1/T2.2 用例加派生视图断言） | chat.log/tools.log 内容与格式符合 overview.md schema |
+| T2.4 完成期 | +0（复用 T2.1/T2.2 用例加派生视图断言） | `session.history.log` 内容与格式符合 overview.md schema |
 | T2.5 完成期 | +2（实际 30） | dep_missing_jq + claude+jq 双缺失非 fail-fast |
 | T2.6 完成期 | +4（实际 34） | --version + --help + run --help + status placeholder；真实 smoke 手动通过（2026-04-27，claude 2.1.119） |
 | T2 总目标 | ≥33（实际 34） | 上述累计；schema 修正：real Claude JSONL tool_result 在 type:"user" 而非 type:"tool" |
@@ -83,6 +84,8 @@ tests/
 | T6 总目标 | ≥41（实际 41） | 上述累计；macOS 实测通过 |
 | I1 status/watch + dogfood prep | +16（实际 57） | SC-023 status、SC-024 watch 自动化部分、HUMAN-N、iteration_name、任务前缀、Provider 配置目录、exit-message |
 | M1 live tail regression | +2（实际 59） | `ralph run -v` happy/error stream-json filter marker 回归覆盖 |
+| I2 Codex adapter | +20（实际 79） | Codex happy path、CODEX_HOME 翻译/隔离、history 派生、诊断矩阵、effort/model 参数、动态任务总数、Codex `run -v` live tail |
+| I2 observability fix | +4（实际 83） | 长 provider oneshot 默认 heartbeat；timeout 清理 provider 子进程树；`watch -v` 在 provider oneshot 运行中 tail 当前 iter；watch help 暴露 `-v` |
 
 未覆盖范围（已知，不计入失败）：
 

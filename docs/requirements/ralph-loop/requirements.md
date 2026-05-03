@@ -77,7 +77,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-003 | 一个 task 一个 oneshot | PROMPT.md 硬约束：每轮 oneshot 只能完成**恰好一个**未勾选任务，完成后勾 `[x]` 并退出 | P0-必须 | 协作 | 澄清轮次 2 |
 | REQ-004 | 三 provider 支持 | 支持 Claude Code、Codex CLI、Gemini CLI 三个 provider 的 oneshot 命令、session 采集和错误诊断 | P0-必须 | 功能 | 澄清轮次 1 |
 | REQ-005 | Adapter 抽象 | 用统一 shell 函数契约抽象 provider 差异，便于独立实现和替换 | P0-必须 | 协作 | 澄清轮次 2 |
-| REQ-006 | 运行证据沉淀 | 每轮保存 stdout/stderr 原始 log、provider 原生 session 副本、派生 chat/tools 视图、changed_files 和 meta | P0-必须 | 功能 | 澄清轮次 1 |
+| REQ-006 | 运行证据沉淀 | 每轮保存 `provider.stdout.log` 原始合流、provider 原生 session 副本、派生 `session.history.log` 视图、changed_files 和 meta | P0-必须 | 功能 | 澄清轮次 1 |
 | REQ-007 | 状态观察 | 提供 `ralph status`（一次性快照）和 `ralph watch`（持续刷新）两个子命令读取当前 run 状态，仅供人类维护者使用；agent oneshot 不调用 watch（自然不进 agent 工具路径，PROMPT.md 不引导）。具体边界见 REQ-023（status）/ REQ-024（watch） | P1-重要 | 功能 | 澄清轮次 1 / I1 扩展 2026-05-01 |
 | REQ-008 | Per-workspace 部署 | 每个使用者 workspace 自带完整 `.ralph/` 部署单元（构成见 REQ-017：`bin/ralph` + `lib/*` + `PROMPT.md` + `TASKS.md` + `TASKS.bak` 部署样例）；不支持全局 `ralph` 命令 | P0-必须 | 约束 | 澄清轮次 3 |
 | REQ-009 | .env 驱动默认值 | 从 `.ralph/.env` 读取 `RALPH_*` 前缀的默认参数；`RALPH_PROVIDER` 必需，其他留空即不传 flag。值以 `~/` 开头时安全展开为 `${HOME}/...`（路径类变量友好）。`.env` 不经 shell 解析，禁止 `source` 或命令替换。中立变量 `RALPH_PROVIDER_CONFIG_DIR`（见 REQ-022）由 adapter 翻译为各 provider 原生环境变量。 | P0-必须 | 功能 | 澄清轮次 3 / I1 dogfood 扩展（2026-04-30）|
@@ -95,8 +95,8 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-021 | 任务类型路由 | `.ralph/TASKS.md` 任务前缀决定 agent mindset 和参考的 `.spec/` 规范段，约定 7 类（REQ / SOL / ROADMAP / PLAN / DEV / QA / REVIEW）+ HUMAN（见 REQ-018）。`PLAN-N` = 任务列表规划（与 trantor PLAN / 业界 sprint planning 同义；产出 `.ralph/TASKS.md` 当前迭代任务列表）；`ROADMAP-N` = Roadmap 阶段规划（版本切分 / 优先级 / 验收口径）。**ralph 工具内核不解析前缀**，前缀仅作为 prompt 层 agent 自检入口；默认无前缀视为 DEV。详见 `.ralph/PROMPT.md`「任务类型」段。| P1-重要 | 协作 | I1 设计方案 2026-04-30 / 命名对齐 2026-05-01 |
 | REQ-022 | Provider 配置目录隔离（中立抽象）| `.ralph/.env` 引入中立变量 `RALPH_PROVIDER_CONFIG_DIR`，由 ralph load_env 加载（含 `~/` tilde 展开），由 adapter 在 source 时翻译为 provider 原生环境变量（Claude → `CLAUDE_CONFIG_DIR`；Codex → `CODEX_HOME`；Gemini 在 T4 落地时定义）。变量为空或未设时 adapter **不**做 export（鲁棒性约束，避免空值干扰 provider 默认行为）。子进程 env 继承走 bash 默认行为，无需 `provider_oneshot` 显式注入。**adapter session 采集路径必须感知该变量**：Claude `provider_collect_session` 用 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/<cwd_hash>/<session_id>.jsonl` 定位 session 文件，不可 hardcode `$HOME/.claude/projects/`（否则隔离账号下 session 全部丢失或错误 fallback 到主账号 session — I1 dogfood 2026-05-01 暴露的 P0 bug）；Codex `provider_collect_session` 用 `${CODEX_HOME:-$HOME/.codex}/sessions/` 定位 rollout 文件。用例：本仓库 dogfood 时通过该变量切换到独立账号 config dir，避免占用 main agent 的 Claude usage limit；Linux/Windows 用户也能用同一抽象。详见 `docs/architecture/integrations.md` §Adapter 配置目录翻译契约 + §Claude Session 机制 + §Codex Session 机制 + `docs/architecture/security.md` §Provider 凭据 / 配置目录隔离。 | P1-重要 | 协作 | I1 dogfood 扩展 2026-04-30 / I1 dogfood P0 fix 2026-05-01 / I2 DEV-1 校准 2026-05-03 |
 | REQ-023 | `ralph status` 边界 | 一次性读取 `.ralph/status.json` 并打印；默认 plain text（含全部字段：`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `iteration` / `iteration_name` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`），`--json` flag 切换为 status.json 原始 JSON 透传；status.json 不存在时输出"无运行中/已结束的 run"并 exit 0；不支持 `--run <id>` 历史浏览（已结束 run 由用户直接读 `runs/<id>/result.json`）。 | P1-重要 | 功能 | I1 dogfood 2026-05-01 |
-| REQ-024 | `ralph watch` 边界 | TTY 周期刷新（**固定 2 秒**，不暴露 `--interval` flag）；默认仅渲染下方 sticky 状态条（status.json 关键字段）；`-v` / `--verbose` flag 启用上方 tail 区域（实时尾追当前 iter log = `runs/<run_id>/iterations/iter-NNN/provider.stdout.log`，文件不存在时区域留空）；run 自然结束（`state=finished`）后 watch **不自动退出**，最后一帧保留并继续刷新；status.json 中 `run_id` 变化时（仅 `-v` 模式下）插入 separator 行并切换 tail 目标到新 run；仅 Ctrl-C 退出，退出时清屏；非 TTY（pipe / redirect）退化为 status 单次打印后退出；彩色按 `isatty(stdout) && [ -z "$NO_COLOR" ]` 自动检测，sticky bar 状态字段按 exit_reason 分类上色（`done` / `running` 绿，`provider_failed` / `timeout` / `max_iterations` / `stagnated` 红，`blocked_by_human` / `locked` / `interrupted` 黄）；agent oneshot 不调用 watch（人类专用观察工具）；时间戳渲染为本地时间 + 时区偏移（Q1 双层时间格式：JSON 文件 ISO UTC，人类输出本地）。 | P1-重要 | 功能 | I1 dogfood 2026-05-01 / -v flag 2026-05-02 |
-| REQ-025 | `ralph run` 进度可见性 | run 主循环默认（无 `-v`）向 stderr 输出**进度 marker**：启动 banner（`[HH:MM:SS] ralph <ver> | run <id> | <iter_name> | tasks <c>/<t> done | provider <p>`）+ 每 iter 启停两行（`iter N/M → <task summary>` 和 `iter N/M ✓ done | tasks <c>/<t> | iter <dur> | run <dur>`）。`-v` / `--verbose` flag 启用 live tail：fork tail -f provider.stdout.log，过滤 stream-json events 输出到 stderr（`💭 thinking` / `💬 text` / `🔧 tool_use` / `⏎ result` 行内标记）。stdout 默认 silent（CI 友好）；stderr 承载所有进度信息。时间戳本地时间。 | P1-重要 | 功能 | I1 dogfood 2026-05-02 |
+| REQ-024 | `ralph watch` 边界 | TTY 周期刷新（**固定 2 秒**，不暴露 `--interval` flag）；默认仅渲染下方 sticky 状态条（status.json 关键字段）；`-v` / `--verbose` flag 启用上方 tail 区域（实时尾追当前 iter log = `runs/<run_id>/iterations/iter-NNN/provider.stdout.log`，文件不存在时区域留空）；`ralph run` 在 provider oneshot 启动前必须把 `status.json.iteration` 更新到当前 iter 并创建当前 `provider.stdout.log`，保证 watch 不会盯 `iter-000` 或上一轮；run 自然结束（`state=finished`）后 watch **不自动退出**，最后一帧保留并继续刷新；status.json 中 `run_id` 变化时（仅 `-v` 模式下）插入 separator 行并切换 tail 目标到新 run；仅 Ctrl-C 退出，退出时清屏；非 TTY（pipe / redirect）退化为 status 单次打印后退出；彩色按 `isatty(stdout) && [ -z "$NO_COLOR" ]` 自动检测，sticky bar 状态字段按 exit_reason 分类上色（`done` / `running` 绿，`provider_failed` / `timeout` / `max_iterations` / `stagnated` 红，`blocked_by_human` / `locked` / `interrupted` 黄）；agent oneshot 不调用 watch（人类专用观察工具）；时间戳渲染为本地时间 + 时区偏移（Q1 双层时间格式：JSON 文件 ISO UTC，人类输出本地）。 | P1-重要 | 功能 | I1 dogfood 2026-05-01 / -v flag 2026-05-02 / active iter fix 2026-05-04 |
+| REQ-025 | `ralph run` 进度可见性 | run 主循环默认（无 `-v`）向 stderr 输出**进度 marker**：启动 banner（`[HH:MM:SS] ralph <ver> | run <id> | <iter_name> | tasks <c>/<t> done | provider <p>`）+ 每 iter 启停两行（`iter N/M → <task summary>` 和 `iter N/M ✓ done | tasks <c>/<t> | iter <dur> | run <dur>`）；provider oneshot 长时间未返回时每 60 秒输出 heartbeat（elapsed、`provider.stdout.log` bytes/lines、`tail -f` 路径），`RALPH_PROGRESS_HEARTBEAT_SEC=0` 可关闭。`-v` / `--verbose` flag 启用 live tail：fork tail -f provider.stdout.log，过滤 Claude stream-json / Codex JSONL events 输出到 stderr（`💭 thinking` / `💬 text` / `🔧 tool_use` / `⏎ result` 行内标记）。stdout 默认 silent（CI 友好）；stderr 承载所有进度信息。时间戳本地时间。 | P1-重要 | 功能 | I1 dogfood 2026-05-02 / I2 Codex live tail + heartbeat 2026-05-03 |
 | REQ-026 | 双层时间格式 | JSON 事实文件（`status.json` / `result.json` / `iter-NNN/meta.json` / `context.json`）保留 ISO 8601 UTC 时间戳（`2026-05-02T01:10:08Z`），便于跨时区机器解析与排序；人类终端输出（`ralph status` plain text、`ralph watch` sticky bar、`ralph run` 进度 marker、退出 `exit-message.txt`）渲染为本地时间 + 时区偏移（`2026-05-02 09:10:08 +0800`），通过 `ralph_iso_to_local_display` helper。 | P1-重要 | 协作 | Q1 决策 2026-05-02 |
 
 ## 优先级说明
@@ -129,7 +129,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - 触发：某轮 provider 退出码非 0，或连续 5 轮无进展。
 - 输入：已产生的 `iterations/iter-xxx/` 目录。
 - 预期结果：`result.json.exit_reason` 明确（`provider_failed` / `stagnated`），`last_error.type` 给出分类（`quota` / `auth` / `rate_limit` / `network` / `unknown`）；`session.<provider>.*` 保留原生证据。
-- 验收：人工打开 `result.json` 即能判断退出类型；打开 `session.claude.jsonl` 或派生 `chat.log` 即能读到对话流。
+- 验收：人工打开 `result.json` 即能判断退出类型；打开 `session.history.log` 即能读到跨 provider 的人类可读对话/工具摘要。
 
 ### US-004：并发冲突
 
@@ -155,13 +155,14 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | SC-003-1 | REQ-003 | PROMPT.md 模板包含"一个 task 一个 oneshot"协议段落 | PROMPT.md 示例文本 | 含"恰好一个未勾选任务" | 文档 + 示例 review |
 | SC-004-1 | REQ-004 | 三 provider 各自跑通一次 smoke run（至少一条 task 完成） | 真实 provider CLI | 三个 `exit_reason=done` | 手工集成验证，结果附在 T2/T3/T4 完成 PR |
 | SC-005-1 | REQ-005 | adapter 契约稳定为三函数：`provider_oneshot` / `provider_collect_session` / `provider_diagnose` | 接口文档 + fake adapter | 三函数签名一致 | fake provider smoke test |
-| SC-006-1 | REQ-006 | 每轮产出 `iter-xxx/log`、`session.<provider>.*`、`meta.json`；session 采集失败时 `capture_status=warning` 但 loop 继续 | `iterations/iter-xxx/` 目录 | 每轮齐全 | 集成测试 |
+| SC-006-1 | REQ-006 | 每轮产出 `provider.stdout.log`、`meta.json`、`session.history.log`；provider 原生 `session.<provider>.jsonl` 采集成功时存在，采集失败时写 `capture_status=warning` 但 loop 继续 | `iterations/iter-xxx/` 目录 | 核心证据每轮齐全；session 副本 best-effort | 集成测试 |
 | SC-007-1 | REQ-007 | `ralph status` 与 `ralph watch` 子命令均能从 `ralph` CLI 入口启动（`ralph status` exit 0 / `ralph watch` 进入刷新循环直到 Ctrl-C） | exit code + stdout/TTY 行为 | 子命令可用 | 集成测试 + 手工验证 |
 | SC-008-1 | REQ-008 | ralph 通过 `${BASH_SOURCE[0]}` 解析出 workspace 根为 `.ralph/` 的父目录 | 启动日志 + `status.json.workspace` | 路径匹配 | 单元测试 + 集成测试 |
 | SC-009-1 | REQ-009 | `.env` 中未设或留空的 `RALPH_MODEL` / `RALPH_EFFORT` / `RALPH_MAX_ITER` / `RALPH_TIMEOUT`，对应 flag 不拼进 oneshot 命令 | 构造出的命令行字符串 | flag 缺席 | 单元测试 |
 | SC-010-1 | REQ-010 | 在任意 cwd 执行 `/abs/path/.ralph/bin/ralph run`，ralph 进程最终 cwd 为 `/abs/path` | `pwd` 或 `status.json` | 路径一致 | 集成测试 |
 | SC-011-1 | REQ-011 | 缺 PROMPT.md / TASKS.md / .env / 非 git 仓库 / provider CLI 不可执行任一条件，ralph 立即退出且不创建 run 目录；`RALPH_PROVIDER=claude` 且三路 UUID 生成全失败时同样快速失败 | 退出码 + `.ralph/runs/` 状态 | 快速失败 | 集成测试 6 个用例（5 个核心条件 + Claude UUID 路径） |
-| SC-012-1 | REQ-012 | 6 种退出原因（`done` / `provider_failed` / `timeout` / `max_iterations` / `stagnated` / `interrupted`）都能写入 `result.json.exit_reason`；`locked` 不产生 run 目录、不写 `result.json`，合计 7 种 | `result.json` + `.ralph/runs/` 状态 | 全覆盖 | 集成测试（各触发一次） |
+| SC-012-1 | REQ-012 | 7 种退出原因（`done` / `provider_failed` / `timeout` / `max_iterations` / `stagnated` / `interrupted` / `blocked_by_human`）都能写入 `result.json.exit_reason`；`locked` 不产生 run 目录、不写 `result.json`，合计 8 种 | `result.json` + `.ralph/runs/` 状态 | 全覆盖 | 集成测试（各触发一次） |
+| SC-012-2 | REQ-012 | 单轮 `timeout` 退出时清理 provider oneshot 进程树，不遗留真实 provider 子进程继续运行 | fake provider 启动外部 child 并触发 timeout | `exit_reason=timeout` 且 child pid 已退出 | 集成测试（进程探针） |
 | SC-013-1 | REQ-013 | 连续 5 轮无勾选变化且 changed_files 空 → `stagnated` 退出 | `result.json.exit_reason` | `stagnated` | 集成测试：用 fake provider 模拟空转 |
 | SC-014-1 | REQ-014 | `--effort=low\|medium\|high` 翻译为各 provider 原生参数；`none` 或留空不传 | 构造的命令行 | flag 匹配或缺席 | 单元测试 |
 | SC-015-1 | REQ-015 | `status.json` 和 `provider.meta` 都记录本轮 provider；run 生命周期内不变更 | 文件字段 | 一致 | 集成测试 |
@@ -180,12 +181,12 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | SC-023-2 | REQ-023 | `ralph status --json` 输出与 `.ralph/status.json` 文件内容字节一致（透传） | `diff <(ralph status --json) .ralph/status.json` | 完全一致 | 集成测试 |
 | SC-023-3 | REQ-023 | `.ralph/status.json` 不存在时 `ralph status` exit 0 + stdout 含"无运行" / "no run" 关键文案；不报错、不创建任何文件 | 退出码 + stdout grep + 文件系统检查 | exit 0 / 提示文案 / 无副作用 | 集成测试 |
 | SC-024-1 | REQ-024 | `ralph watch` 屏幕 = 上方 tail 当前 iter log + 下方 sticky 状态条（status.json 字段） | 终端录屏 + 手工观察 | 双区域布局正确 | 手工验证 |
-| SC-024-2 | REQ-024 | watch 检测 status.json `run_id` 变化时插入 separator 行（如 `─── new run: <new_run_id> ───`）并切换 tail 目标到新 run 的 iter log | 双 run 触发 + 终端录屏 | separator 出现 + tail 切换 | 集成测试（mock 修改 status.json 切换 run_id）+ 手工验证 |
+| SC-024-2 | REQ-024 | watch 检测 status.json `run_id` 变化时插入 separator 行（如 `─── new run: <new_run_id> ───`）并切换 tail 目标到新 run 的 iter log；provider oneshot 运行中 `status.json.iteration` 指向当前 iter，`watch -v` 能读到当前 `provider.stdout.log` | 双 run 触发 + active slow provider | separator 出现 + tail 切换；长 oneshot 运行中 tail 当前 iter 不为空 | 集成测试（mock 修改 status.json 切换 run_id + fake slow provider）+ 手工验证 |
 | SC-024-3 | REQ-024 | run 进入 `state=finished` 后 watch 不自动退出，sticky bar 持续显示最终 `exit_reason`，仅 Ctrl-C 退出（退出时清屏） | 手工验证 + 进程存活检查 | 不自退出 / Ctrl-C 干净退出 | 手工验证 |
 | SC-024-4 | REQ-024 | watch 在非 TTY 环境（如 `ralph watch \| cat`）退化为 status 单次打印后退出 | 退出码 + 输出行为 | exit 0 / 单次打印 | 集成测试 |
 | SC-024-5 | REQ-024 | sticky bar 状态字段按 `isatty + NO_COLOR` 自适应上色：`state=running` / `exit_reason=done` 绿；`provider_failed` / `timeout` / `max_iterations` / `stagnated` 红；`blocked_by_human` / `locked` / `interrupted` 黄；`NO_COLOR=1` 或非 TTY 输出时不上色 | 终端录屏（含 8 类 exit_reason）+ `NO_COLOR=1` 验证 | 颜色映射正确 / 降级正确 | 手工验证 |
-| SC-025-1 | REQ-025 | `ralph run` 默认 stderr 输出启动 banner 和每轮 iter 启停 marker，stdout 保持 silent | stderr/stdout 捕获 | stderr 含 `ralph <version> \| run`、`iter N/M →`、`iter N/M ✓ done`；stdout 为空 | 集成测试 / dogfood 验证 |
-| SC-025-2 | REQ-025 | `ralph run -v` live tail 会把 stream-json events 过滤成人类可读 marker | stderr grep | happy 路径含 `⚙ session` / `💬` / `✓ result` 至少一种；error 路径含 `❌ error` | 集成测试 |
+| SC-025-1 | REQ-025 | `ralph run` 默认 stderr 输出启动 banner、每轮 iter 启停 marker；长 provider oneshot 输出 still-running heartbeat；stdout 保持 silent | stderr/stdout 捕获 | stderr 含 `ralph <version> \| run`、`iter N/M →`、`iter N/M ✓ done`；长 oneshot 含 `still running` + `provider.stdout.log`；stdout 为空 | 集成测试 / dogfood 验证 |
+| SC-025-2 | REQ-025 | `ralph run -v` live tail 会把 Claude stream-json / Codex JSONL events 过滤成人类可读 marker | stderr grep | Claude happy / Codex happy 路径含 `⚙ session` / `💬` / `✓ result` 至少一种；error 路径含 `❌ error` | 集成测试 |
 | SC-025-3 | REQ-025 | `ralph run -v` 中断或退出时清理 live tail 相关进程，不遗留 `tail -f provider.stdout.log` | 进程表检查 | 退出后无指向本 run 的 `tail -f provider.stdout.log` | 进程探针 / 手工验证 |
 | SC-026-1 | REQ-026 | 人类终端输出将 ISO UTC 时间渲染为本地时间 + 时区偏移 | plain text grep | `YYYY-MM-DD HH:MM:SS +ZZZZ` | 集成测试（status plain text） |
 | SC-026-2 | REQ-026 | JSON 事实文件保持 ISO 8601 UTC 时间戳 | JSON grep/jq | `started_at` / `updated_at` 等字段为 `...Z` | 集成测试（status --json / run artifacts） |
@@ -207,8 +208,8 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
   7. 进入循环：
      - 解析 TASKS.md；全部勾选 → 退出 `done`
      - 拼 oneshot 命令：`provider_oneshot <prompt_file> <log> <meta_dir>`
-     - 执行 provider CLI，捕获 stdout/stderr 到 `iter-xxx/log`
-     - `provider_collect_session` 采集原生 session，派生 chat/tools 视图
+     - 执行 provider CLI，捕获 stdout/stderr 到 `iter-xxx/provider.stdout.log`
+     - `provider_collect_session` 采集原生 session，派生 `session.history.log` 视图
      - `provider_diagnose` 分析错误类别
      - 收集 `changed_files`，写 `iter-xxx/meta.json`
      - 判断 stagnation、max_iterations、timeout、provider 失败、中断等退出条件
@@ -281,7 +282,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - 来源需求：REQ-007、REQ-024
 - 关联流程：BPF-001（读取）
 - 用户故事：作为维护者，我希望边跑边看当前 run 的状态和 agent 实时输出，发现 stagnation / PROMPT 协议歧义 / 长任务卡顿。
-- 输入：`.ralph/status.json`、`.ralph/runs/<run_id>/iterations/iter-NNN/log`
+- 输入：`.ralph/status.json`、`.ralph/runs/<run_id>/iterations/iter-NNN/provider.stdout.log`
 - 输出：TTY 双区域刷新
   - 上方：当前活跃 iter log 的 `tail -f` 等价输出（agent stdout 实时滚动）；log 文件不存在时该区域留空
   - 下方：sticky 状态条（最少含 `run_id` 截断 / `iteration` / `tasks_checked/total` / `state` / `exit_reason` / `provider`）
@@ -319,7 +320,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - 关联流程：BPF-001
 - 用户故事：作为 ralph，我需要把 oneshot 调用翻译成 Claude CLI 命令，并采集 session 证据。
 - 输入：prompt 文本、runtime 参数
-- 输出：oneshot 退出码、`iter-xxx/log`、`iter-xxx/session.claude.jsonl`、派生 `chat.log` / `tools.log`、错误诊断类别
+- 输出：oneshot 退出码、`iter-xxx/provider.stdout.log`、`iter-xxx/session.claude.jsonl`、派生 `session.history.log`、错误诊断类别
 - 业务规则：
   - 固定 flag：`--dangerously-skip-permissions`、`--allowedTools "Bash,Read,Edit,Write,Glob,Grep"`、`--output-format json`、`--session-id <预分配 UUID>`
   - 可选 flag（有值才拼）：`--model`、`--effort`（Claude CLI 原生直通，T6.2 实测；`none`/空 → 不拼）
@@ -335,7 +336,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
   - 命令：`codex exec --json -C <workspace> --sandbox workspace-write <prompt>`
   - 可选 flag：`--model`、`-c model_reasoning_effort=<value>`（effort 通过 config override 传递，值 `low|medium|high`；`none` 或留空不传）
   - session 定位：从 stdout JSONL 取 `thread.started.thread_id`，在 `${CODEX_HOME:-$HOME/.codex}/sessions/` 下递归匹配 `rollout-*-<thread_id>.jsonl`
-  - 错误诊断：`turn.failed.error.message` 优先，关键字匹配 `auth` / `quota` / `rate_limit` / `api`
+  - 错误诊断：`turn.failed.error.message` 优先，`error` 事件和 stderr 非 JSON 行作为回退；关键字匹配 `auth` / `rate_limit` / `quota` / `network` / `api` / `unknown`
 
 ### FR-007：Gemini adapter
 
@@ -366,7 +367,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | NFR-REL-003 | 可靠性 | 启动校验失败不产生 run 目录，不改写 TASKS.md | `.ralph/runs/` 目录无新增 | 集成测试 | REQ-011 |
 | NFR-SEC-001 | 安全 | 不把 API key、完整 token 或敏感配置写入 log、session、meta、result | 产物文件内容审查 | 人工 review + grep 关键字 | 全局风险 |
 | NFR-SEC-002 | 安全 | 每个 provider 的 approval/sandbox 策略写死在 adapter 里，不做开关 | adapter 源代码 | code review | 澄清轮次 2 |
-| NFR-OBS-001 | 可观察性 | 每轮 provider stdout/stderr 全量落盘；不丢失 | `iter-xxx/log` 非空 | 集成测试 | REQ-006 |
+| NFR-OBS-001 | 可观察性 | 每轮 provider stdout/stderr 全量落盘；不丢失 | `iter-xxx/provider.stdout.log` 非空 | 集成测试 | REQ-006 |
 
 ## 约束
 
@@ -410,7 +411,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 
 - **窄终端降级**：sticky bar 在终端宽度 < 80 列时截断长字段（如 `run_id` 显示前 12 位 + `...`）；不做硬约束。
 - **`--interval` flag**：v0.1.1 范围内不暴露，固定 2 秒。如 dogfood 中真出现"2s 不够用"再加 flag 并升级 REQ-024。
-- **iter log 暂未生成的瞬间**：watch 启动时若 `runs/<run_id>/iterations/iter-NNN/log` 尚未创建（ralph 刚启动、第一个 iter 还未开始），tail 区域留空；文件出现后自动开始尾追，无占位文案。
+- **iter log 暂未生成的瞬间**：watch 启动时若 `runs/<run_id>/iterations/iter-NNN/provider.stdout.log` 尚未创建（ralph 刚启动、第一个 iter 还未开始），tail 区域留空；文件出现后自动开始尾追，无占位文案。
 
 ## 追踪矩阵
 
@@ -426,13 +427,13 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-022 | SC-022-1, SC-022-2, SC-022-3, SC-022-4, SC-022-5, FR-005, FR-006 | 集成测试 + adapter 翻译契约 + session 采集路径 | 完整（I1 dogfood 2026-05-01 暴露 SC-022-3 P0 bug 并修复；I2 DEV-1 2026-05-03 新增 SC-022-4/5 Codex 专属配置目录 SC）|
 | REQ-023 | SC-023-1, SC-023-2, SC-023-3, FR-002 | 集成测试 | 完整 |
 | REQ-024 | SC-024-1, SC-024-2, SC-024-3, SC-024-4, SC-024-5, FR-003 | 集成测试 + 手工验证 | 完整（HUMAN-1 已验证）|
-| REQ-025 | SC-025-1, SC-025-2, SC-025-3 | run 主循环 progress markers + -v live tail 集成测试 / 进程探针 | 完整 |
+| REQ-025 | SC-025-1, SC-025-2, SC-025-3 | run 主循环 progress markers + heartbeat + -v live tail 集成测试 / 进程探针 | 完整 |
 | REQ-026 | SC-026-1, SC-026-2 | 双层时间格式 helper + status/watch/exit-message 应用 | 完整 |
 | REQ-008 | SC-008-1, TC-STK-002 | 单元 + 集成测试 | 完整 |
 | REQ-009 | SC-009-1, FR-001, TC-STK-003 | 单元测试 | 完整 |
 | REQ-010 | SC-010-1, TC-STK-004 | 集成测试 | 完整 |
 | REQ-011 | SC-011-1, BPF-002, NFR-REL-003 | 集成测试 5 用例 | 完整 |
-| REQ-012 | SC-012-1, BPF-001, FR-001, NFR-REL-001 | 集成测试各触发一次 | 完整 |
+| REQ-012 | SC-012-1, SC-012-2, BPF-001, FR-001, NFR-REL-001 | 集成测试各触发一次 + timeout 进程探针 | 完整 |
 | REQ-013 | SC-013-1, BPF-001 | 集成测试 | 完整 |
 | REQ-014 | SC-014-1, FR-005-007 | 单元测试 | 完整 |
 | REQ-015 | SC-015-1, FR-001 | 集成测试 | 完整 |

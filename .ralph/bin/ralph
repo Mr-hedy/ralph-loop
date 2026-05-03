@@ -50,7 +50,7 @@ until a stop condition is reached.
 
 Options:
   --provider <name>        Provider to use (env: RALPH_PROVIDER)
-                           Required. Choices: claude, codex, gemini, fake.
+                           Required. Choices: claude, codex, fake. Gemini is planned for T4.
   --model <name>           Model name passed to provider (env: RALPH_MODEL)
   --effort <level>         Effort level: low|medium|high|none (env: RALPH_EFFORT)
   --max-iter <n>           Max iterations; 0 = unlimited (env: RALPH_MAX_ITER)
@@ -59,17 +59,23 @@ Options:
                            (env: RALPH_TIMEOUT). Default: 0
   --stagnation-limit <n>   Consecutive no-progress iterations before stagnated
                            (env: RALPH_STAGNATION_LIMIT). Default: 5
+  --verbose, -v            Live-tail provider events to stderr (env: RALPH_VERBOSE=1)
   --help                   Show this help and exit.
+
+Default progress output goes to stderr. While a provider oneshot is still
+running, ralph prints a heartbeat every 60s with elapsed time and the current
+provider.stdout.log path. Set RALPH_PROGRESS_HEARTBEAT_SEC=0 to disable.
 
 Option priority (highest to lowest): CLI flag > process env > .ralph/.env > default
 
-Exit reasons (stored in .ralph/runs/<id>/result.json):
+Exit reasons:
   done            All tasks completed successfully.
   provider_failed Provider CLI returned error or is_error=true.
   timeout         Iteration exceeded --timeout.
   max_iterations  --max-iter limit reached.
   stagnated       No task progress after consecutive iterations.
   locked          Another ralph run is already active in this workspace.
+  blocked_by_human First unchecked task is HUMAN-*.
   interrupted     SIGTERM/SIGINT received.
 
 Run directory layout (.ralph/runs/<run-id>/):
@@ -77,13 +83,13 @@ Run directory layout (.ralph/runs/<run-id>/):
   context.json               Startup context snapshot.
   iterations/iter-NNN/       Per-iteration artifacts:
     meta.json                Iteration metadata (session_id, exit_code, timing).
-    session.<prov>.stdout.json  Provider stdout (raw).
-    session.<prov>.jsonl     Session transcript (copied from provider dir).
-    chat.log                 Human-readable conversation view.
-    tools.log                Tool invocation summary.
+    provider.stdout.log     Provider stdout + stderr raw stream.
+    session.<prov>.jsonl    Native session transcript (when captured).
+    session.history.log     Human-readable cross-provider view.
 
 Examples:
   ralph run --provider claude
+  ralph run --provider codex
   ralph run --provider claude --max-iter 3
   ralph run --provider fake --timeout 60 --max-iter 10
 EOF
@@ -113,21 +119,26 @@ EOF
 ralph_watch_help() {
   cat <<'EOF'
 Usage:
-  ralph watch
+  ralph watch [options]
 
-Stream live run events with a sticky status bar at the bottom
-and iteration log output in the scroll area above.
+Watch the current or last run with a sticky status bar.
 
 The display refreshes every 2 seconds. Press Ctrl-C to exit.
 
-Output:
-  Bottom bar: run_id, iteration, task progress, state, exit_reason, provider.
-  Scroll area: tail of the current iteration's log output.
+Options:
+  --verbose, -v    Show the current iteration log above the sticky bar.
+  --help           Show this help and exit.
 
-  When no status.json exists, the bar shows "no active run".
+Output:
+  Default: sticky bar with run_id, iteration, task progress, state,
+           exit_reason, provider.
+  -v:      tail of current iter provider.stdout.log above the sticky bar.
+
+When no status.json exists, the bar shows "no active run".
 
 Examples:
   ralph watch
+  ralph watch -v
 EOF
 }
 
