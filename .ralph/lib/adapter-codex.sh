@@ -95,17 +95,151 @@ provider_oneshot() {
 }
 
 # ── provider_collect_session ─────────────────────────────────────────────────
-# DEV-3 实现完整 session 采集（thread_id 精确匹配 / mtime fallback / history 派生）
-# 本版为 stub：保证函数存在、写空 session.history.log、meta capture_status = pending
+# Codex session 采集（DEV-3）：
+# 1. 精确匹配：按 thread_id 在 ${CODEX_HOME:-$HOME/.codex}/sessions/ 下查找 rollout 文件名
+# 2. mtime + cwd 退化：若无 thread_id 或精确匹配失败，按 mtime + 首行 cwd 筛选
+# 3. 派生 session.history.log（从 provider.stdout.log --json 事件流）
 provider_collect_session() {
   local iter_dir="$1"
-  touch "$iter_dir/session.history.log"
   local meta="$iter_dir/meta.json"
-  if [[ -f "$meta" ]]; then
+
+  # 读取 session_id（thread_id，由 provider_oneshot 写入 meta.json）
+  local session_id
+  session_id="$(jq -r '.session_id // empty' "$meta" 2>/dev/null)"
+  if [[ -z "$session_id" || "$session_id" == "null" ]]; then
     update_meta_jq "$iter_dir" \
-      '.capture_status = "pending" | .capture_warning = "session capture stub (DEV-3)"' 2>/dev/null || true
+      '.capture_status = "warning" | .capture_warning = "session_id missing in meta.json"'
+    touch "$iter_dir/session.history.log"
+    return 0
   fi
+
+  # Session root（SC-022-5：使用 CODEX_HOME 隔离路径，不读真实 HOME）
+  local codex_session_root="${CODEX_HOME:-$HOME/.codex}/sessions"
+  local dst="$iter_dir/session.codex.jsonl"
+
+  # ── Strategy 1: 按 thread_id 精确匹配文件名 ────────────────────────────────
+  local found_file=""
+  if [[ -d "$codex_session_root" ]]; then
+    found_file="$(find "$codex_session_root" -type f -name "rollout-*-${session_id}.jsonl" 2>/dev/null | head -1)" || found_file=""
+  fi
+
+  if [[ -n "$found_file" && -f "$found_file" ]]; then
+    cp "$found_file" "$dst"
+    update_meta_jq "$iter_dir" \
+      '.capture_status = "ok" | .session_source_path = $src | .session_copied_path = $dst' \
+      --arg src "$found_file" --arg dst "$dst"
+  else
+    # ── Strategy 2: mtime + cwd 退化 ──────────────────────────────────────────
+    local started_at
+    started_at="$(jq -r '.provider_started_at // empty' "$meta" 2>/dev/null)"
+    local fallback_file=""
+
+    if [[ -n "$started_at" && "$started_at" != "null" && -d "$codex_session_root" ]]; then
+      local started_epoch buffered_iso anchor_local
+      started_epoch="$(ralph_iso_to_epoch "$started_at")"
+      if [[ -n "$started_epoch" ]]; then
+        buffered_iso="$(ralph_epoch_to_iso $((started_epoch - 1)))"
+        anchor_local="$(ralph_iso_to_local_find_fmt "$buffered_iso")"
+        if [[ -n "$anchor_local" ]]; then
+          local candidates
+          candidates="$(find "$codex_session_root" -type f -name "rollout-*.jsonl" \
+            -newermt "$anchor_local" 2>/dev/null)" || candidates=""
+
+          if [[ -n "$candidates" ]]; then
+            # 优先匹配首行 session_meta.payload.cwd == workspace
+            local workspace="${_RALPH_WORKSPACE:-$(ralph_workspace_root)}"
+            for f in $candidates; do
+              local first_line_cwd
+              first_line_cwd="$(head -1 "$f" 2>/dev/null | jq -r '.payload.cwd // empty' 2>/dev/null)" || continue
+              if [[ "$first_line_cwd" == "$workspace" ]]; then
+                fallback_file="$f"
+                break
+              fi
+            done
+            # 无 cwd 匹配 → 取 mtime 最新
+            if [[ -z "$fallback_file" ]]; then
+              fallback_file="$(echo "$candidates" | xargs ls -1t 2>/dev/null | head -1)"
+            fi
+          fi
+        fi
+      fi
+    fi
+
+    if [[ -n "$fallback_file" && -f "$fallback_file" ]]; then
+      cp "$fallback_file" "$dst"
+      update_meta_jq "$iter_dir" \
+        '.capture_status = "ok" | .capture_warning = "fallback by mtime" | .session_source_path = $src | .session_copied_path = $dst' \
+        --arg src "$fallback_file" --arg dst "$dst"
+    else
+      update_meta_jq "$iter_dir" \
+        '.capture_status = "warning" | .capture_warning = "Codex session file not found"'
+    fi
+  fi
+
+  # 派生 session.history.log
+  if [[ -f "$dst" ]]; then
+    _codex_derive_history "$dst" "$iter_dir/session.history.log"
+  fi
+  touch "$iter_dir/session.history.log"
   return 0
+}
+
+# ── _codex_derive_history ────────────────────────────────────────────────────
+# 从 provider.stdout.log（--json stdout 事件流）派生人话视图
+# Codex rollout 文件是内部格式，可能跨版本变化；--json 事件流有文档化契约
+# 输出：[user] / [assistant] / [tool-use name=X] / [tool-result name=X] 摘要
+_codex_derive_history() {
+  local jsonl="$1" out="$2"
+  local iter_dir="${jsonl%/*}"
+  local stdout_log="$iter_dir/provider.stdout.log"
+  [[ -f "$stdout_log" ]] || return 0
+
+  # 过滤 JSON 行（provider.stdout.log 含 stdout + stderr 合流）
+  local jsonl_events
+  jsonl_events="$(grep -E '^[[:space:]]*\{' "$stdout_log" 2>/dev/null)" || return 0
+  [[ -n "$jsonl_events" ]] || return 0
+
+  printf '%s\n' "$jsonl_events" | jq -r --slurp '
+    def tool_input_summary:
+      (if type == "string" then try fromjson catch . else . end) as $parsed |
+      ($parsed | tostring) as $s |
+      if ($s | length) > 4000 then
+        ($s[0:2000] + "\n... [tool input truncated; see session.codex.jsonl for full input]\n" + $s[-1000:])
+      else $s end;
+
+    # call_id → name map（从 function_call 项提取，供 tool-result 标注）
+    ([.[] | select(.type == "item.completed" and .item.type == "function_call")
+      | {(.item.call_id // .item.id // ""): .item.name}] | add // {}) as $call_map |
+
+    .[] | select(.type == "item.completed") |
+    .item as $item |
+
+    if $item.type == "message" then
+      if $item.role == "user" then
+        ($item.content // []) |
+        if type == "array" then .[] else . end |
+        if .type == "input_text" or .type == "text" then
+          (.text // "") as $t |
+          if ($t | length) > 0 then "[user]", $t, "" else empty end
+        else empty end
+      elif $item.role == "assistant" then
+        ($item.content // []) |
+        if type == "array" then .[] else . end |
+        if .type == "output_text" or .type == "text" then
+          (.text // "") as $t |
+          if ($t | length) > 0 then "[assistant]", $t, "" else empty end
+        else empty end
+      else empty end
+    elif $item.type == "function_call" then
+      "[tool-use name=" + ($item.name // "?") + "]",
+      ($item.arguments // "{}" | tool_input_summary),
+      ""
+    elif $item.type == "function_call_output" then
+      "[tool-result name=" + ($call_map[$item.call_id // ""] // "unknown") + "]",
+      (($item.output // "") | .[0:2000]),
+      ""
+    else empty end
+  ' > "$out" 2>/dev/null || true
 }
 
 # ── provider_diagnose ────────────────────────────────────────────────────────
