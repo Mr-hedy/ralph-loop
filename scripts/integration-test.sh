@@ -1326,6 +1326,294 @@ else
   _fail "exit-message.txt: missing or wrong content (expected blocked_by_human + I1)"
 fi
 
+# ────────────────────────────────
+# Codex adapter（I2 QA-1）
+# ────────────────────────────────
+
+# setup_codex_workspace — Codex adapter 测试 workspace + HOME 隔离 + mock-codex 注入
+SETUP_CODEX_WS=""
+SETUP_CODEX_BIN=""
+SETUP_CODEX_HOME=""
+setup_codex_workspace() {
+  SETUP_CODEX_WS="$(setup_workspace --provider codex)"
+
+  # HOME 隔离（避免写真实 ~/.codex）
+  local home_parent
+  home_parent="$(mktemp -d)"
+  SETUP_CODEX_HOME="$home_parent/home"
+  mkdir -p "$SETUP_CODEX_HOME"
+
+  # mock-codex 软链到 workspace 内 tests-bin/
+  SETUP_CODEX_BIN="$SETUP_CODEX_WS/tests-bin"
+  mkdir -p "$SETUP_CODEX_BIN"
+  ln -sf "$REPO_ROOT/tests/fixtures/mock-codex" "$SETUP_CODEX_BIN/codex"
+}
+
+cleanup_codex_ws() {
+  [[ -n "${SETUP_CODEX_HOME:-}" ]] && rm -rf "$(dirname "$SETUP_CODEX_HOME")"
+  [[ -n "${SETUP_CODEX_WS:-}" ]] && cleanup_ws "$SETUP_CODEX_WS"
+  SETUP_CODEX_WS=""
+  SETUP_CODEX_BIN=""
+  SETUP_CODEX_HOME=""
+}
+
+echo ""
+echo "-- Codex adapter: happy path (mock-codex, HOME isolated)"
+setup_codex_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CODEX_SCENARIO=happy \
+  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
+  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+iter_dir="${run_dir}/iterations/iter-001"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+stdout_ok=0
+# provider.stdout.log 含 thread.started 事件
+[[ -f "$iter_dir/provider.stdout.log" ]] && \
+  grep -q '"thread.started"' "$iter_dir/provider.stdout.log" 2>/dev/null && stdout_ok=1
+session_id_ok=0
+grep -qE '"session_id":[[:space:]]*"[^"]+"' "$iter_dir/meta.json" 2>/dev/null && session_id_ok=1
+session_ok=0
+[[ -f "$iter_dir/session.codex.jsonl" ]] && session_ok=1
+capture_ok=0
+grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
+history_ok=0
+# session.history.log 含 user / assistant / tool-use / tool-result
+[[ -f "$iter_dir/session.history.log" ]] && \
+  grep -q '\[user\]' "$iter_dir/session.history.log" && \
+  grep -q '\[assistant\]' "$iter_dir/session.history.log" && \
+  grep -q '\[tool-use name=Bash\]' "$iter_dir/session.history.log" && \
+  grep -q '\[tool-result name=Bash\]' "$iter_dir/session.history.log" && history_ok=1
+if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_id_ok" -eq 1 \
+   && "$session_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
+  _pass "codex happy: exit 0, done, thread.started, session_id, session.codex.jsonl, capture_status=ok, history.log derived"
+else
+  _fail "codex happy: rc=$rc reason=$reason stdout_ok=$stdout_ok session_id_ok=$session_id_ok session_ok=$session_ok capture_ok=$capture_ok history_ok=$history_ok"
+fi
+cleanup_codex_ws
+
+echo ""
+echo "-- SC-022-4: adapter-codex.sh translates RALPH_PROVIDER_CONFIG_DIR → CODEX_HOME"
+out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+  export RALPH_PROVIDER_CONFIG_DIR=/tmp/ralph-test-codex-cfg
+  source '$REPO_ROOT/.ralph/lib/common.sh'
+  source '$REPO_ROOT/.ralph/lib/adapter-codex.sh'
+  echo \"CH=\${CODEX_HOME:-UNSET}\"
+")
+if [[ "$out" == *"CH=/tmp/ralph-test-codex-cfg"* ]]; then
+  _pass "adapter-codex: CODEX_HOME translated from RALPH_PROVIDER_CONFIG_DIR"
+else
+  _fail "adapter-codex translation: expected CH=/tmp/ralph-test-codex-cfg, got '$out'"
+fi
+
+echo ""
+echo "-- SC-022-4: adapter-codex.sh robustness: empty RALPH_PROVIDER_CONFIG_DIR → CODEX_HOME NOT exported"
+out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+  source '$REPO_ROOT/.ralph/lib/common.sh'
+  source '$REPO_ROOT/.ralph/lib/adapter-codex.sh'
+  if [[ -z \${CODEX_HOME+x} ]]; then
+    echo 'UNSET'
+  else
+    echo \"SET=\$CODEX_HOME\"
+  fi
+")
+if [[ "$out" == *"UNSET"* ]]; then
+  _pass "adapter-codex empty case: CODEX_HOME not exported (robust)"
+else
+  _fail "adapter-codex empty case: expected UNSET, got '$out'"
+fi
+
+echo ""
+echo "-- SC-022-5: Codex session CODEX_HOME aware capture (REQ-022)"
+setup_codex_workspace
+custom_cfg="$(dirname "$SETUP_CODEX_HOME")/custom-codex-cfg"
+mkdir -p "$custom_cfg/sessions"
+# 在 workspace .env 加 RALPH_PROVIDER_CONFIG_DIR（adapter 翻译为 CODEX_HOME）
+printf 'RALPH_PROVIDER_CONFIG_DIR=%s\n' "$custom_cfg" >> "$SETUP_CODEX_WS/.ralph/.env"
+printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+# Clear RALPH_PROVIDER_CONFIG_DIR so load_env can set it from .env (parent env may have it set)
+RALPH_MOCK_CODEX_SCENARIO=happy \
+  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+iter_dir="${run_dir}/iterations/iter-001"
+jsonl_ok=0; capture_ok=0; src_ok=0; home_clean=1
+[[ -f "$iter_dir/session.codex.jsonl" ]] && jsonl_ok=1
+grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
+# session_source_path 应在 custom_cfg/sessions/ 下
+src_path="$(jq -r '.session_source_path // ""' "$iter_dir/meta.json" 2>/dev/null)"
+[[ "$src_path" == "$custom_cfg/sessions/"* ]] && src_ok=1
+# 反向断言：$HOME/.codex/sessions/ 下不应有任何 jsonl（mock-codex 写到 CODEX_HOME）
+if find "$SETUP_CODEX_HOME/.codex/sessions" -name "*.jsonl" -type f 2>/dev/null | grep -q .; then
+  home_clean=0
+fi
+if [[ "$jsonl_ok" -eq 1 && "$capture_ok" -eq 1 && "$src_ok" -eq 1 && "$home_clean" -eq 1 ]]; then
+  _pass "session CODEX_HOME aware: jsonl ok, capture_status=ok, source from custom cfg, HOME/.codex clean"
+else
+  _fail "session CODEX_HOME aware: jsonl_ok=$jsonl_ok capture_ok=$capture_ok src_ok=$src_ok home_clean=$home_clean src=$src_path"
+fi
+cleanup_codex_ws
+
+echo ""
+echo "-- Codex session: missing thread_id → capture_status=warning + empty history.log"
+setup_codex_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CODEX_SCENARIO=missing_thread_id \
+  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
+  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-iter 1 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+iter_dir="${run_dir}/iterations/iter-001"
+warn_ok=0; empty_history_ok=0
+grep -q '"capture_status": "warning"' "$iter_dir/meta.json" 2>/dev/null && warn_ok=1
+# 派生视图文件存在但内容为空（warning 时不派生）
+[[ -f "$iter_dir/session.history.log" && ! -s "$iter_dir/session.history.log" ]] && empty_history_ok=1
+if [[ "$warn_ok" -eq 1 && "$empty_history_ok" -eq 1 ]]; then
+  _pass "codex missing thread_id: capture_status=warning, empty session.history.log"
+else
+  _fail "codex missing thread_id: warn_ok=$warn_ok empty_history_ok=$empty_history_ok"
+fi
+cleanup_codex_ws
+
+# Codex 错误诊断矩阵（DEV-4）
+_run_codex_diagnose_case() {
+  local scenario="$1" expected_type="$2" label="$3"
+  setup_codex_workspace
+  printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+  git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "tasks" 2>/dev/null || true
+  local rc=0
+  RALPH_MOCK_CODEX_SCENARIO="$scenario" \
+    env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
+    bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+  local run_dir error_type
+  run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+  error_type="$(get_last_error_type "$run_dir")"
+  if [[ "$rc" -eq 2 && "$error_type" == "$expected_type" ]]; then
+    _pass "$label: rc=2, last_error.type=$expected_type"
+  else
+    _fail "$label: rc=$rc error_type=$error_type (expected rc=2 type=$expected_type)"
+  fi
+  cleanup_codex_ws
+}
+
+echo ""
+echo "-- Codex diagnose: auth (401 unauthorized)"
+_run_codex_diagnose_case turn_failed_auth auth "codex diagnose auth"
+
+echo ""
+echo "-- Codex diagnose: rate_limit (429)"
+_run_codex_diagnose_case turn_failed_rate_limit rate_limit "codex diagnose rate_limit"
+
+echo ""
+echo "-- Codex diagnose: quota (credits exhausted)"
+_run_codex_diagnose_case turn_failed_quota quota "codex diagnose quota"
+
+echo ""
+echo "-- Codex diagnose: network (ECONNRESET)"
+_run_codex_diagnose_case turn_failed_network network "codex diagnose network"
+
+echo ""
+echo "-- Codex diagnose: api (500)"
+_run_codex_diagnose_case turn_failed_api api "codex diagnose api"
+
+echo ""
+echo "-- Codex diagnose: unknown (unrecognized error)"
+_run_codex_diagnose_case turn_failed_unknown unknown "codex diagnose unknown"
+
+echo ""
+echo "-- Codex diagnose: error event fallback (auth via error event, no turn.failed)"
+_run_codex_diagnose_case error_event_auth auth "codex diagnose error event fallback"
+
+echo ""
+echo "-- Codex diagnose: stderr fallback (non-JSON stderr, network)"
+_run_codex_diagnose_case stderr_error network "codex diagnose stderr fallback"
+
+echo ""
+echo "-- Codex diagnose: crash (no stdout)"
+_run_codex_diagnose_case crash unknown "codex diagnose crash"
+
+echo ""
+echo "-- SC-014-1: RALPH_EFFORT=low → codex receives -c model_reasoning_effort=low"
+setup_codex_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CODEX_SCENARIO=happy RALPH_EFFORT=low \
+  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
+  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+iter_dir="${run_dir}/iterations/iter-001"
+session_id_ok=0
+grep -qE '"session_id"' "$iter_dir/meta.json" 2>/dev/null && session_id_ok=1
+if [[ "$rc" -eq 0 && "$session_id_ok" -eq 1 ]]; then
+  _pass "SC-014-1 codex effort=low: run succeeded with session_id"
+else
+  _fail "SC-014-1 codex effort=low: rc=$rc session_id_ok=$session_id_ok"
+fi
+cleanup_codex_ws
+
+echo ""
+echo "-- SC-014-1: RALPH_EFFORT=none → codex effort flag not passed"
+out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+  source '$REPO_ROOT/.ralph/lib/common.sh'
+  source '$REPO_ROOT/.ralph/lib/adapter-codex.sh'
+  effort='none'
+  if [[ -n \"\$effort\" && \"\$effort\" != \"none\" ]]; then
+    echo 'HAS_EFFORT=yes'
+  else
+    echo 'HAS_EFFORT=no'
+  fi
+")
+if [[ "$out" == *"HAS_EFFORT=no"* ]]; then
+  _pass "SC-014-1 codex effort=none: effort flag not constructed"
+else
+  _fail "SC-014-1 codex effort=none: expected no effort, got '$out'"
+fi
+
+echo ""
+echo "-- SC-014-1: RALPH_MODEL empty → codex model flag not passed"
+out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+  source '$REPO_ROOT/.ralph/lib/common.sh'
+  source '$REPO_ROOT/.ralph/lib/adapter-codex.sh'
+  model=''
+  if [[ -n \"\$model\" ]]; then
+    echo 'HAS_MODEL=yes'
+  else
+    echo 'HAS_MODEL=no'
+  fi
+")
+if [[ "$out" == *"HAS_MODEL=no"* ]]; then
+  _pass "SC-014-1 codex empty model: model flag not constructed"
+else
+  _fail "SC-014-1 codex empty model: expected no model, got '$out'"
+fi
+
+echo ""
+echo "-- Dep check: codex + jq both missing (codex adapter, non-fail-fast)"
+setup_codex_workspace
+git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "init" 2>/dev/null || true
+tmpbin_codex_none=$(_build_path_without jq)
+rm -f "$tmpbin_codex_none/codex"   # ensure codex also absent from PATH
+rc=0
+stderr_out=$(env PATH="$tmpbin_codex_none" HOME="$SETUP_CODEX_HOME" \
+  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>&1 >/dev/null) || rc=$?
+rm -rf "$tmpbin_codex_none"
+runs_count=$(count_runs "$SETUP_CODEX_WS")
+if [[ "$rc" -ne 0 \
+  && "$stderr_out" == *"ralph: missing dependency: codex"* \
+  && "$stderr_out" == *"ralph: missing dependency: jq"* \
+  && "$runs_count" -eq 0 ]]; then
+  _pass "codex+jq both missing: both deps reported in one pass, no run dir"
+else
+  _fail "codex+jq both missing: rc=$rc runs=$runs_count stderr=$stderr_out"
+fi
+cleanup_codex_ws
+
 # ── 汇总 ─────────────────────────────────────────────────────────────────────
 
 echo ""

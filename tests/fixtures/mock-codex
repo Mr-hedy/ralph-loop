@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+# tests/fixtures/mock-codex — Codex CLI test double
+# 模拟 codex exec --json 行为：
+# stdout 输出 JSONL events 流（thread.started / item.completed / turn.completed / turn.failed / error）
+# 在 ${CODEX_HOME:-$HOME/.codex}/sessions/ 下写 rollout 文件
+# 参见 docs/architecture/integrations.md §Codex Session 机制
+set -euo pipefail
+
+thread_id=""
+received_model=""
+received_effort=""
+received_sandbox=""
+received_workspace=""
+
+# 解析 codex exec flags（忽略其他参数）
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model)       received_model="$2";      shift 2 ;;
+    -c)            received_effort="$2";      shift 2 ;;
+    --sandbox)     received_sandbox="$2";     shift 2 ;;
+    -C)            received_workspace="$2";   shift 2 ;;
+    --json)        shift ;;
+    exec)          shift ;;
+    *)             shift ;;
+  esac
+done
+
+scenario="${RALPH_MOCK_CODEX_SCENARIO:-happy}"
+
+# 生成 thread_id（固定值，便于测试断言）
+thread_id="${RALPH_MOCK_CODEX_THREAD_ID:-thread-aaa111-bbb222}"
+
+# stdout JSONL events（--json 模式）
+_emit_thread_started() {
+  printf '{"type":"thread.started","thread_id":"%s"}\n' "$thread_id"
+}
+
+_emit_item_completed_message() {
+  local role="$1"
+  local text="$2"
+  printf '{"type":"item.completed","item":{"type":"message","role":"%s","content":[{"type":"%s","text":"%s"}]}}\n' \
+    "$role" "$([ "$role" = "user" ] && echo "input_text" || echo "output_text")" "$text"
+}
+
+_emit_item_completed_function_call() {
+  local name="$1"
+  local arguments="$2"
+  local call_id="${3:-call_001}"
+  # Use jq to produce valid JSON (arguments may contain quotes/braces)
+  jq -nc --arg name "$name" --arg args "$arguments" --arg cid "$call_id" \
+    '{type:"item.completed",item:{type:"function_call",name:$name,arguments:$args,call_id:$cid}}'
+}
+
+_emit_item_completed_function_output() {
+  local call_id="$1"
+  local output="$2"
+  # function_call_output items don't have a "name" field in Codex JSONL
+  jq -nc --arg cid "$call_id" --arg out "$output" \
+    '{type:"item.completed",item:{type:"function_call_output",call_id:$cid,output:$out}}'
+}
+
+_emit_turn_completed() {
+  printf '{"type":"turn.completed"}\n'
+}
+
+_emit_turn_failed() {
+  local msg="$1"
+  printf '{"type":"turn.failed","error":{"message":"%s"}}\n' "$msg"
+}
+
+_emit_error() {
+  local msg="$1"
+  printf '{"type":"error","error":{"message":"%s"}}\n' "$msg"
+}
+
+# 写 ${CODEX_HOME:-$HOME/.codex}/sessions/YYYY/MM/DD/rollout-<ts>-<thread_id>.jsonl
+_write_native_session() {
+  local codex_root="${CODEX_HOME:-$HOME/.codex}"
+  local ts
+  ts="$(date -u +"%Y%m%d-%H%M%S")"
+  local y m d
+  y="$(date -u +"%Y")"
+  m="$(date -u +"%m")"
+  d="$(date -u +"%d")"
+  local session_dir="$codex_root/sessions/$y/$m/$d"
+  mkdir -p "$session_dir"
+  local rollout_file="$session_dir/rollout-${ts}-${thread_id}.jsonl"
+  cat > "$rollout_file" << ENDJSONL
+{"type":"session_meta","payload":{"id":"$thread_id","cwd":"${received_workspace:-$PWD}","cli_version":"0.125.0"}}
+{"type":"event_msg","payload":{"role":"user","content":"Do one task"}}
+ENDJSONL
+  echo "$rollout_file"
+}
+
+# 勾选 TASKS.md 第 1 条未勾选任务（通过 RALPH_WORKSPACE）
+_check_first_task() {
+  if [[ -n "${RALPH_WORKSPACE:-}" ]]; then
+    local _tasks="${RALPH_WORKSPACE}/.ralph/TASKS.md"
+    if [[ -f "$_tasks" ]]; then
+      local _tmpout
+      _tmpout="$(mktemp)"
+      local _found=0
+      while IFS= read -r _line || [[ -n "$_line" ]]; do
+        if [[ "$_found" -eq 0 && "$_line" =~ ^([[:space:]]*-[[:space:]]+)\[[[:space:]]\](.*)$ ]]; then
+          printf '%s[x]%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" >> "$_tmpout"
+          _found=1
+        else
+          printf '%s\n' "$_line" >> "$_tmpout"
+        fi
+      done < "$_tasks"
+      mv "$_tmpout" "$_tasks"
+    fi
+  fi
+}
+
+case "$scenario" in
+  happy)
+    _emit_thread_started
+    _emit_item_completed_message "user" "Do one task"
+    _emit_item_completed_message "assistant" "I will complete this"
+    _emit_item_completed_function_call "Bash" '{"command":"echo hello"}' "call_001"
+    _emit_item_completed_function_output "call_001" "hello"
+    _emit_item_completed_message "assistant" "Done."
+    _emit_turn_completed
+
+    # 写 native session（供 collect 使用）
+    _write_native_session >/dev/null
+
+    _check_first_task
+    exit 0
+    ;;
+
+  happy_no_session)
+    # stdout 正常但不写 native session（触发 mtime fallback 或 warning）
+    _emit_thread_started
+    _emit_item_completed_message "user" "Do one task"
+    _emit_item_completed_message "assistant" "Done."
+    _emit_turn_completed
+    exit 0
+    ;;
+
+  missing_thread_id)
+    # 不输出 thread.started，导致 session_id 缺失
+    _emit_item_completed_message "user" "Do one task"
+    _emit_item_completed_message "assistant" "Done."
+    _emit_turn_completed
+    _write_native_session >/dev/null
+    exit 0
+    ;;
+
+  turn_failed_auth)
+    _emit_thread_started
+    _emit_turn_failed "Authentication failed: 401 unauthorized"
+    exit 0
+    ;;
+
+  turn_failed_rate_limit)
+    _emit_thread_started
+    _emit_turn_failed "Rate limited: 429 too many requests"
+    exit 0
+    ;;
+
+  turn_failed_quota)
+    _emit_thread_started
+    _emit_turn_failed "Quota exceeded: credits exhausted"
+    exit 0
+    ;;
+
+  turn_failed_network)
+    _emit_thread_started
+    _emit_turn_failed "Network error: ECONNRESET connection reset"
+    exit 0
+    ;;
+
+  turn_failed_api)
+    _emit_thread_started
+    _emit_turn_failed "API error: 500 internal server error"
+    exit 0
+    ;;
+
+  turn_failed_unknown)
+    _emit_thread_started
+    _emit_turn_failed "Something unexpected went wrong"
+    exit 0
+    ;;
+
+  error_event_auth)
+    # error 事件 + turn.failed（error event 后 Codex 最终报告 turn.failed）
+    _emit_thread_started
+    _emit_error "Invalid API key: not logged in"
+    _emit_turn_failed "Invalid API key: not logged in"
+    exit 0
+    ;;
+
+  stderr_error)
+    # 非 JSON stderr 输出（无 turn.failed / error 事件）
+    _emit_thread_started
+    printf 'Error: connection refused by remote host\n' >&2
+    exit 1
+    ;;
+
+  crash)
+    # CLI 崩溃：不写 stdout，exit 1
+    exit 1
+    ;;
+
+  slow)
+    sleep "${RALPH_MOCK_CODEX_SLEEP:-30}"
+    ;;
+
+  *)
+    printf 'mock-codex: unknown scenario: %s\n' "$scenario" >&2
+    exit 1
+    ;;
+esac

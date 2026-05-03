@@ -72,19 +72,29 @@
   - 验证：临时测试 13/13 PASS（auth/401、rate_limit/429、quota/credits、network/ECONNRESET、network/ENOTFOUND、api/500、unknown、error 事件回退、stderr 回退、exit_code=0 无 error、无 log 文件、error 为 string、meta.json 字段完整）；`bash -n` PASS；`bash scripts/check.sh` PASS；`bash scripts/integration-test.sh` PASS；`git diff --check` PASS。
   - 未验证：真实 `codex exec --json` 端到端错误输出（归 QA-2 真实 smoke）；`result.json.last_error.type` 端到端断言（归 QA-1 持久化 fixture）。
 
-- [ ] QA-1: Codex adapter 自动化测试覆盖
+- [x] QA-1: Codex adapter 自动化测试覆盖
   - 预期：Codex adapter 的命令构造、session 采集、history 派生、错误诊断和配置目录翻译都有最小自动化证据，避免只靠真实 smoke。
   - 输入：DEV-1 / DEV-2 / DEV-3 / DEV-4；PM-0003 的 REQ traceability 预防检查；SC-004-1 / SC-005-1 / SC-006-1 / SC-014-1，以及 DEV-1 新增的 Codex 专属配置目录 SC（建议 `SC-022-4` / `SC-022-5`）。
   - 范围：`scripts/integration-test.sh`、`tests/fixtures/mock-codex` 或等价持久化 fixture、`docs/architecture/testing.md`；QA-1 拥有持久化 mock fixture 和完整集成断言，不扩大到 Gemini adapter。
   - 验证计划：`bash scripts/integration-test.sh` 中新增 Codex 用例全部 PASS；`bash scripts/check.sh` PASS；测试名或断言能机械定位到覆盖的 SC，且 Codex 配置目录翻译/空值鲁棒性/session capture 隔离路径不是只复用 Claude 的 SC-022-2/3。
+  - 完成：新增 `tests/fixtures/mock-codex`（Codex CLI test double，模拟 `codex exec --json` JSONL 事件流 + `${CODEX_HOME:-$HOME/.codex}/sessions/` rollout 文件写入；支持 happy / happy_no_session / missing_thread_id / turn_failed_* / error_event / stderr_error / crash / slow 场景）；在 `scripts/integration-test.sh` 新增 19 个 Codex 集成测试用例：happy path（thread.started + session_id + session.codex.jsonl + capture_status=ok + history.log 含 user/assistant/tool-use(Bash)/tool-result(Bash)）、SC-022-4 翻译 + 空值鲁棒、SC-022-5 CODEX_HOME 隔离路径采集、missing_thread_id → warning + 空 history、错误诊断矩阵 9 用例（auth/401 + rate_limit/429 + quota/credits + network/ECONNRESET + api/500 + unknown + error 事件回退 + stderr 回退 + crash）、SC-014-1 effort=low + effort=none + 空 model、codex+jq 双缺失 non-fail-fast。修复 mock-codex JSON 输出 bug（`arguments` 字段含未转义引号导致 jq exit 5 触发 `|| thread_id=""` 清空有效 thread_id）。
+  - 验证：`bash scripts/integration-test.sh` Codex 19/19 PASS（总计 74/77 PASS，3 个失败为预先存在的环境隔离问题：`missing .env` / `session CLAUDE_CONFIG_DIR aware` / `load_env tilde expansion`，与 DEV-3 报告一致，非 Codex 引入）；`bash scripts/check.sh` PASS；`git diff --check` PASS；测试名覆盖 SC-022-4 / SC-022-5 / SC-014-1 / SC-006-1 / SC-005-1 / SC-004-1。
+  - 未验证：真实 `codex exec --json` 端到端（归 QA-2 真实 smoke）；`docs/architecture/testing.md` Codex 测试策略更新（归 DEV-5 文档同步）。
 
-- [ ] DEV-5: 同步 Codex adapter 文档与使用入口
+- [x] DEV-5: 同步 Codex adapter 文档与使用入口
   - 预期：使用者能按 README / `.ralph/README.md` 配置 `RALPH_PROVIDER=codex` 并理解当前支持边界。
   - 输入：DEV-1 ~ QA-1 的最终实现事实；README 入口地图；`docs/README.md` 文档地图维护规则。
   - 范围：`README.md`、`.ralph/README.md`、`docs/README.md`、`docs/architecture/integrations.md`、`docs/architecture/security.md`、`docs/architecture/testing.md`；必要时同步 `docs/requirements/ralph-loop/requirements.md` SC 文字。
   - 验证计划：`git diff --check`；`bash scripts/check.sh`；README 和 docs/README 的当前状态、provider 索引、配置说明不互相矛盾。
 
-- [ ] QA-2: 真实 Codex provider smoke
+- [ ] HUMAN-1: 确认是否允许真实 Codex CLI provider smoke
+  - 上下文：QA-2（真实 Codex provider smoke）需要在临时 workspace 中调用真实 `codex exec` 命令，这会把 workspace 内容发送到 OpenAI API（机器外）。
+  - 选项：
+    - A：允许。确认本机 Codex CLI 已登录（`codex --version` / `codex auth status` 可用），ralph 执行最小任务到 `exit_reason=done`，记录证据。
+    - B：跳过 QA-2。以 mock 自动化测试作为 T3 验收证据（QA-1 19/19 PASS），标注 QA-2 为"需要真实 provider 环境才能执行"。
+    - C：延后。先完成 REVIEW-1（基于 mock 证据的 adversarial review），QA-2 在后续迭代中单独执行。
+  - 影响：决定 QA-2 是否执行、T3 验收口径如何闭合。
+- [ ] QA-2: 真实 Codex provider smoke → BLOCKED by HUMAN-1
   - 预期：在临时 workspace 中用真实 Codex CLI 跑通 Ralph 一轮任务，证明 T3 不是只在 mock 路径可用。
   - 输入：DEV-2 ~ DEV-5；SC-004-1；T3 roadmap 验收口径。
   - 范围：临时 workspace + 本仓库 `.ralph/` 部署单元；只记录必要证据到 `.ralph/TASKS.md` 或 checkpoint，不提交 runtime artifacts、secrets、完整 provider transcript。
