@@ -35,28 +35,25 @@ _emit_thread_started() {
   printf '{"type":"thread.started","thread_id":"%s"}\n' "$thread_id"
 }
 
-_emit_item_completed_message() {
-  local role="$1"
-  local text="$2"
-  printf '{"type":"item.completed","item":{"type":"message","role":"%s","content":[{"type":"%s","text":"%s"}]}}\n' \
-    "$role" "$([ "$role" = "user" ] && echo "input_text" || echo "output_text")" "$text"
+_emit_item_completed_agent_message() {
+  local text="$1"
+  jq -nc --arg text "$text" \
+    '{type:"item.completed",item:{type:"agent_message",text:$text}}'
 }
 
-_emit_item_completed_function_call() {
-  local name="$1"
-  local arguments="$2"
-  local call_id="${3:-call_001}"
-  # Use jq to produce valid JSON (arguments may contain quotes/braces)
-  jq -nc --arg name "$name" --arg args "$arguments" --arg cid "$call_id" \
-    '{type:"item.completed",item:{type:"function_call",name:$name,arguments:$args,call_id:$cid}}'
+_emit_item_started_command_execution() {
+  local command="$1"
+  local id="${2:-item_001}"
+  jq -nc --arg cmd "$command" --arg id "$id" \
+    '{type:"item.started",item:{id:$id,type:"command_execution",command:$cmd,status:"in_progress"}}'
 }
 
-_emit_item_completed_function_output() {
-  local call_id="$1"
+_emit_item_completed_command_execution() {
+  local command="$1"
   local output="$2"
-  # function_call_output items don't have a "name" field in Codex JSONL
-  jq -nc --arg cid "$call_id" --arg out "$output" \
-    '{type:"item.completed",item:{type:"function_call_output",call_id:$cid,output:$out}}'
+  local id="${3:-item_001}"
+  jq -nc --arg cmd "$command" --arg out "$output" --arg id "$id" \
+    '{type:"item.completed",item:{id:$id,type:"command_execution",command:$cmd,output:$out,exit_code:0}}'
 }
 
 _emit_turn_completed() {
@@ -116,11 +113,10 @@ _check_first_task() {
 case "$scenario" in
   happy)
     _emit_thread_started
-    _emit_item_completed_message "user" "Do one task"
-    _emit_item_completed_message "assistant" "I will complete this"
-    _emit_item_completed_function_call "Bash" '{"command":"echo hello"}' "call_001"
-    _emit_item_completed_function_output "call_001" "hello"
-    _emit_item_completed_message "assistant" "Done."
+    _emit_item_completed_agent_message "I will complete this"
+    _emit_item_started_command_execution "echo hello" "item_001"
+    _emit_item_completed_command_execution "echo hello" "hello" "item_001"
+    _emit_item_completed_agent_message "Done."
     _emit_turn_completed
 
     # 写 native session（供 collect 使用）
@@ -133,16 +129,14 @@ case "$scenario" in
   happy_no_session)
     # stdout 正常但不写 native session（触发 mtime fallback 或 warning）
     _emit_thread_started
-    _emit_item_completed_message "user" "Do one task"
-    _emit_item_completed_message "assistant" "Done."
+    _emit_item_completed_agent_message "Done."
     _emit_turn_completed
     exit 0
     ;;
 
   missing_thread_id)
     # 不输出 thread.started，导致 session_id 缺失
-    _emit_item_completed_message "user" "Do one task"
-    _emit_item_completed_message "assistant" "Done."
+    _emit_item_completed_agent_message "Done."
     _emit_turn_completed
     _write_native_session >/dev/null
     exit 0

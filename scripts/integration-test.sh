@@ -1380,9 +1380,8 @@ session_ok=0
 capture_ok=0
 grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
 history_ok=0
-# session.history.log 含 user / assistant / tool-use / tool-result
+# session.history.log 含 assistant / tool-use / tool-result（真实 CLI 不含 user 事件）
 [[ -f "$iter_dir/session.history.log" ]] && \
-  grep -q '\[user\]' "$iter_dir/session.history.log" && \
   grep -q '\[assistant\]' "$iter_dir/session.history.log" && \
   grep -q '\[tool-use name=Bash\]' "$iter_dir/session.history.log" && \
   grep -q '\[tool-result name=Bash\]' "$iter_dir/session.history.log" && history_ok=1

@@ -186,8 +186,8 @@ provider_collect_session() {
 
 # ── _codex_derive_history ────────────────────────────────────────────────────
 # 从 provider.stdout.log（--json stdout 事件流）派生人话视图
-# Codex rollout 文件是内部格式，可能跨版本变化；--json 事件流有文档化契约
-# 输出：[user] / [assistant] / [tool-use name=X] / [tool-result name=X] 摘要
+# 真实 Codex CLI --json 事件类型：agent_message / command_execution 等
+# 输出：[assistant] / [tool-use name=Bash] / [tool-result name=Bash] 摘要
 _codex_derive_history() {
   local jsonl="$1" out="$2"
   local iter_dir="${jsonl%/*}"
@@ -200,43 +200,18 @@ _codex_derive_history() {
   [[ -n "$jsonl_events" ]] || return 0
 
   printf '%s\n' "$jsonl_events" | jq -r --slurp '
-    def tool_input_summary:
-      (if type == "string" then try fromjson catch . else . end) as $parsed |
-      ($parsed | tostring) as $s |
-      if ($s | length) > 4000 then
-        ($s[0:2000] + "\n... [tool input truncated; see session.codex.jsonl for full input]\n" + $s[-1000:])
-      else $s end;
-
-    # call_id → name map（从 function_call 项提取，供 tool-result 标注）
-    ([.[] | select(.type == "item.completed" and .item.type == "function_call")
-      | {(.item.call_id // .item.id // ""): .item.name}] | add // {}) as $call_map |
-
-    .[] | select(.type == "item.completed") |
-    .item as $item |
-
-    if $item.type == "message" then
-      if $item.role == "user" then
-        ($item.content // []) |
-        if type == "array" then .[] else . end |
-        if .type == "input_text" or .type == "text" then
-          (.text // "") as $t |
-          if ($t | length) > 0 then "[user]", $t, "" else empty end
-        else empty end
-      elif $item.role == "assistant" then
-        ($item.content // []) |
-        if type == "array" then .[] else . end |
-        if .type == "output_text" or .type == "text" then
-          (.text // "") as $t |
-          if ($t | length) > 0 then "[assistant]", $t, "" else empty end
-        else empty end
-      else empty end
-    elif $item.type == "function_call" then
-      "[tool-use name=" + ($item.name // "?") + "]",
-      ($item.arguments // "{}" | tool_input_summary),
+    .[] |
+    if .type == "item.completed" and (.item.type // "") == "agent_message" then
+      "[assistant]",
+      (.item.text // ""),
       ""
-    elif $item.type == "function_call_output" then
-      "[tool-result name=" + ($call_map[$item.call_id // ""] // "unknown") + "]",
-      (($item.output // "") | .[0:2000]),
+    elif .type == "item.started" and (.item.type // "") == "command_execution" then
+      "[tool-use name=Bash]",
+      (.item.command // "" | if length > 4000 then .[0:2000] + "\n... [tool input truncated; see session.codex.jsonl for full input]\n" + .[-1000:] else . end),
+      ""
+    elif .type == "item.completed" and (.item.type // "") == "command_execution" then
+      "[tool-result name=Bash]",
+      ((.item.output // .item.stdout // "") | .[0:2000]),
       ""
     else empty end
   ' > "$out" 2>/dev/null || true

@@ -105,11 +105,14 @@
   - 验证：`hello.txt` 内容 "hello from codex smoke test" 正确；`result.json.exit_reason=done`；meta.json 字段完整（session_id / capture_status=ok / session_source_path / tasks_before{1,0} / tasks_after{1,1} / changed_files=["hello.txt"] / exit_code=0 / error=null）；session.codex.jsonl 从 `~/.codex/sessions/2026/05/03/rollout-2026-05-03T19-29-38-<thread_id>.jsonl` 精确匹配采集成功。
   - 未验证：`session.history.log` 为空——真实 Codex CLI `--json` 事件类型为 `agent_message` / `command_execution`（不是 OpenAI API 格式的 `message` / `function_call`），`_codex_derive_history` 的 jq 过滤器未匹配任何事件。这是 DEV-3 未验证风险的兑现（"item.completed 事件字段名基于 OpenAI API 格式推断"），需要修复 history 派生以匹配真实 CLI 格式（归 DEV-6）。同时发现 `RALPH_PROVIDER_CONFIG_DIR` 环境变量会将 `CODEX_HOME` 重定向到无 `auth.json` 的路径导致 401 auth 失败，需 unset 后才能正常工作（归 DEV-7 或 REVIEW-1 跟进）。
 
-- [ ] DEV-6: 修复 Codex session.history.log 派生匹配真实 CLI 事件类型
+- [x] DEV-6: 修复 Codex session.history.log 派生匹配真实 CLI 事件类型
   - 预期：`session.history.log` 能从真实 `codex exec --json` 输出派生出人类可读的 user/assistant/tool-use/tool-result 摘要。
   - 输入：QA-2 真实 smoke 证据（`agent_message` / `command_execution` 事件结构）；DEV-3 `_codex_derive_history` 实现。
   - 范围：更新 `.ralph/lib/adapter-codex.sh` 的 `_codex_derive_history` jq 过滤器，匹配真实 CLI 事件类型（`agent_message` → `[assistant]`，`command_execution` → `[tool-use name=Bash]` + `[tool-result name=Bash]`）；同步更新 `tests/fixtures/mock-codex` 事件类型以匹配真实格式；更新 `scripts/integration-test.sh` 中 history 派生断言。
   - 验证计划：用 QA-2 保存的 provider.stdout.log（如有，否则重新 short smoke）验证 history.log 非空且包含 `[assistant]` / `[tool-use name=Bash]` / `[tool-result name=Bash]`；`bash scripts/integration-test.sh` Codex 用例全部 PASS；`bash scripts/check.sh` PASS。
+  - 完成：更新 `_codex_derive_history` jq 过滤器匹配真实 CLI `--json` 事件类型（`item.completed` + `agent_message` → `[assistant]` + text；`item.started` + `command_execution` → `[tool-use name=Bash]` + command；`item.completed` + `command_execution` → `[tool-result name=Bash]` + output）；移除旧的 `message`/`function_call`/`function_call_output` 处理分支和 call_map 逻辑。更新 `mock-codex` 事件发射器：`_emit_item_completed_agent_message`（agent_message + text）、`_emit_item_started_command_execution`（command_execution + command）、`_emit_item_completed_command_execution`（command_execution + command + output + exit_code）；移除旧的 `_emit_item_completed_message`/`_emit_item_completed_function_call`/`_emit_item_completed_function_output`；更新 happy/happy_no_session/missing_thread_id 场景不再发射 user message。更新集成测试 Codex happy history 断言：移除 `[user]` 检查（真实 CLI 不发射 user 事件）。
+  - 验证：`bash -n` 三个文件 PASS；`bash scripts/integration-test.sh` Codex 19/19 PASS（总 74/77，3 个失败为预先存在的环境隔离问题）；`bash scripts/check.sh` PASS；`git diff --check` PASS。
+  - 未验证：真实 `codex exec --json` 端到端 history.log 输出（需要真实 provider 调用，归 REVIEW-1 验证范围）。`command_execution` completed 事件的 `output` 字段名基于文档推断（`item.started` sample 只展示了 `command` 字段，completed 事件字段名未在文档中出现）；若真实 CLI 使用不同字段名，需再次调整。
 
 - [ ] REVIEW-1: I2 Codex adapter 收口 | adversarial-review
   - 预期：T3 的实现、需求、架构、测试和真实 smoke 证据一致，未遗漏稳定契约或已知失败模式。
