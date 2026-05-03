@@ -87,14 +87,16 @@
   - 范围：`README.md`、`.ralph/README.md`、`docs/README.md`、`docs/architecture/integrations.md`、`docs/architecture/security.md`、`docs/architecture/testing.md`；必要时同步 `docs/requirements/ralph-loop/requirements.md` SC 文字。
   - 验证计划：`git diff --check`；`bash scripts/check.sh`；README 和 docs/README 的当前状态、provider 索引、配置说明不互相矛盾。
 
-- [ ] HUMAN-1: 确认是否允许真实 Codex CLI provider smoke
+- [x] HUMAN-1: 确认是否允许真实 Codex CLI provider smoke
   - 上下文：QA-2（真实 Codex provider smoke）需要在临时 workspace 中调用真实 `codex exec` 命令，这会把 workspace 内容发送到 OpenAI API（机器外）。
   - 选项：
     - A：允许。确认本机 Codex CLI 已登录（`codex --version` / `codex auth status` 可用），ralph 执行最小任务到 `exit_reason=done`，记录证据。
     - B：跳过 QA-2。以 mock 自动化测试作为 T3 验收证据（QA-1 19/19 PASS），标注 QA-2 为"需要真实 provider 环境才能执行"。
     - C：延后。先完成 REVIEW-1（基于 mock 证据的 adversarial review），QA-2 在后续迭代中单独执行。
   - 影响：决定 QA-2 是否执行、T3 验收口径如何闭合。
-- [ ] QA-2: 真实 Codex provider smoke → BLOCKED by HUMAN-1
+  - 答（2026-05-03）：选择 A，允许在临时 workspace 中调用真实 `codex exec` 执行最小 smoke；用户已确认该调用可能把临时 workspace 内容发送到 OpenAI API（机器外）。
+  - 落地：本任务记录；下一轮执行 QA-2。
+- [ ] QA-2: 真实 Codex provider smoke
   - 预期：在临时 workspace 中用真实 Codex CLI 跑通 Ralph 一轮任务，证明 T3 不是只在 mock 路径可用。
   - 输入：DEV-2 ~ DEV-5；SC-004-1；T3 roadmap 验收口径。
   - 范围：临时 workspace + 本仓库 `.ralph/` 部署单元；只记录必要证据到 `.ralph/TASKS.md` 或 checkpoint，不提交 runtime artifacts、secrets、完整 provider transcript。
