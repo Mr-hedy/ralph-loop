@@ -54,11 +54,14 @@
   - 完成：新增 `.ralph/lib/adapter-codex.sh`，实现 `provider_oneshot`（`codex exec --json -C <workspace> --sandbox workspace-write [--model] [-c model_reasoning_effort=] <prompt>`，从 stdout JSONL 解析 `thread.started.thread_id` 写入 meta.json session_id，检测 `turn.failed` 事件作为 is_error 等价物）；`provider_collect_session` / `provider_diagnose` 为 stub（分别归 DEV-3/DEV-4）；配置目录翻译（SC-022-4：RALPH_PROVIDER_CONFIG_DIR → CODEX_HOME，空值不 export）。
   - 验证：`bash -n` 三个文件 PASS；临时 stub 断言命令含 `--json`、`-C <workspace>`、`--sandbox workspace-write`、`--model`、`model_reasoning_effort=`；不含 resume/ephemeral；effort=none 不拼 effort flag；空 model 不拼 model flag；SC-022-4 翻译 + 空值鲁棒 PASS；`bash scripts/check.sh` PASS；`git diff --check` PASS。
   - 未验证：真实 `codex exec` 端到端（归 QA-2）；`provider_collect_session` 完整实现（归 DEV-3）；`provider_diagnose` 完整实现（归 DEV-4）；`RALPH_PROVIDER=codex` 在 `ralph run` 中完整跑通（归 QA-1/QA-2）。
-- [ ] DEV-3: 实现 Codex session capture 与 history 派生视图
+- [x] DEV-3: 实现 Codex session capture 与 history 派生视图
   - 预期：Codex 每轮执行后能沉淀 `session.codex.jsonl` 和人类可读 `session.history.log`；采集失败时写 warning 但不把任务完成事实迁移到 session。
   - 输入：DEV-1；REQ-006；`docs/architecture/integrations.md` 4 文件 iter 契约；Claude adapter 的 session capture / history 派生实现。
   - 范围：`.ralph/lib/adapter-codex.sh` 的 `provider_collect_session` 与 Codex JSONL history formatter；必要时抽取共享 helper 但不做跨 provider 大重构。
   - 验证计划：用临时 Codex session 目录或 here-doc JSONL（不入仓）验证 thread/session id 精确匹配、mtime/cwd fallback、`capture_status`/`session_source_path` meta 字段，以及 `session.history.log` 的 user / assistant / thinking / tool_use / tool_result 摘要；持久化 session fixture 和完整集成断言归 QA-1。
+  - 完成：实现 `provider_collect_session`（精确匹配 `rollout-*-${thread_id}.jsonl` / mtime+cwd 退化 / `capture_status`+`session_source_path` meta 字段）和 `_codex_derive_history`（从 `provider.stdout.log` `--json` 事件流派生 `[user]`/`[assistant]`/`[tool-use name=X]`/`[tool-result name=X]` 摘要）。rollout 文件作为长期归档保留，history 派生基于有文档契约的 stdout 事件流而非内部 rollout 格式。
+  - 验证：临时测试 5/5 PASS：精确匹配（capture_status=ok + source_path 含 thread_id）、history 派生（user/assistant/tool-use(Bash)/tool-result(Bash) 含 arguments 摘要）、mtime 退化（capture_warning=fallback by mtime）、缺失 session_id（capture_status=warning + 空 history.log）、SC-022-5 隔离 CODEX_HOME（source_path 在隔离路径下）；`bash -n` 三个文件 PASS；`bash scripts/check.sh` PASS；`git diff --check` PASS；集成测试 56/59 PASS（3 个失败为预先存在的环境隔离问题，与 DEV-3 无关）。
+  - 未验证：真实 `codex exec --json` 端到端输出（`item.completed` 事件字段名基于 OpenAI API 格式推断，归 QA-2 真实 smoke 验证）；rollout 文件格式解析（内部格式未实现解析，保留为长期归档用途）；持久化 mock fixture 和完整集成断言（归 QA-1）。
 
 - [ ] DEV-4: 实现 Codex provider_diagnose 错误分类
   - 预期：Codex provider 失败时 `last_error.type` 能区分常见 auth / quota / rate_limit / network / api / unknown 场景，便于接力复盘。
