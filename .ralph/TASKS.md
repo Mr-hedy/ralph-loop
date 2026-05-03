@@ -114,8 +114,17 @@
   - 验证：`bash -n` 三个文件 PASS；`bash scripts/integration-test.sh` Codex 19/19 PASS（总 74/77，3 个失败为预先存在的环境隔离问题）；`bash scripts/check.sh` PASS；`git diff --check` PASS。
   - 未验证：真实 `codex exec --json` 端到端 history.log 输出（需要真实 provider 调用，归 REVIEW-1 验证范围）。`command_execution` completed 事件的 `output` 字段名基于文档推断（`item.started` sample 只展示了 `command` 字段，completed 事件字段名未在文档中出现）；若真实 CLI 使用不同字段名，需再次调整。
 
-- [ ] REVIEW-1: I2 Codex adapter 收口 | adversarial-review
+- [x] REVIEW-1: I2 Codex adapter 收口 | adversarial-review
   - 预期：T3 的实现、需求、架构、测试和真实 smoke 证据一致，未遗漏稳定契约或已知失败模式。
   - 输入：DEV-1 ~ QA-2；PM-0003；`docs/requirements/ralph-loop/requirements.md` REQ/SC；`docs/architecture/integrations.md` Codex 契约。
   - 范围：审查代码、测试、docs、`.ralph/TASKS.md`；如发现必须修复项，追加 REVIEW/DEV/QA 后续任务，不直接伪造完成。
   - 验证计划：执行 REQ traceability rerun（REQ-004/005/006/014/022 → 实现 → 测试），逐项对账 SC-006-1 / SC-014-1 / Codex 专属 SC-022-*；运行 `bash scripts/check.sh`、`bash scripts/integration-test.sh`、`git diff --check`；明确真实 smoke 已验证与未验证范围。
+  - 完成：adversarial review 完成。REQ traceability：REQ-004/005/006/009/011/012/014/015/022 全部可追溯到实现和测试；SC-004-1/005-1/006-1/014-1/022-4/022-5 全部有测试证据。发现 3 个必须修复项（已修复 2 + 追加 DEV-7 任务 1）、3 个可观察风险、2 个接受风险。已修复：integrations.md history.log 派生来源描述（区分 Claude/Codex 不同数据源和内容差异）；adapter-codex.sh truncation message 从 session.codex.jsonl 改为 provider.stdout.log。需 DEV-7 修复：history derivation gate 检查 session file 但读 stdout，session 采集失败时丢失可读事件记录。
+  - 验证：`bash scripts/check.sh` PASS；`bash scripts/integration-test.sh` 74/77 PASS（3 个预先存在的环境隔离失败）；`git diff --check` PASS；REQ traceability rerun 全覆盖；修复后无回归。
+  - 未验证：DEV-7 history gate 修复（追加为后续任务）；command_execution completed output 字段名真实 CLI 验证（可观察风险 #6）。
+
+- [ ] DEV-7: 修复 Codex history derivation gate 检查错误
+  - 预期：`session.history.log` 在 provider.stdout.log 有可用事件数据时都能派生，不受 session 采集成功与否限制。
+  - 输入：REVIEW-1 finding #2；`adapter-codex.sh` provider_collect_session 和 _codex_derive_history。
+  - 范围：将 `_codex_derive_history` 调用从 session file 存在时触发改为 provider.stdout.log 存在时触发；确保 missing_thread_id 和 capture 失败场景也能派生 history；更新对应集成测试断言。
+  - 验证计划：`bash scripts/integration-test.sh` Codex 用例全部 PASS；missing_thread_id 场景 history.log 非空；`bash scripts/check.sh` PASS。

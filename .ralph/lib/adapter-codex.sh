@@ -207,7 +207,7 @@ _codex_derive_history() {
       ""
     elif .type == "item.started" and (.item.type // "") == "command_execution" then
       "[tool-use name=Bash]",
-      (.item.command // "" | if length > 4000 then .[0:2000] + "\n... [tool input truncated; see session.codex.jsonl for full input]\n" + .[-1000:] else . end),
+      (.item.command // "" | if length > 4000 then .[0:2000] + "\n... [tool input truncated; see provider.stdout.log for full input]\n" + .[-1000:] else . end),
       ""
     elif .type == "item.completed" and (.item.type // "") == "command_execution" then
       "[tool-result name=Bash]",
