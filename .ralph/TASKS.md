@@ -14,6 +14,7 @@
 - 用户决策（2026-05-04）：I4 执行历史 T4，目标是在现有 adapter 契约上接入 Gemini CLI。
 - I4 启动前证据：本机 `gemini --version` 为 `0.39.1`；本机 help 支持 `--approval-mode`、`--output-format text|json|stream-json`、`--sandbox`、`--model`，但 `--thinking-budget` 未出现在 help 中。
 - Gemini 旧契约存在待校准点：旧 FR-007 写 `--yolo` 和 `--thinking-budget`；当前官方 CLI reference 标注 `--yolo` deprecated，推荐 `--approval-mode=yolo`；session 文件也存在 `session.gemini.json` 与 `session.<provider>.jsonl` 口径差异。
+- HUMAN-1 已确认：本机 Gemini 已登录，允许后续 QA-2 使用最小无敏感临时 workspace 和本机 Gemini auth/config 执行真实 provider smoke。
 
 ## 历史索引
 
@@ -77,17 +78,18 @@
   - 范围：只产出 review findings 或直接修复低风险文档/测试错漏；不执行真实 Gemini smoke。
   - 验证计划：列出 P0/P1/P2 findings；若修复则重跑 `git diff --check`、`bash scripts/check.sh`、相关 integration tests；无发现时明确 remaining risk。
 
-- [ ] HUMAN-1: 确认是否允许真实 Gemini smoke 使用本机 auth/config
+- [x] HUMAN-1: 确认是否允许真实 Gemini smoke 使用本机 auth/config
   - 上下文：QA-2 需要调用真实 Gemini CLI，可能把临时 workspace 的 prompt、文件内容和工具输出发送到外部 provider。
   - 选项：
     - 选项 A：允许使用最小临时 workspace 和本机 Gemini 登录态跑真实 smoke；I4 可按 SC-004-1 完成真实验收。
     - 选项 B：暂不允许真实 Gemini 调用；I4 保持 mock 完成但不能标记 T4 真实 provider 完成。
   - 影响：决定 QA-2 是否执行，以及 I4 是否能满足 REQ-004 / SC-004-1 的真实 Gemini 验收。
-  - 答（待）：
+  - 答（2026-05-04）：选择 A；本机 Gemini 已登录，不需要额外人工介入。QA-2 可在 DEV-1 ~ REVIEW-1 完成后使用最小无敏感临时 workspace 和本机 Gemini auth/config 执行真实 smoke。
+  - 落地：`.ralph/TASKS.md`
 
 - [ ] QA-2: 真实 Gemini provider smoke
   - 预期：真实 `RALPH_PROVIDER=gemini` 在无敏感临时 workspace 中跑到 `exit_reason=done`，并产出 Gemini iter 证据契约。
-  - 输入：HUMAN-1 允许后执行；DEV-1 ~ REVIEW-1 已完成；本机 Gemini CLI 0.39.1 与 auth/config 可用。
+  - 输入：HUMAN-1 已确认允许；DEV-1 ~ REVIEW-1 已完成；本机 Gemini CLI 0.39.1 与 auth/config 可用。
   - 范围：临时 workspace；真实 Gemini CLI；运行证据只记录 run_id、exit_reason、文件存在性和关键字段，不提交 `.ralph/runs/` 或 provider 原始 session。
   - 验证计划：`ralph run --provider gemini --max-iter ...` 跑到 `done`；检查 `result.json`、`meta.json`、`provider.stdout.log`、Gemini native session 副本、`session.history.log`；记录未验证范围和失败诊断。
 
