@@ -87,11 +87,22 @@
   - 验证：`bash -n scripts/integration-test.sh` 通过；`bash scripts/check.sh` 通过；`git diff --check` 通过；`bash scripts/integration-test.sh` 97 PASS 3 FAIL（3 FAIL 为预存 env 泄漏：missing .env、CLAUDE_CONFIG_DIR aware、load_env tilde）。
   - 未验证：真实 Gemini CLI 端到端（QA-2 职责）；E2E mock `ralph run --provider gemini` 完整 run（DEV-2 已知 symlink 定位问题，不影响 mock 单元覆盖）。
 
-- [ ] REVIEW-1: Gemini mock 实现后 adversarial-review
+- [x] REVIEW-1: Gemini mock 实现后 adversarial-review
   - 预期：在真实 provider smoke 前发现契约漂移、测试假阳性、docs 第二事实源、session 文件泄漏和安全边界问题。
   - 输入：DEV-1 ~ QA-1 的 diff；requirements/integrations/overview/testing/security；PM-0003 观察面和 mock 假设预防规则。
   - 范围：只产出 review findings 或直接修复低风险文档/测试错漏；不执行真实 Gemini smoke。
   - 验证计划：列出 P0/P1/P2 findings；若修复则重跑 `git diff --check`、`bash scripts/check.sh`、相关 integration tests；无发现时明确 remaining risk。
+  - 完成：发现 3 条 P1 + 3 条 P2 findings。直接修复 P1-1/2（overview.md 和 integrations.md 中 `session.<provider>.jsonl` 对 Gemini 的第二事实源漂移：3 处改为显式标注 Gemini 用 `.json` + 补充 Gemini history source）。P1-3（REQ-022 缺 Gemini SC）留 DEV-5 补。P2（history 内容格式未指定 / verbose filter 事件覆盖 / SC-025-2 未提 Gemini）留 QA-2/DEV-5 观察和补充。
+  - 验证：`git diff --check` 通过；`bash scripts/check.sh` 通过。修改仅影响 docs（overview.md 4 处注释、integrations.md 1 处表格），不影响 runtime。
+  - 未验证：`bash scripts/integration-test.sh` 未重跑（本次仅文档注释修改，不涉及测试代码或 runtime）；真实 Gemini CLI 事件 schema（QA-2 职责）；REQ-022 Gemini SC 补充（DEV-5 职责）。
+  - Findings 清单：
+    - P1-1 ✓已修：overview.md Run 目录 + 伪代码注释 + adapter 契约注释 中 `session.<provider>.jsonl` 含 "Gemini" 但实际为 `.json`
+    - P1-2 ✓已修：integrations.md §iter 目录文件结构表格通用 `.jsonl` 对 Gemini 误导（补了 "Gemini 为 `.json` 而非 `.jsonl`" 注释）
+    - P1-3（留 DEV-5）：REQ-022 有 SC-022-2/3 (Claude) 和 SC-022-4/5 (Codex) 但无 Gemini GEMINI_CLI_HOME 翻译+采集路径的 SC 条目；违反 PM-0003 REQ traceability 要求
+    - P2-1（留 DEV-5）：Gemini `session.history.log` 内容格式未在 integrations.md 指定（Claude/Codex 均有明确标记列表，Gemini 无）
+    - P2-2（留 QA-2 观察后 DEV-5 补）：`_ralph_filter_verbose` 只处理 init/text/complete/error 4 种 Gemini 事件；真实 CLI 可能有更多事件类型
+    - P2-3（留 DEV-5）：SC-025-2 只提 Claude/Codex verbose filter，未提 Gemini
+  - Remaining risk：mock 测试覆盖了 adapter 对假设事件 schema 的处理逻辑，但 mock 事件 schema 与真实 Gemini CLI 事件 schema 的匹配度需 QA-2 真实 smoke 验证。无安全边界问题（session 文件隔离在 HOME 隔离下正确；config dir 翻译空值鲁棒性已覆盖；无 secrets 泄漏路径）。
 
 - [ ] QA-2: 真实 Gemini provider 集成测试
   - 预期：真实 `RALPH_PROVIDER=gemini` 在无敏感临时 workspace 中跑到 `exit_reason=done`，并产出 Gemini iter 证据契约。

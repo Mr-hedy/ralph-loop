@@ -45,7 +45,7 @@ ralph run
     source adapter-$provider.sh
     fp_before = worktree_fingerprint()         # 本轮前快照（方案 B，T6.1）
     provider_oneshot $prompt_file iter-$N/provider.stdout.log iter-$N/  # writes log + session_id/provider_started_at/runtime_block 到 meta
-    provider_collect_session iter-$N/      # writes session.<provider>.jsonl + session.history.log
+    provider_collect_session iter-$N/      # writes session.<provider>.jsonl（Gemini 为 .json）+ session.history.log
     provider_diagnose iter-$N/             # writes error{type,message} to meta
     fp_after = worktree_fingerprint()          # 本轮后快照
     tasks_after = parse_tasks(.ralph/TASKS.md)
@@ -144,7 +144,7 @@ ralph help    # 帮助
     iter-001/
       meta.json                     # 元数据（含 runtime_block + provider_started_at + capture_status + error）
       provider.stdout.log           # provider stdout (events 流) + stderr 全量 tee
-      session.<provider>.jsonl      # provider 原生 session 副本（Claude/Codex/Gemini）
+      session.<provider>.jsonl      # provider 原生 session 副本（Claude/Codex `.jsonl`，Gemini `.json`；命名见 integrations.md §iter 目录文件结构）
       session.history.log           # 跨 provider 人话视图（user / assistant / thinking / tool_use / tool_result）
     iter-002/
     ...
@@ -339,9 +339,9 @@ provider_oneshot <prompt_file> <log_path> <iter_dir>
 ```bash
 provider_collect_session <iter_dir>
 # 副作用：
-#   - best-effort 采集 provider 原生 session 文件到 <iter_dir>/session.<provider>.jsonl
+#   - best-effort 采集 provider 原生 session 文件到 <iter_dir>/session.<provider>.jsonl（Gemini 为 .json）
 #   - 按 provider-specific source 派生 <iter_dir>/session.history.log
-#     Claude: session.claude.jsonl；Codex: provider.stdout.log JSONL events
+#     Claude: session.claude.jsonl；Codex: provider.stdout.log JSONL events；Gemini: provider.stdout.log stream-json events
 #   - 更新 <iter_dir>/meta.json 的 capture_status / capture_warning / session_source_path / session_copied_path
 # 返回码：
 #   0 = 成功或受控降级（写了 warning 也算成功）

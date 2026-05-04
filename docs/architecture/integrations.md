@@ -33,7 +33,7 @@
 |---|---|---|
 | `meta.json` | iter 元数据（含 session_id / provider_started_at / runtime_block / capture_status / error / 任务进度 / changed_files / stagnation_count 等） | 始终 |
 | `provider.stdout.log` | provider CLI stdout + stderr 合流原始输出（含 stream-json 事件、错误信息） | 始终 |
-| `session.<provider>.jsonl` | provider 原生 session 文件副本（保留 30 天后过期 / 派生视图 bug 回滚 / 跨机器 evidence 自包含三个用途） | session 采集成功（精确匹配或 mtime fallback） |
+| `session.<provider>.jsonl` | provider 原生 session 文件副本（保留 30 天后过期 / 派生视图 bug 回滚 / 跨机器 evidence 自包含三个用途；Gemini 为 `.json` 而非 `.jsonl`） | session 采集成功（精确匹配或 mtime fallback） |
 | `session.history.log` | 跨 provider 人话视图（provider 间内容有差异：Claude 含 user/assistant/thinking/tool-use/tool-result，Codex 含 assistant/tool-use/tool-result 但无 user/thinking），Claude 从 `session.claude.jsonl` 派生，Codex 从 `provider.stdout.log`（`--json` stdout 事件流）派生；完整 tool input 保留在各派生源中 | 始终（capture 失败时为空文件） |
 
 各 provider native session 文件实例：
