@@ -67,9 +67,10 @@ provider_oneshot() {
   "${gemini_cmd[@]}" > "$log_path" 2>>"$log_path" || rc=$?
 
   # 从 stream-json init 事件解析 session_id（session 采集精确匹配锚点）
+  # grep `^\{`：只匹配列首 {（真实 stream-json 事件）；跳过 stderr 中缩进的 { 噪音行
   if [[ -f "$log_path" ]]; then
     local _gemini_sid=""
-    _gemini_sid="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
+    _gemini_sid="$(grep -E '^\{' "$log_path" 2>/dev/null \
       | jq -r 'select(.type == "init") | (.session_id // .sessionId // empty)' 2>/dev/null \
       | head -1)" || _gemini_sid=""
     if [[ -n "$_gemini_sid" ]]; then
@@ -82,7 +83,7 @@ provider_oneshot() {
 
 # ── _gemini_derive_history ────────────────────────────────────────────────────
 # 从 provider.stdout.log（stream-json 事件流）派生人话视图
-# Gemini stream-json 事件类型：init / text / complete（真实 CLI 可能有更多）
+# 真实 CLI 事件类型（QA-2 验证）：init / message / result / tool_use / tool_result
 # 输出：[assistant] 文本摘要
 _gemini_derive_history() {
   local session_file="$1" out="$2"
@@ -90,18 +91,18 @@ _gemini_derive_history() {
   local stdout_log="$iter_dir/provider.stdout.log"
   [[ -f "$stdout_log" ]] || return 0
 
-  # 过滤 JSON 行（provider.stdout.log 含 stdout + stderr 合流）
+  # 过滤 JSON 行：只匹配列首 {（真实 stream-json 事件）
   local jsonl_events
-  jsonl_events="$(grep -E '^[[:space:]]*\{' "$stdout_log" 2>/dev/null)" || return 0
+  jsonl_events="$(grep -E '^\{' "$stdout_log" 2>/dev/null)" || return 0
   [[ -n "$jsonl_events" ]] || return 0
 
   printf '%s\n' "$jsonl_events" | jq -r --slurp '
     .[] |
-    if .type == "text" and (.text // "") != "" then
+    if .type == "message" and (.role // "") == "assistant" and (.text // "") != "" then
       "[assistant]",
       .text,
       ""
-    elif .type == "complete" and (.text // "") != "" then
+    elif .type == "result" and (.text // "") != "" then
       "[assistant]",
       .text,
       ""
@@ -238,7 +239,7 @@ provider_diagnose() {
   # 优先查找 error 事件（stream-json 结构化错误）
   local error_msg=""
   local error_event
-  error_event="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
+  error_event="$(grep -E '^\{' "$log_path" 2>/dev/null \
     | jq -c 'select(.type == "error")' 2>/dev/null \
     | tail -1)" || error_event=""
 
@@ -249,7 +250,7 @@ provider_diagnose() {
 
   # 回退：从 stderr 非 JSON 行提取
   if [[ -z "$error_msg" ]]; then
-    error_msg="$(grep -vE '^[[:space:]]*\{' "$log_path" 2>/dev/null | head -5 | tr '\n' ' ')" || error_msg=""
+    error_msg="$(grep -vE '^\{' "$log_path" 2>/dev/null | head -5 | tr '\n' ' ')" || error_msg=""
   fi
 
   local error_type

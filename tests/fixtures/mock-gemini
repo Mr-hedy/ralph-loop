@@ -54,6 +54,19 @@ _emit_complete() {
     '{type:"complete",text:$text}'
 }
 
+# 真实 CLI 事件类型（QA-2 验证）
+_emit_message() {
+  local text="$1"
+  jq -nc --arg text "$text" \
+    '{type:"message",role:"assistant",delta:true,text:$text}'
+}
+
+_emit_result() {
+  local text="$1"
+  jq -nc --arg text "$text" \
+    '{type:"result",text:$text}'
+}
+
 _emit_error() {
   local msg="$1"
   jq -nc --arg msg "$msg" \
@@ -100,8 +113,8 @@ _check_first_task() {
 case "$scenario" in
   happy)
     _emit_init
-    _emit_text "I will complete this task."
-    _emit_complete "Done."
+    _emit_message "I will complete this task."
+    _emit_result "Done."
 
     # 写 native session（供 DEV-3 collect 测试使用）
     _write_native_session >/dev/null 2>&1 || true
@@ -121,8 +134,8 @@ case "$scenario" in
   session_mismatch)
     # Init 事件有 session_id，但 native session 文件有不同 sessionId → 触发 mtime fallback
     _emit_init
-    _emit_text "I will complete this task."
-    _emit_complete "Done."
+    _emit_message "I will complete this task."
+    _emit_result "Done."
     _write_native_session "mismatch-file-session-id" >/dev/null 2>&1 || true
     _check_first_task
     exit 0
@@ -131,8 +144,8 @@ case "$scenario" in
   no_session_file)
     # Init 事件有 session_id，但不写 native session 文件 → capture_status=warning
     _emit_init
-    _emit_text "I will complete this task."
-    _emit_complete "Done."
+    _emit_message "I will complete this task."
+    _emit_result "Done."
     # Intentionally don't write native session file
     _check_first_task
     exit 0

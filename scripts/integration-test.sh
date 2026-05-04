@@ -1845,10 +1845,10 @@ cleanup_codex_ws
 	iter_dir="${run_dir}/iterations/iter-001"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 	stdout_ok=0
-	# stream-json 模式：provider.stdout.log 含 init + text + complete 事件
+	# stream-json 模式：provider.stdout.log 含 init + message + result 事件（QA-2 真实 schema）
 	[[ -f "$iter_dir/provider.stdout.log" ]] && \
 	  grep -q '"type":"init"' "$iter_dir/provider.stdout.log" 2>/dev/null && \
-	  grep -q '"type":"complete"' "$iter_dir/provider.stdout.log" 2>/dev/null && stdout_ok=1
+	  grep -q '"type":"result"' "$iter_dir/provider.stdout.log" 2>/dev/null && stdout_ok=1
 	session_id_ok=0
 	grep -qE '"session_id":[[:space:]]*"[^"]+"' "$iter_dir/meta.json" 2>/dev/null && session_id_ok=1
 	session_ok=0
@@ -2058,7 +2058,7 @@ cleanup_codex_ws
 	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
 	iter_dir="${run_dir}/iterations/iter-001"
-	received_model="$(grep -E '^[[:space:]]*\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+	received_model="$(grep -E '^\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
 	  | jq -r 'select(.type == "init") | ._received_model // empty' 2>/dev/null \
 	  | head -1)" || received_model=""
 	if [[ "$rc" -eq 0 && -z "$received_model" ]]; then
@@ -2079,7 +2079,7 @@ cleanup_codex_ws
 	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
 	iter_dir="${run_dir}/iterations/iter-001"
-	received_model="$(grep -E '^[[:space:]]*\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+	received_model="$(grep -E '^\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
 	  | jq -r 'select(.type == "init") | ._received_model // empty' 2>/dev/null \
 	  | head -1)" || received_model=""
 	if [[ "$rc" -eq 0 && "$received_model" == "gemini-2.5-pro" ]]; then

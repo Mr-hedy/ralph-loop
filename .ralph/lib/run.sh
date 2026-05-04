@@ -780,7 +780,7 @@ EOF
 _ralph_filter_verbose() {
   while IFS= read -r line || [[ -n "$line" ]]; do
     # 仅处理 JSON 行
-    [[ "$line" =~ ^[[:space:]]*\{ ]] || continue
+    [[ "$line" =~ ^\{ ]] || continue
     # 对每个事件按 type 简化输出（jq 失败则跳过）
     printf '%s\n' "$line" | jq -r '
       def trunc($n): tostring | if length > $n then .[0:$n] else . end;
@@ -813,6 +813,14 @@ _ralph_filter_verbose() {
         "  ❌ error: " + ((.error.message // .message // "") | trunc(120))
       elif .type == "init" then
         "  ⚙ session " + ((.session_id // "") | .[0:12])
+      elif .type == "message" and (.role // "") == "assistant" then
+        "  💬 " + ((.text // "") | trunc(120))
+      elif .type == "tool_use" then
+        "  🔧 " + ((.name // "?") | trunc(40)) + " " + (((.input // {}) | tostring) | trunc(60))
+      elif .type == "tool_result" then
+        "  ⏎ result " + ((.content // "") | tostring | trunc(80))
+      elif .type == "result" then
+        "  ✓ result " + ((.text // "") | trunc(120))
       elif .type == "text" then
         "  💬 " + ((.text // "") | trunc(120))
       elif .type == "complete" then

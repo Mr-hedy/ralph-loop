@@ -297,8 +297,6 @@ Gemini `session.history.log` 从 `provider.stdout.log`（`--output-format stream
 - `tool_result`：含 `output` 字段，标记为 `[tool_result]`
 - `result`：含 `status`（`success` / `error`），标记为 `[result]`
 
-注意：DEV-6 需修复当前 `_gemini_derive_history` 的事件匹配（mock 用的 `type:"text"` / `type:"complete"` 需对齐真实 `type:"message"` / `type:"result"` schema）。
-
 ## 错误诊断（续 Gemini）
 
 - **Gemini**（I4 DEV-1 校准）：`--output-format stream-json` 模式下，stdout 为 JSONL 事件流，可解析结构化错误事件。退化模式（`text` 或无 `stream-json`）依赖 exit code + stderr 关键字。按以下互斥优先级（case-insensitive）匹配，命中第一条即止：

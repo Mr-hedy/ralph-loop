@@ -137,11 +137,14 @@
   - 验证：`rg` 确认无残留"T4 planned/规划中"旧入口（.ralph/README.md 仅含"I4 / T4 已落地"正确描述）；`git diff --check` 通过；`bash scripts/check.sh` 通过。
   - 未验证：`bash scripts/integration-test.sh` 未运行（本次纯文档变更，不涉及测试代码或 runtime）。
 
-- [ ] DEV-6: 修复 QA-2 发现的 Gemini adapter 事件 schema 漂移（P0-1/P0-2/P1-1）
+- [x] DEV-6: 修复 QA-2 发现的 Gemini adapter 事件 schema 漂移（P0-1/P0-2/P1-1）
   - 预期：真实 Gemini CLI 调用后 session_id 正确提取、session.gemini.json 正确采集、session.history.log 非空、`run -v` 显示主要事件 marker。
   - 输入：QA-2 真实 smoke 证据（真实 CLI 事件类型：init/message/result/tool_result/tool_use；stderr 含缩进 `{` 噪音行）；adapter-gemini.sh 当前实现；QA-1 mock 测试。
   - 范围：`adapter-gemini.sh`（session_id 提取 grep、`_gemini_derive_history` 事件匹配、verbose filter Gemini 分支）；`tests/fixtures/mock-gemini`（事件 schema 对齐真实 CLI）；`scripts/integration-test.sh`（更新 mock 事件）；`docs/architecture/integrations.md`（事件类型文档）；不改变 adapter 函数签名或 run.sh 主循环。
   - 验证计划：mock 集成测试通过（事件 schema 对齐真实 CLI）；真实 `ralph run --provider gemini` 跑到 done 后 meta.json session_id 非空、session.gemini.json 存在、session.history.log 非空；`run -v` stderr 含 Gemini 事件 marker；`bash scripts/check.sh`；`git diff --check`。
+  - 完成：5 个文件修改。P0-1：session_id 提取 grep 改为 `^\{`（只匹配列首 JSON 行，跳过 stderr 缩进噪音）。P0-2：`_gemini_derive_history` 事件匹配从 `text`/`complete` 改为 `message`（role=assistant）+ `result`（QA-2 真实 schema）。P1-1：verbose filter 新增 `message`/`tool_use`/`tool_result`/`result` 4 种真实事件 marker，保留旧 `text`/`complete` 兼容。mock-gemini 新增 `_emit_message`/`_emit_result`，所有 scenario 对齐真实事件类型。integration-test.sh 断言和 grep 模式同步更新。integrations.md 移除 DEV-6 TODO。
+  - 验证：`bash -n` 4 个文件通过；`bash scripts/check.sh` 通过；`bash scripts/integration-test.sh` 97 PASS 3 FAIL（3 FAIL 为预存 env 泄漏，与本次无关）；`git diff --check` 通过。
+  - 未验证：真实 Gemini CLI 端到端 `ralph run --provider gemini`（需用户在真实环境手动运行）；真实 `ralph run -v` verbose 输出；真实 CLI error 事件 schema。
 
 - [ ] REVIEW-2: I4 最终 adversarial-review 与归档准备
   - 预期：I4 在归档前没有未处理的 P0/P1 事实源漂移、测试假阳性、真实 smoke 证据缺口或用户入口误导。
