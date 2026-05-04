@@ -69,11 +69,14 @@
   - 验证：`bash -n` 通过；精确匹配 capture_status=ok + session_id 匹配 + session.gemini.json 存在 + history 含 [assistant]；mtime fallback capture_warning="fallback by mtime" + session.gemini.json 存在；missing session capture_status=warning + 无 session.gemini.json + history 仍从 stdout 派生；`git diff --check` 通过；`bash scripts/check.sh` 通过。
   - 未验证：E2E mock `ralph run --provider gemini` 完整 run（DEV-2 已知 symlink 定位问题）；真实 Gemini CLI session 文件格式（QA-2）；`bash scripts/integration-test.sh` Gemini 用例（QA-1 职责）。
 
-- [ ] DEV-4: 实现 Gemini 错误诊断与 `run -v` 可读事件输出
+- [x] DEV-4: 实现 Gemini 错误诊断与 `run -v` 可读事件输出
   - 预期：Gemini provider failure 能写入统一 `last_error.type/message`；`ralph run -v --provider gemini` 有可读 marker，不把 JSON/text 原始流直接刷成噪音。
   - 输入：DEV-1 output-format 与错误事件契约；FR-008；现有 `_ralph_filter_verbose` 的 Claude/Codex 分支。
   - 范围：`.ralph/lib/adapter-gemini.sh` 的 `provider_diagnose`；`.ralph/lib/run.sh` 的 verbose filter Gemini 分支；mock fixture 错误场景。
   - 验证计划：mock auth/rate_limit/quota/network/api/unknown 场景；`run -v` stderr grep Gemini marker；`result.json.last_error` 与 `meta.json.error` 分类一致。
+  - 完成：adapter-gemini.sh 新增 `_gemini_classify_error`（6 类互斥优先级关键字匹配）+ 完整 `provider_diagnose`（error 事件优先 / stderr 非 JSON 回退 / crash 无输出降级）；run.sh `_ralph_filter_verbose` 新增 `init`/`text`/`complete` 三种 Gemini 事件 marker；mock-gemini 新增 6 个错误场景（auth_error/rate_limit_error/quota_error/network_error/api_error/unknown_error）。
+  - 验证：`bash -n` 三个文件通过；`_gemini_classify_error` 11 个关键字用例全 PASS；`provider_diagnose` 7 个 mock 场景（含 crash 无输出）全 PASS；verbose filter 4 种 Gemini 事件（init/text/complete/error）输出正确 marker；`bash scripts/check.sh` 通过；`git diff --check` 通过。
+  - 未验证：E2E `ralph run -v --provider gemini` 真实 CLI 调用（QA-2）；`bash scripts/integration-test.sh` Gemini 用例（QA-1 职责）；真实 Gemini CLI 错误事件格式（QA-2 验证）。
 
 - [ ] QA-1: 补齐 Gemini mock 集成测试矩阵
   - 预期：Gemini adapter 的主要路径可在无真实 Gemini 调用下稳定回归，且不会把 mock 通过误当真实 T4 完成。

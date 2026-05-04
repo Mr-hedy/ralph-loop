@@ -54,6 +54,12 @@ _emit_complete() {
     '{type:"complete",text:$text}'
 }
 
+_emit_error() {
+  local msg="$1"
+  jq -nc --arg msg "$msg" \
+    '{type:"error",error:{message:$msg}}'
+}
+
 # ── 写 native Gemini session 文件（DEV-3 mock 扩展点）────────────────────────
 # 路径：${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/<project-id>/chats/session-*.json
 _write_native_session() {
@@ -130,6 +136,42 @@ case "$scenario" in
     # Intentionally don't write native session file
     _check_first_task
     exit 0
+    ;;
+
+  auth_error)
+    _emit_init
+    _emit_error "Unauthorized: 401 invalid API key"
+    exit 1
+    ;;
+
+  rate_limit_error)
+    _emit_init
+    _emit_error "429 Too Many Requests: rate limit exceeded"
+    exit 1
+    ;;
+
+  quota_error)
+    _emit_init
+    _emit_error "Quota exceeded: billing quota exhausted"
+    exit 1
+    ;;
+
+  network_error)
+    _emit_init
+    _emit_error "ECONNRESET: connection refused"
+    exit 1
+    ;;
+
+  api_error)
+    _emit_init
+    _emit_error "500 Internal Server Error"
+    exit 1
+    ;;
+
+  unknown_error)
+    _emit_init
+    _emit_error "Something went wrong unexpectedly"
+    exit 1
     ;;
 
   *)

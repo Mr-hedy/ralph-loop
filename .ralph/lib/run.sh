@@ -811,6 +811,12 @@ _ralph_filter_verbose() {
         "  ✓ result"
       elif .type == "turn.failed" then
         "  ❌ error: " + ((.error.message // .message // "") | trunc(120))
+      elif .type == "init" then
+        "  ⚙ session " + ((.session_id // "") | .[0:12])
+      elif .type == "text" then
+        "  💬 " + ((.text // "") | trunc(120))
+      elif .type == "complete" then
+        "  ✓ result " + ((.text // "") | trunc(120))
       elif .type == "error" then
         "  ❌ error: " + ((.error.message // .message // "") | trunc(120))
       else empty end

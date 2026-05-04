@@ -189,10 +189,76 @@ provider_collect_session() {
   return 0
 }
 
+# ── _gemini_classify_error ───────────────────────────────────────────────────
+# 输入：error message 原文；输出：错误分类标签（互斥优先级，见 integrations.md §错误诊断（续 Gemini））
+_gemini_classify_error() {
+  local text="${1:-}"
+  local lower
+  lower="$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')"
+  if   [[ "$lower" == *" 401"* || "$lower" == *"unauthor"* || "$lower" == *"not logged in"* ]]; then
+    printf 'auth'
+  elif [[ "$lower" == *" 429"* || "$lower" =~ rate.?limit || "$lower" == *"too many requests"* ]]; then
+    printf 'rate_limit'
+  elif [[ "$lower" == *"quota"* || "$lower" == *"credits exhausted"* || "$lower" == *"billing"* ]]; then
+    printf 'quota'
+  elif [[ "$lower" == *"econnreset"* || "$lower" == *"enotfound"* || "$lower" == *"etimedout"* \
+      || "$lower" == *"connection refused"* || "$lower" == *"network error"* || "$lower" == *"fetch failed"* ]]; then
+    printf 'network'
+  elif [[ "$lower" =~ (^|[^0-9])5[0-9][0-9]([^0-9]|$) || "$lower" == *"api error"* || "$lower" == *"internal server"* || "$lower" == *"service unavailable"* ]]; then
+    printf 'api'
+  else
+    printf 'unknown'
+  fi
+}
+
 # ── provider_diagnose ────────────────────────────────────────────────────────
-# DEV-4 将实现完整错误诊断（stream-json 事件 + stderr 关键字匹配）
-# 此处为 DEV-2 最小桩：不做诊断
+# Gemini 错误分类（error 事件 / stderr 关键字回退）
 provider_diagnose() {
   local iter_dir="$1"
+  local meta="$iter_dir/meta.json"
+  local log_path="$iter_dir/provider.stdout.log"
+
+  [[ -f "$meta" ]] || return 0
+
+  local exit_code
+  exit_code="$(jq -r '.exit_code // 0' "$meta" 2>/dev/null)" || exit_code=0
+
+  # exit_code=0 → 正常完成，不写 error
+  if [[ "$exit_code" -eq 0 ]]; then
+    return 0
+  fi
+
+  # log 文件不存在（CLI crash 无输出）→ unknown
+  if [[ ! -f "$log_path" ]]; then
+    update_meta_jq "$iter_dir" \
+      '.error = {"type": "unknown", "message": "no stdout log file", "raw": ""}'
+    return 0
+  fi
+
+  # 优先查找 error 事件（stream-json 结构化错误）
+  local error_msg=""
+  local error_event
+  error_event="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
+    | jq -c 'select(.type == "error")' 2>/dev/null \
+    | tail -1)" || error_event=""
+
+  if [[ -n "$error_event" ]]; then
+    error_msg="$(printf '%s' "$error_event" \
+      | jq -r 'if .error | type == "object" then .error.message // "" elif .error | type == "string" then .error else .message // "" end' 2>/dev/null)" || error_msg=""
+  fi
+
+  # 回退：从 stderr 非 JSON 行提取
+  if [[ -z "$error_msg" ]]; then
+    error_msg="$(grep -vE '^[[:space:]]*\{' "$log_path" 2>/dev/null | head -5 | tr '\n' ' ')" || error_msg=""
+  fi
+
+  local error_type
+  error_type="$(_gemini_classify_error "${error_msg:-}")"
+
+  update_meta_jq "$iter_dir" \
+    '.error = {"type": $t, "message": $m, "raw": $r}' \
+    --arg t "$error_type" \
+    --arg m "${error_msg:0:200}" \
+    --arg r "${error_msg:0:500}"
   return 0
 }
