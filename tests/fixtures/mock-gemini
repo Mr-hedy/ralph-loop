@@ -42,18 +42,6 @@ _emit_init() {
     '{type:"init",session_id:$session_id,_received_model:$model,_received_approval_mode:$approval_mode,_received_output_format:$output_format,_received_prompt_preview:$prompt_preview}'
 }
 
-_emit_text() {
-  local text="$1"
-  jq -nc --arg text "$text" \
-    '{type:"text",text:$text}'
-}
-
-_emit_complete() {
-  local text="$1"
-  jq -nc --arg text "$text" \
-    '{type:"complete",text:$text}'
-}
-
 # 真实 CLI 事件类型（QA-2 验证）
 _emit_message() {
   local text="$1"
@@ -65,6 +53,19 @@ _emit_result() {
   local text="$1"
   jq -nc --arg text "$text" \
     '{type:"result",text:$text}'
+}
+
+_emit_tool_use() {
+  local name="${1:-Bash}"
+  local cmd="${2:-echo hello}"
+  jq -nc --arg name "$name" --arg cmd "$cmd" \
+    '{type:"tool_use",name:$name,input:{command:$cmd}}'
+}
+
+_emit_tool_result() {
+  local output="${1:-hello}"
+  jq -nc --arg output "$output" \
+    '{type:"tool_result",content:$output}'
 }
 
 _emit_error() {
@@ -114,6 +115,8 @@ case "$scenario" in
   happy)
     _emit_init
     _emit_message "I will complete this task."
+    _emit_tool_use "Bash" "echo hello"
+    _emit_tool_result "hello"
     _emit_result "Done."
 
     # 写 native session（供 DEV-3 collect 测试使用）

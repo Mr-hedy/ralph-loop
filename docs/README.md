@@ -8,8 +8,8 @@
 | 协作规范 | `../.spec/README.md` | 已确认 | 协作模型、阶段和事实源边界 |
 | 当前开发任务 | `../.ralph/TASKS.md` | 已确认 | 当前工程的开发任务事实源（dogfood 模式，按 iteration 推进） |
 | v0.1 历史任务 | `../task.md` | 已封版 | T0–T6 历史任务史 + 22 条决策追溯（v0.1.0 发布于 2026-04-28） |
-| 当前 iteration 设计 | `requirements/ralph-loop/I4-design.md` | 已确认 | I4 = T4 Gemini adapter，当前任务源为 `../.ralph/TASKS.md` |
-| Iteration 归档 | `requirements/ralph-loop/I1-FINAL-TASK.md` / `requirements/ralph-loop/I2-FINAL-TASK.md` / `requirements/ralph-loop/I3-FINAL-TASK.md` / `requirements/ralph-loop/I<N>-FINAL-TASK.md` | 历史 | iteration 完成后的不可变任务快照（cp 自 `.ralph/TASKS.md`） |
+| 当前 iteration 设计 | 等待 I5 启动 | — | I4 已归档为 `requirements/ralph-loop/I4-FINAL-TASK.md` |
+| Iteration 归档 | `requirements/ralph-loop/I1-FINAL-TASK.md` / `requirements/ralph-loop/I2-FINAL-TASK.md` / `requirements/ralph-loop/I3-FINAL-TASK.md` / `requirements/ralph-loop/I4-FINAL-TASK.md` / `requirements/ralph-loop/I<N>-FINAL-TASK.md` | 历史 | iteration 完成后的不可变任务快照（cp 自 `.ralph/TASKS.md`） |
 | 项目级需求 | `requirements.md` | 已确认 | 项目全局目标、跨模块边界和模块索引 |
 | 模块需求 | `requirements/ralph-loop/requirements.md` | 已确认 | Ralph harness 模块 REQ-001 ~ REQ-026，22 条决策和 I1 扩展需求完整追踪 |
 | 架构 Overview | `architecture/overview.md` | 已确认 | 系统上下文、CLI 契约、运行目录 schema、adapter 函数签名、退出原因、stagnation、lock、错误诊断类别 |

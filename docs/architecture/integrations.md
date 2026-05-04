@@ -293,9 +293,9 @@ Gemini `session.history.log` 从 `provider.stdout.log`（`--output-format stream
 
 - `init`：含 `sessionId` 字段（session capture 用），history 派生跳过
 - `message`：含 `role`（`user` / `assistant`）+ `delta`（boolean）+ `text` 字段；`role=assistant` + `delta=true` 的 `text` 片段拼接为 `[assistant]` 内容
-- `tool_use`：含 `name` + `input` 字段，标记为 `[tool_use]`
-- `tool_result`：含 `output` 字段，标记为 `[tool_result]`
-- `result`：含 `status`（`success` / `error`），标记为 `[result]`
+- `tool_use`：含 `name` + `input` 字段，标记为 `[tool-use <name>]`，input 截断 2000 字符
+- `tool_result`：含 `content` 字段，标记为 `[tool-result]`，content 截断 2000 字符
+- `result`：含 `text` 字段，标记为 `[result]`
 
 ## 错误诊断（续 Gemini）
 

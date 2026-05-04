@@ -102,8 +102,16 @@ _gemini_derive_history() {
       "[assistant]",
       .text,
       ""
+    elif .type == "tool_use" and (.name // "") != "" then
+      "[tool-use " + .name + "]",
+      ((.input // {}) | tostring | .[0:2000]),
+      ""
+    elif .type == "tool_result" then
+      "[tool-result]",
+      ((.content // "") | tostring | .[0:2000]),
+      ""
     elif .type == "result" and (.text // "") != "" then
-      "[assistant]",
+      "[result]",
       .text,
       ""
     else empty end

@@ -112,9 +112,9 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 
 ## 当前状态
 
-- 版本：v0.1.1-dev（v0.1.0 已发布于 2026-04-28；I1/I2/I3 已完成，I4 Gemini adapter 实施中）
+- 版本：v0.1.1-dev（v0.1.0 已发布于 2026-04-28；I1/I2/I3/I4 已完成）
 - 当前开发任务：`.ralph/TASKS.md`（dogfood 模式，root `task.md` 已封版）
-- 当前 iteration 设计方案：`docs/requirements/ralph-loop/I4-design.md`（I3 已归档为 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`）
+- 当前 iteration 设计方案：等待 I5 启动（I4 已归档为 `docs/requirements/ralph-loop/I4-FINAL-TASK.md`）
 - 续接状态：`handoff.md`
 - 工具入口：`.ralph/bin/ralph`
 

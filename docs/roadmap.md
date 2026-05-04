@@ -26,7 +26,7 @@
 - **I1 已完成（2026-05-03）**：dogfood T5（status + watch 真实功能），归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`。
 - **I2 已完成（2026-05-04）**：T3（Codex adapter），归档见 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`；设计方案见 `docs/requirements/ralph-loop/I2-design.md`。
 - **I3 已完成（2026-05-04）**：watch/status 观察面修复，归档见 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`；checkpoint 为 `2641605 checkpoint: watch status surface fix`。
-- **I4 实施中（2026-05-04）**：T4（Gemini adapter），设计方案见 `docs/requirements/ralph-loop/I4-design.md`；DEV-1~QA-2 已完成，剩余 DEV-5/6 和 REVIEW-2。
+- **I4 已完成（2026-05-04）**：T4（Gemini adapter），归档见 `docs/requirements/ralph-loop/I4-FINAL-TASK.md`；设计方案见 `docs/requirements/ralph-loop/I4-design.md`。
 - 协作壳已初始化，`.spec/`、`docs/` 结构稳定。
 - Ralph v0.1 需求已收敛为 22 条决策，沉淀在 `requirements.md`（REQ-001 ~ REQ-016）。
 - 架构和稳定契约沉淀在 `docs/architecture/overview.md`；provider 集成细节沉淀在 `docs/architecture/integrations.md`；安全边界沉淀在 `docs/architecture/security.md`。

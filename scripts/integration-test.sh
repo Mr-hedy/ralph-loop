@@ -1856,9 +1856,12 @@ cleanup_codex_ws
 	capture_ok=0
 	grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
 	history_ok=0
-	# session.history.log 含 [assistant] 文本（从 provider.stdout.log 事件流派生）
+	# session.history.log 含 [assistant] / [tool-use] / [tool-result] / [result]（从 provider.stdout.log 事件流派生）
 	[[ -f "$iter_dir/session.history.log" ]] && \
-	  grep -q '\[assistant\]' "$iter_dir/session.history.log" && history_ok=1
+	  grep -q '\[assistant\]' "$iter_dir/session.history.log" && \
+	  grep -q '\[tool-use Bash\]' "$iter_dir/session.history.log" && \
+	  grep -q '\[tool-result\]' "$iter_dir/session.history.log" && \
+	  grep -q '\[result\]' "$iter_dir/session.history.log" && history_ok=1
 	if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_id_ok" -eq 1 \
 	   && "$session_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
 	  _pass "gemini happy: exit 0, done, stream-json events, session_id, session.gemini.json, capture_status=ok, history.log derived"
