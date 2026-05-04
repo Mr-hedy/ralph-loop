@@ -78,11 +78,14 @@
   - 验证：`bash -n` 三个文件通过；`_gemini_classify_error` 11 个关键字用例全 PASS；`provider_diagnose` 7 个 mock 场景（含 crash 无输出）全 PASS；verbose filter 4 种 Gemini 事件（init/text/complete/error）输出正确 marker；`bash scripts/check.sh` 通过；`git diff --check` 通过。
   - 未验证：E2E `ralph run -v --provider gemini` 真实 CLI 调用（QA-2）；`bash scripts/integration-test.sh` Gemini 用例（QA-1 职责）；真实 Gemini CLI 错误事件格式（QA-2 验证）。
 
-- [ ] QA-1: 补齐 Gemini mock 集成测试矩阵
+- [x] QA-1: 补齐 Gemini mock 集成测试矩阵
   - 预期：Gemini adapter 的主要路径可在无真实 Gemini 调用下稳定回归，且不会把 mock 通过误当真实 T4 完成。
   - 输入：DEV-2/3/4；`scripts/integration-test.sh` 现有 Claude/Codex adapter 测试结构；`tests/fixtures/mock-codex` 模式。
   - 范围：扩展 DEV-2/3/4 已建立的 `tests/fixtures/mock-gemini`；更新 `scripts/integration-test.sh`；更新 `docs/architecture/testing.md` 覆盖矩阵。
   - 验证计划：`bash scripts/integration-test.sh` 通过；新增用例覆盖 happy path、config-dir 或明确不翻译的空值鲁棒性、model/effort 参数、session capture、history、diagnose、dependency missing、`run -v` marker。
+  - 完成：新增 17 个 Gemini 集成测试（happy path + run -v markers + config dir 翻译/空值鲁棒 + GEMINI_CLI_HOME aware session + mtime fallback + missing session + 错误诊断 7 类 + model 空/设置 + dep check）；修复 `RALPH_PROVIDER_CONFIG_DIR` 环境泄漏问题（显式清空 env 命令）；更新 testing.md 覆盖矩阵和隔离规则。97 PASS（+14 来自 Gemini），3 FAIL 为预存 ralph loop 环境泄漏问题（与本任务无关）。
+  - 验证：`bash -n scripts/integration-test.sh` 通过；`bash scripts/check.sh` 通过；`git diff --check` 通过；`bash scripts/integration-test.sh` 97 PASS 3 FAIL（3 FAIL 为预存 env 泄漏：missing .env、CLAUDE_CONFIG_DIR aware、load_env tilde）。
+  - 未验证：真实 Gemini CLI 端到端（QA-2 职责）；E2E mock `ralph run --provider gemini` 完整 run（DEV-2 已知 symlink 定位问题，不影响 mock 单元覆盖）。
 
 - [ ] REVIEW-1: Gemini mock 实现后 adversarial-review
   - 预期：在真实 provider smoke 前发现契约漂移、测试假阳性、docs 第二事实源、session 文件泄漏和安全边界问题。

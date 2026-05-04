@@ -1802,7 +1802,315 @@ else
 fi
 cleanup_codex_ws
 
-# ── 汇总 ─────────────────────────────────────────────────────────────────────
+	# ────────────────────────────────
+	# Gemini adapter（I4 QA-1）
+	# ────────────────────────────────
+
+	SETUP_GEMINI_WS=""
+	SETUP_GEMINI_BIN=""
+	SETUP_GEMINI_HOME=""
+	setup_gemini_workspace() {
+	  SETUP_GEMINI_WS="$(setup_workspace --provider gemini)"
+
+	  # HOME 隔离（避免写真实 ~/.gemini）
+	  local home_parent
+	  home_parent="$(mktemp -d)"
+	  SETUP_GEMINI_HOME="$home_parent/home"
+	  mkdir -p "$SETUP_GEMINI_HOME"
+
+	  # mock-gemini 软链到 workspace 内 tests-bin/
+	  SETUP_GEMINI_BIN="$SETUP_GEMINI_WS/tests-bin"
+	  mkdir -p "$SETUP_GEMINI_BIN"
+	  ln -sf "$REPO_ROOT/tests/fixtures/mock-gemini" "$SETUP_GEMINI_BIN/gemini"
+	}
+
+	cleanup_gemini_ws() {
+	  [[ -n "${SETUP_GEMINI_HOME:-}" ]] && rm -rf "$(dirname "$SETUP_GEMINI_HOME")"
+	  [[ -n "${SETUP_GEMINI_WS:-}" ]] && cleanup_ws "$SETUP_GEMINI_WS"
+	  SETUP_GEMINI_WS=""
+	  SETUP_GEMINI_BIN=""
+	  SETUP_GEMINI_HOME=""
+	}
+
+	echo ""
+	echo "-- Gemini adapter: happy path (mock-gemini, HOME isolated)"
+	setup_gemini_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
+	git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "single task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_GEMINI_SCENARIO=happy \
+	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
+	iter_dir="${run_dir}/iterations/iter-001"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	stdout_ok=0
+	# stream-json 模式：provider.stdout.log 含 init + text + complete 事件
+	[[ -f "$iter_dir/provider.stdout.log" ]] && \
+	  grep -q '"type":"init"' "$iter_dir/provider.stdout.log" 2>/dev/null && \
+	  grep -q '"type":"complete"' "$iter_dir/provider.stdout.log" 2>/dev/null && stdout_ok=1
+	session_id_ok=0
+	grep -qE '"session_id":[[:space:]]*"[^"]+"' "$iter_dir/meta.json" 2>/dev/null && session_id_ok=1
+	session_ok=0
+	[[ -f "$iter_dir/session.gemini.json" ]] && session_ok=1
+	capture_ok=0
+	grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
+	history_ok=0
+	# session.history.log 含 [assistant] 文本（从 provider.stdout.log 事件流派生）
+	[[ -f "$iter_dir/session.history.log" ]] && \
+	  grep -q '\[assistant\]' "$iter_dir/session.history.log" && history_ok=1
+	if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_id_ok" -eq 1 \
+	   && "$session_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
+	  _pass "gemini happy: exit 0, done, stream-json events, session_id, session.gemini.json, capture_status=ok, history.log derived"
+	else
+	  _fail "gemini happy: rc=$rc reason=$reason stdout_ok=$stdout_ok session_id_ok=$session_id_ok session_ok=$session_ok capture_ok=$capture_ok history_ok=$history_ok"
+	fi
+	cleanup_gemini_ws
+
+	echo ""
+	echo "-- Gemini adapter: run -v live tail emits Gemini event markers"
+	setup_gemini_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
+	git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "single task" 2>/dev/null || true
+	rc=0
+	stderr_file="$(mktemp)"
+	RALPH_MOCK_GEMINI_SCENARIO=happy RALPH_MOCK_GEMINI_POST_STREAM_SLEEP=2 \
+	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini -v \
+	  >/dev/null 2>"$stderr_file" || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	marker_ok=0
+	grep -Eq '⚙ session|💬|✓ result' "$stderr_file" 2>/dev/null && marker_ok=1
+	if [[ "$rc" -eq 0 && "$reason" == "done" && "$marker_ok" -eq 1 ]]; then
+	  _pass "gemini run -v: stderr contains Gemini event filter marker"
+	else
+	  _fail "gemini run -v: expected rc=0 done + marker, got rc=$rc reason=$reason marker_ok=$marker_ok"
+	fi
+	rm -f "$stderr_file"
+	cleanup_gemini_ws
+
+	echo ""
+	echo "-- adapter-gemini.sh translates RALPH_PROVIDER_CONFIG_DIR → GEMINI_CLI_HOME"
+	out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+	  export RALPH_PROVIDER_CONFIG_DIR=/tmp/ralph-test-gemini-cfg
+	  source '$REPO_ROOT/.ralph/lib/common.sh'
+	  source '$REPO_ROOT/.ralph/lib/adapter-gemini.sh'
+	  echo \"GCH=\${GEMINI_CLI_HOME:-UNSET}\"
+	")
+	if [[ "$out" == *"GCH=/tmp/ralph-test-gemini-cfg"* ]]; then
+	  _pass "adapter-gemini: GEMINI_CLI_HOME translated from RALPH_PROVIDER_CONFIG_DIR"
+	else
+	  _fail "adapter-gemini translation: expected GCH=/tmp/ralph-test-gemini-cfg, got '$out'"
+	fi
+
+	echo ""
+	echo "-- adapter-gemini.sh robustness: empty RALPH_PROVIDER_CONFIG_DIR → GEMINI_CLI_HOME NOT exported"
+	out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+	  source '$REPO_ROOT/.ralph/lib/common.sh'
+	  source '$REPO_ROOT/.ralph/lib/adapter-gemini.sh'
+	  if [[ -z \${GEMINI_CLI_HOME+x} ]]; then
+	    echo 'UNSET'
+	  else
+	    echo \"SET=\$GEMINI_CLI_HOME\"
+	  fi
+	")
+	if [[ "$out" == *"UNSET"* ]]; then
+	  _pass "adapter-gemini empty case: GEMINI_CLI_HOME not exported (robust)"
+	else
+	  _fail "adapter-gemini empty case: expected UNSET, got '$out'"
+	fi
+
+	echo ""
+	echo "-- Gemini session: GEMINI_CLI_HOME aware capture (REQ-022)"
+	setup_gemini_workspace
+	custom_cfg="$(dirname "$SETUP_GEMINI_HOME")/custom-gemini-cfg"
+	mkdir -p "$custom_cfg"
+	# 在 workspace .env 加 RALPH_PROVIDER_CONFIG_DIR（adapter 翻译为 GEMINI_CLI_HOME）
+	printf 'RALPH_PROVIDER_CONFIG_DIR=%s\n' "$custom_cfg" >> "$SETUP_GEMINI_WS/.ralph/.env"
+	printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
+	git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "single task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_GEMINI_SCENARIO=happy \
+	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
+	iter_dir="${run_dir}/iterations/iter-001"
+	json_ok=0; capture_ok=0; src_ok=0; home_clean=1
+	[[ -f "$iter_dir/session.gemini.json" ]] && json_ok=1
+	grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
+	# session_source_path 应在 custom_cfg/.gemini/tmp/ 下
+	src_path="$(jq -r '.session_source_path // ""' "$iter_dir/meta.json" 2>/dev/null)"
+	[[ "$src_path" == "$custom_cfg/.gemini/tmp/"* ]] && src_ok=1
+	# 反向断言：$HOME/.gemini/ 下不应有任何 session 文件（mock-gemini 写到 GEMINI_CLI_HOME）
+	if find "$SETUP_GEMINI_HOME/.gemini" -name "*.json" -type f 2>/dev/null | grep -q .; then
+	  home_clean=0
+	fi
+	if [[ "$json_ok" -eq 1 && "$capture_ok" -eq 1 && "$src_ok" -eq 1 && "$home_clean" -eq 1 ]]; then
+	  _pass "session GEMINI_CLI_HOME aware: json ok, capture_status=ok, source from custom cfg, HOME/.gemini clean"
+	else
+	  _fail "session GEMINI_CLI_HOME aware: json_ok=$json_ok capture_ok=$capture_ok src_ok=$src_ok home_clean=$home_clean src=$src_path"
+	fi
+	cleanup_gemini_ws
+
+	echo ""
+	echo "-- Gemini session: session_id mismatch → mtime fallback"
+	setup_gemini_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
+	git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "single task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_GEMINI_SCENARIO=session_mismatch \
+	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini --max-iter 1 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
+	iter_dir="${run_dir}/iterations/iter-001"
+	json_ok=0; warn_ok=0
+	[[ -f "$iter_dir/session.gemini.json" ]] && json_ok=1
+	grep -q '"fallback by mtime"' "$iter_dir/meta.json" 2>/dev/null && warn_ok=1
+	if [[ "$json_ok" -eq 1 && "$warn_ok" -eq 1 ]]; then
+	  _pass "gemini session mtime fallback: session.gemini.json exists, capture_warning=fallback by mtime"
+	else
+	  _fail "gemini session mtime fallback: json_ok=$json_ok warn_ok=$warn_ok"
+	fi
+	cleanup_gemini_ws
+
+	echo ""
+	echo "-- Gemini session: missing session file → capture_status=warning + history from stdout"
+	setup_gemini_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
+	git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "single task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_GEMINI_SCENARIO=no_session_file \
+	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini --max-iter 1 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
+	iter_dir="${run_dir}/iterations/iter-001"
+	no_session=0; warn_ok=0; history_ok=0
+	[[ ! -f "$iter_dir/session.gemini.json" ]] && no_session=1
+	grep -q '"capture_status": "warning"' "$iter_dir/meta.json" 2>/dev/null && warn_ok=1
+	# 派生视图仍从 stdout 产出（不依赖 session 文件）
+	[[ -f "$iter_dir/session.history.log" ]] && \
+	  grep -q '\[assistant\]' "$iter_dir/session.history.log" && history_ok=1
+	if [[ "$no_session" -eq 1 && "$warn_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
+	  _pass "gemini missing session: no session.gemini.json, capture_status=warning, history from stdout"
+	else
+	  _fail "gemini missing session: no_session=$no_session warn_ok=$warn_ok history_ok=$history_ok"
+	fi
+	cleanup_gemini_ws
+
+	# Gemini 错误诊断矩阵
+	_run_gemini_diagnose_case() {
+	  local scenario="$1" expected_type="$2" label="$3"
+	  setup_gemini_workspace
+	  printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
+	  git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "tasks" 2>/dev/null || true
+	  local rc=0
+	  RALPH_MOCK_GEMINI_SCENARIO="$scenario" \
+	    env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	    bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
+	  local run_dir error_type
+	  run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
+	  error_type="$(get_last_error_type "$run_dir")"
+	  if [[ "$rc" -eq 2 && "$error_type" == "$expected_type" ]]; then
+	    _pass "$label: rc=2, last_error.type=$expected_type"
+	  else
+	    _fail "$label: rc=$rc error_type=$error_type (expected rc=2 type=$expected_type)"
+	  fi
+	  cleanup_gemini_ws
+	}
+
+	echo ""
+	echo "-- Gemini diagnose: auth (401 unauthorized)"
+	_run_gemini_diagnose_case auth_error auth "gemini diagnose auth"
+
+	echo ""
+	echo "-- Gemini diagnose: rate_limit (429)"
+	_run_gemini_diagnose_case rate_limit_error rate_limit "gemini diagnose rate_limit"
+
+	echo ""
+	echo "-- Gemini diagnose: quota (billing quota exhausted)"
+	_run_gemini_diagnose_case quota_error quota "gemini diagnose quota"
+
+	echo ""
+	echo "-- Gemini diagnose: network (ECONNRESET)"
+	_run_gemini_diagnose_case network_error network "gemini diagnose network"
+
+	echo ""
+	echo "-- Gemini diagnose: api (500)"
+	_run_gemini_diagnose_case api_error api "gemini diagnose api"
+
+	echo ""
+	echo "-- Gemini diagnose: unknown (unrecognized error)"
+	_run_gemini_diagnose_case unknown_error unknown "gemini diagnose unknown"
+
+	echo ""
+	echo "-- Gemini diagnose: crash (no stdout)"
+	_run_gemini_diagnose_case crash unknown "gemini diagnose crash"
+
+	echo ""
+	echo "-- SC-014-1: RALPH_MODEL empty → gemini model flag not passed"
+	setup_gemini_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
+	git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "single task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_GEMINI_SCENARIO=happy RALPH_MODEL="" \
+	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
+	iter_dir="${run_dir}/iterations/iter-001"
+	received_model="$(grep -E '^[[:space:]]*\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+	  | jq -r 'select(.type == "init") | ._received_model // empty' 2>/dev/null \
+	  | head -1)" || received_model=""
+	if [[ "$rc" -eq 0 && -z "$received_model" ]]; then
+	  _pass "SC-014-1 gemini empty model: mock-gemini received no model flag"
+	else
+	  _fail "SC-014-1 gemini empty model: rc=$rc received_model='$received_model'"
+	fi
+	cleanup_gemini_ws
+
+	echo ""
+	echo "-- SC-014-1: RALPH_MODEL set → gemini receives --model"
+	setup_gemini_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
+	git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "single task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_GEMINI_SCENARIO=happy RALPH_MODEL="gemini-2.5-pro" \
+	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
+	iter_dir="${run_dir}/iterations/iter-001"
+	received_model="$(grep -E '^[[:space:]]*\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+	  | jq -r 'select(.type == "init") | ._received_model // empty' 2>/dev/null \
+	  | head -1)" || received_model=""
+	if [[ "$rc" -eq 0 && "$received_model" == "gemini-2.5-pro" ]]; then
+	  _pass "SC-014-1 gemini model set: mock-gemini received model=gemini-2.5-pro"
+	else
+	  _fail "SC-014-1 gemini model set: rc=$rc received_model='$received_model'"
+	fi
+	cleanup_gemini_ws
+
+	echo ""
+	echo "-- Dep check: gemini + jq both missing (gemini adapter, non-fail-fast)"
+	setup_gemini_workspace
+	git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "init" 2>/dev/null || true
+	tmpbin_gemini_none=$(_build_path_without jq)
+	rm -f "$tmpbin_gemini_none/gemini"   # ensure gemini also absent from PATH
+	rc=0
+	stderr_out=$(env PATH="$tmpbin_gemini_none" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>&1 >/dev/null) || rc=$?
+	rm -rf "$tmpbin_gemini_none"
+	runs_count=$(count_runs "$SETUP_GEMINI_WS")
+	if [[ "$rc" -ne 0 \
+	  && "$stderr_out" == *"ralph: missing dependency: gemini"* \
+	  && "$stderr_out" == *"ralph: missing dependency: jq"* \
+	  && "$runs_count" -eq 0 ]]; then
+	  _pass "gemini+jq both missing: both deps reported in one pass, no run dir"
+	else
+	  _fail "gemini+jq both missing: rc=$rc runs=$runs_count stderr=$stderr_out"
+	fi
+	cleanup_gemini_ws
+
+	# ── 汇总 ─────────────────────────────────────────────────────────────────────
 
 echo ""
 echo "=== Results: PASS=$PASS FAIL=$FAIL ==="
