@@ -66,15 +66,125 @@ provider_oneshot() {
   # stdout + stderr 合并写入 provider.stdout.log
   "${gemini_cmd[@]}" > "$log_path" 2>>"$log_path" || rc=$?
 
+  # 从 stream-json init 事件解析 session_id（session 采集精确匹配锚点）
+  if [[ -f "$log_path" ]]; then
+    local _gemini_sid=""
+    _gemini_sid="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
+      | jq -r 'select(.type == "init") | (.session_id // .sessionId // empty)' 2>/dev/null \
+      | head -1)" || _gemini_sid=""
+    if [[ -n "$_gemini_sid" ]]; then
+      update_meta_jq "$iter_dir" '.session_id = $sid' --arg sid "$_gemini_sid"
+    fi
+  fi
+
   return "$rc"
 }
 
+# ── _gemini_derive_history ────────────────────────────────────────────────────
+# 从 provider.stdout.log（stream-json 事件流）派生人话视图
+# Gemini stream-json 事件类型：init / text / complete（真实 CLI 可能有更多）
+# 输出：[assistant] 文本摘要
+_gemini_derive_history() {
+  local session_file="$1" out="$2"
+  local iter_dir="${session_file%/*}"
+  local stdout_log="$iter_dir/provider.stdout.log"
+  [[ -f "$stdout_log" ]] || return 0
+
+  # 过滤 JSON 行（provider.stdout.log 含 stdout + stderr 合流）
+  local jsonl_events
+  jsonl_events="$(grep -E '^[[:space:]]*\{' "$stdout_log" 2>/dev/null)" || return 0
+  [[ -n "$jsonl_events" ]] || return 0
+
+  printf '%s\n' "$jsonl_events" | jq -r --slurp '
+    .[] |
+    if .type == "text" and (.text // "") != "" then
+      "[assistant]",
+      .text,
+      ""
+    elif .type == "complete" and (.text // "") != "" then
+      "[assistant]",
+      .text,
+      ""
+    else empty end
+  ' > "$out" 2>/dev/null || true
+}
+
 # ── provider_collect_session ─────────────────────────────────────────────────
-# DEV-3 将实现完整 session 采集（精确匹配 / mtime fallback / history 派生）
-# 此处为 DEV-2 最小桩：设置 capture_status 并保证 session.history.log 存在
+# Gemini session 采集（DEV-3）：
+# 1. 精确匹配：按 session_id 在 ${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/*/chats/ 下查找 sessionId 匹配的 JSON 文件
+# 2. mtime 退化：按 provider_started_at 时间戳筛选，取 mtime 最新
+# 3. 派生 session.history.log（从 provider.stdout.log stream-json 事件流）
 provider_collect_session() {
   local iter_dir="$1"
-  update_meta_jq "$iter_dir" '.capture_status = "pending"'
+  local meta="$iter_dir/meta.json"
+  local gemini_root="${GEMINI_CLI_HOME:-$HOME}/.gemini"
+  local dst="$iter_dir/session.gemini.json"
+
+  # 读取 session_id（从 init 事件，由 provider_oneshot 写入 meta.json）
+  local session_id
+  session_id="$(jq -r '.session_id // empty' "$meta" 2>/dev/null)"
+
+  local found_file=""
+
+  # ── Strategy 1: 按 session_id 精确匹配 JSON 文件内容 ────────────────────────
+  if [[ -n "$session_id" && "$session_id" != "null" && -d "$gemini_root/tmp" ]]; then
+    while IFS= read -r f; do
+      [[ -n "$f" ]] || continue
+      local file_sid
+      file_sid="$(jq -r '.sessionId // empty' "$f" 2>/dev/null)" || continue
+      if [[ "$file_sid" == "$session_id" ]]; then
+        found_file="$f"
+        break
+      fi
+    done < <(find "$gemini_root/tmp" -path '*/chats/*.json' -type f 2>/dev/null)
+  fi
+
+  if [[ -n "$found_file" && -f "$found_file" ]]; then
+    cp "$found_file" "$dst"
+    update_meta_jq "$iter_dir" \
+      '.capture_status = "ok" | .session_source_path = $src | .session_copied_path = $dst' \
+      --arg src "$found_file" --arg dst "$dst"
+  else
+    # ── Strategy 2: mtime fallback ──────────────────────────────────────────
+    local fallback_file=""
+    local started_at
+    started_at="$(jq -r '.provider_started_at // empty' "$meta" 2>/dev/null)"
+
+    if [[ -n "$started_at" && "$started_at" != "null" && -d "$gemini_root/tmp" ]]; then
+      local started_epoch buffered_iso anchor_local
+      started_epoch="$(ralph_iso_to_epoch "$started_at")"
+      if [[ -n "$started_epoch" ]]; then
+        buffered_iso="$(ralph_epoch_to_iso $((started_epoch - 1)))"
+        anchor_local="$(ralph_iso_to_local_find_fmt "$buffered_iso")"
+        if [[ -n "$anchor_local" ]]; then
+          local mtime_candidates=""
+          mtime_candidates="$(find "$gemini_root/tmp" -path '*/chats/*.json' -type f \
+            -newermt "$anchor_local" 2>/dev/null)" || mtime_candidates=""
+          if [[ -n "$mtime_candidates" ]]; then
+            fallback_file="$(echo "$mtime_candidates" | xargs ls -1t 2>/dev/null | head -1)"
+          fi
+        fi
+      fi
+    fi
+
+    if [[ -n "$fallback_file" && -f "$fallback_file" ]]; then
+      cp "$fallback_file" "$dst"
+      update_meta_jq "$iter_dir" \
+        '.capture_status = "ok" | .capture_warning = "fallback by mtime" | .session_source_path = $src | .session_copied_path = $dst' \
+        --arg src "$fallback_file" --arg dst "$dst"
+    else
+      local warning_msg="Gemini session file not found"
+      if [[ -z "$session_id" || "$session_id" == "null" ]]; then
+        warning_msg="session_id missing in meta.json"
+      fi
+      update_meta_jq "$iter_dir" \
+        '.capture_status = "warning" | .capture_warning = $msg' \
+        --arg msg "$warning_msg"
+    fi
+  fi
+
+  # 派生 session.history.log（从 provider.stdout.log 事件流，不依赖 session 文件）
+  _gemini_derive_history "$dst" "$iter_dir/session.history.log"
   touch "$iter_dir/session.history.log"
   return 0
 }

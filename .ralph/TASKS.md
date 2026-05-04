@@ -60,11 +60,14 @@
   - 验证：`bash -n` 三个文件通过；adapter 翻译 RALPH_PROVIDER_CONFIG_DIR→GEMINI_CLI_HOME 通过；空值不 export 通过；mock 命令记录断言 approval-mode=yolo/output-format=stream-json/model 空值鲁棒性通过；`bash scripts/check.sh` 通过；`git diff --check` 通过。
   - 未验证：E2E mock `ralph run --provider gemini` 测试中 symlink 解析导致 workspace 定位到项目根（非测试 temp dir），未产生有效 E2E 证据；真实 Gemini CLI 调用（QA-2）；session capture 完整实现（DEV-3）；error diagnose 完整实现（DEV-4）；`bash scripts/integration-test.sh` 未扩展 Gemini 用例（QA-1 职责）。
 
-- [ ] DEV-3: 实现 Gemini session capture 与 `session.history.log` 派生
+- [x] DEV-3: 实现 Gemini session capture 与 `session.history.log` 派生
   - 预期：Gemini iter 目录产出明确的 native session 副本和跨 provider 人话视图；session capture 缺失时降级为 warning，不中断 run。
   - 输入：DEV-1 session 文件契约；REQ-006/022；`provider_collect_session` 契约；Claude/Codex history 派生实现。
   - 范围：`.ralph/lib/adapter-gemini.sh` 的 `provider_collect_session` 和 Gemini history helper；扩展 DEV-2 的 `tests/fixtures/mock-gemini` session store 场景；必要的 `meta.json` 字段写入；不把 provider session 当任务完成事实。
   - 验证计划：mock Gemini session store 精确匹配 / mtime fallback / missing session 三类测试；断言 `capture_status`、`session_source_path`、native session 副本、非空或合理空的 `session.history.log`。
+  - 完成：adapter-gemini.sh 新增 provider_oneshot session_id 提取（stream-json init 事件）+ 完整 provider_collect_session（精确匹配 sessionId / mtime fallback / warning 降级）+ `_gemini_derive_history`（从 provider.stdout.log 派生 [assistant] 文本）；mock-gemini 新增 `session_mismatch` / `no_session_file` 场景，init 事件含 session_id，_write_native_session 支持参数覆盖 session_id。
+  - 验证：`bash -n` 通过；精确匹配 capture_status=ok + session_id 匹配 + session.gemini.json 存在 + history 含 [assistant]；mtime fallback capture_warning="fallback by mtime" + session.gemini.json 存在；missing session capture_status=warning + 无 session.gemini.json + history 仍从 stdout 派生；`git diff --check` 通过；`bash scripts/check.sh` 通过。
+  - 未验证：E2E mock `ralph run --provider gemini` 完整 run（DEV-2 已知 symlink 定位问题）；真实 Gemini CLI session 文件格式（QA-2）；`bash scripts/integration-test.sh` Gemini 用例（QA-1 职责）。
 
 - [ ] DEV-4: 实现 Gemini 错误诊断与 `run -v` 可读事件输出
   - 预期：Gemini provider failure 能写入统一 `last_error.type/message`；`ralph run -v --provider gemini` 有可读 marker，不把 JSON/text 原始流直接刷成噪音。
