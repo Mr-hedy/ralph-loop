@@ -14,7 +14,9 @@
 - **未实施的历史 phase（T3 / T4 / T5 / T7）后续作为新 iteration 推进，编号与 T 不绑定**：
   - I1 = dogfood T5（status + watch 真实功能）+ HUMAN-N 阻塞机制 + 任务类型路由（已完成，归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`）
   - I2 = T3（Codex adapter）（已完成，归档见 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`）
-  - I3 / I4 等 = T4 / T7 或新议题，由用户在 I3 启动前排序
+  - I3 = watch/status 观察面 bugfix（已完成，归档见 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`）
+  - I4 = T4（Gemini adapter）（已启动规划，设计见 `docs/requirements/ralph-loop/I4-design.md`）
+  - I5 等 = T7 或新议题，由用户在下一轮启动前排序
   - 历史 T 编号仅作为"该 iteration 关联的 v0.1 规划项"出现在 iteration 主题里，不再是 phase 单位
 
 ## Current State
@@ -23,7 +25,8 @@
 - **进入 dogfood 模式（2026-04-30）**：本仓库切换到 `.ralph/TASKS.md` 作为开发任务事实源；root `task.md` 已封版作为 v0.1 历史归档。
 - **I1 已完成（2026-05-03）**：dogfood T5（status + watch 真实功能），归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`。
 - **I2 已完成（2026-05-04）**：T3（Codex adapter），归档见 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`；设计方案见 `docs/requirements/ralph-loop/I2-design.md`。
-- **I3 待启动**：候选为 T4（Gemini adapter）/ T7（skill 封装）/ 新议题，等待用户排序后再创建 I3 设计和任务列表。
+- **I3 已完成（2026-05-04）**：watch/status 观察面修复，归档见 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`；checkpoint 为 `2641605 checkpoint: watch status surface fix`。
+- **I4 已启动规划（2026-05-04）**：T4（Gemini adapter），设计方案见 `docs/requirements/ralph-loop/I4-design.md`；当前任务源为 `.ralph/TASKS.md`。
 - 协作壳已初始化，`.spec/`、`docs/` 结构稳定。
 - Ralph v0.1 需求已收敛为 22 条决策，沉淀在 `requirements.md`（REQ-001 ~ REQ-016）。
 - 架构和稳定契约沉淀在 `docs/architecture/overview.md`；provider 集成细节沉淀在 `docs/architecture/integrations.md`；安全边界沉淀在 `docs/architecture/security.md`。
@@ -113,7 +116,8 @@
 | 风险 | 影响 | 缓解 |
 |---|---|---|
 | Claude `~/.claude/projects/` cwd 哈希规则随版本变 | T2 session 采集失败 | fallback 按 mtime 扫描，记录 warning；在 session capture 测试中锁版本 |
-| Gemini `-p` 模式输出不稳定含 session id | T4 session 采集退化 | `architecture/integrations.md` 已定退化规则 |
+| Gemini `-p` 模式输出不稳定含 session id | T4 session 采集退化 | `architecture/integrations.md` 已定退化规则；I4 DEV-1 先用 Gemini CLI 0.39.1 + 官方 docs 重新校准 |
+| Gemini CLI flag 漂移（`--yolo` deprecated、effort 映射未确认） | T4 命令构造或 docs 误导用户 | I4 DEV-1 必须先同步 requirements / integrations / overview，再写 adapter |
 | Codex `--json` 事件 schema 变动 | Codex 错误诊断失准 | I2 已按本机 Codex CLI `0.125.0` 校准，事件 schema 写进 `architecture/integrations.md` 随更新 |
 | 三家 provider 同时使 `--allowedTools` / `--sandbox` 语义漂移 | 安全边界失效 | 每次 T2-T4 完成前重新读 provider CLI help，写进 PR 描述 |
 | stagnation 误判（agent 改了注释但没改勾选状态） | 提前 `stagnated` | changed_files 并集规则覆盖未提交变更；阈值 5 有冗余 |
