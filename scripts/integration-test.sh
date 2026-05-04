@@ -371,18 +371,32 @@ echo ""
 echo "-- Exit reason: interrupted (post-lock)"
 ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
-# 用 SIGTERM（macOS bash 上 INT 在等待子进程时被 deferred/ignored；TERM 立即触发 trap）
-RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=30 bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null &
+# 用 SIGTERM（macOS bash 上 INT 在等待子进程时被 deferred/ignored；TERM 立即触发 trap）。
+# slow_child 验证 interrupted 和 timeout 一样会清理 provider 外部子进程。
+RALPH_FAKE_SCENARIO=slow_child RALPH_FAKE_SLEEP=30 RALPH_PROGRESS_HEARTBEAT_SEC=0 \
+  bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null &
 bg_pid=$!
-sleep 2  # 等待 ralph 获取 lock 并进入 slow sleep
+child_pid=""
+for _ in 1 2 3 4 5; do
+  child_pid="$(find "$ws/.ralph/runs" -name slow-child.pid -exec sh -c 'cat "$1"' _ {} \; 2>/dev/null | head -1 || true)"
+  [[ -n "$child_pid" ]] && break
+  sleep 1
+done
 kill -TERM "$bg_pid" 2>/dev/null || true
 wait "$bg_pid" 2>/dev/null || true
-run_dir="$(latest_run_dir "$ws")"
-reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
-if [[ "$reason" == "interrupted" ]]; then
-  _pass "interrupted (post-lock): exit_reason=interrupted, run_dir exists"
+run_dir="$(latest_run_dir "$ws" 2>/dev/null || true)"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null || true)"
+child_dead=0
+if [[ -n "$child_pid" ]] && ! kill -0 "$child_pid" 2>/dev/null; then
+  child_dead=1
+fi
+if [[ "$child_dead" -ne 1 && -n "$child_pid" ]]; then
+  kill "$child_pid" 2>/dev/null || true
+fi
+if [[ "$reason" == "interrupted" && -n "$child_pid" && "$child_dead" -eq 1 ]]; then
+  _pass "interrupted (post-lock): exit_reason=interrupted and provider child process is cleaned up"
 else
-  _fail "interrupted (post-lock): expected interrupted, got reason=$reason run_dir=$run_dir"
+  _fail "interrupted (post-lock): reason=$reason run_dir=$run_dir child_pid=${child_pid:-missing} child_dead=$child_dead"
 fi
 cleanup_ws "$ws"
 

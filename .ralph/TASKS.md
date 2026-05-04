@@ -175,3 +175,12 @@
   - 完成：timeout 分支改为收集并终止 provider oneshot 进程树（TERM 后 KILL）；fake adapter 增加 `slow_child` 场景，测试真实 child pid 被清理；SC-012 更新为 8 种 exit reason 并新增 timeout 进程树 SC；root README timeout 改为“单轮执行超时”；`ralph watch --help` 增加 `--verbose/-v` 选项并区分默认 sticky bar 与 `-v` tail；run help exit reasons 补 `blocked_by_human`。
   - 验证：`bash -n .ralph/lib/run.sh .ralph/lib/adapter-fake.sh .ralph/bin/ralph scripts/integration-test.sh tests/fixtures/mock-codex` PASS；定向 fake `slow_child` timeout 复现 PASS（`exit_reason=timeout`，child pid 已退出）；`bash scripts/check.sh` PASS；`bash scripts/integration-test.sh` PASS（83/83）；`git diff --check` PASS。
   - 未验证：真实 Claude/Codex timeout 手工杀进程树未重跑；自动化用 fake 外部 child 覆盖同一 shell 子进程残留风险。
+
+- [x] DEV-13: 修复最终 adversarial-review findings
+  - 预期：最终 review 发现的 interrupted 进程树清理缺口、overview history 来源漂移、requirements provider flag 漂移全部关闭。
+  - 输入：最终 adversarial-review findings 1-3（interrupted 不清理 provider 子进程树；overview 仍把 Codex history 写成从 session jsonl 派生；requirements 仍把 Gemini 写成当前 provider flag）。
+  - 范围：`.ralph/lib/run.sh` provider oneshot PID 跟踪与 trap cleanup；`.ralph/lib/adapter-fake.sh` 背景执行下的 fake 跨轮状态；`scripts/integration-test.sh` interrupted external child 回归；`docs/architecture/overview.md`；`docs/requirements/ralph-loop/requirements.md`；`docs/architecture/testing.md`；`.ralph/TASKS.md`。
+  - 验证计划：`bash -n`；定向 interrupted `slow_child` 探针；`bash scripts/check.sh`；`bash scripts/integration-test.sh`；`git diff --check`。
+  - 完成：run 主循环统一后台启动 `provider_oneshot` 并记录 `_RALPH_PROVIDER_PID`，SIGINT/TERM trap 先终止 provider 进程树再写 `interrupted`；fake adapter 的 `partial_progress` / `append_task_once` 跨轮状态改为 run-dir sentinel，避免后台 subshell 丢状态；interrupted 集成测试改用 `slow_child` 并断言 child pid 已退出；overview 改为 provider-specific history source（Claude 从 `session.claude.jsonl`，Codex 从 `provider.stdout.log`）；requirements FR-001 当前 provider flag 改为 `claude|codex|fake`，Gemini 标注 T4 计划项；SC-012-2 扩展到 timeout/interrupted 进程树清理。
+  - 验证：`bash -n .ralph/lib/run.sh .ralph/lib/adapter-fake.sh .ralph/bin/ralph scripts/integration-test.sh tests/fixtures/mock-codex` PASS；定向 interrupted `slow_child` 探针 PASS（`exit_reason=interrupted`，child pid 已退出）；`bash scripts/check.sh` PASS；`bash scripts/integration-test.sh` PASS（83/83）；`git diff --check` PASS。
+  - 未验证：真实 Claude/Codex 被 Ctrl-C/TERM 中断时的手工进程树观察未重跑；自动化用 fake 外部 child 覆盖 Ralph trap cleanup 关键机制。

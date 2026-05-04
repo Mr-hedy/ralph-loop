@@ -17,6 +17,7 @@ _RALPH_TAIL_PID=""
 _RALPH_TAIL_FILTER_PID=""
 _RALPH_TAIL_FIFO=""
 _RALPH_HEARTBEAT_PID=""
+_RALPH_PROVIDER_PID=""
 
 # ── 退出辅助函数 ─────────────────────────────────────────────────────────────
 _ralph_stop_verbose_tail() {
@@ -77,6 +78,15 @@ _ralph_terminate_process_tree() {
   for pid in $pids; do
     kill -KILL "$pid" 2>/dev/null || true
   done
+}
+
+_ralph_stop_active_provider() {
+  local pid="${_RALPH_PROVIDER_PID:-}"
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    _ralph_terminate_process_tree "$pid"
+    wait "$pid" 2>/dev/null || true
+  fi
+  _RALPH_PROVIDER_PID=""
 }
 
 _ralph_start_provider_heartbeat() {
@@ -271,6 +281,7 @@ _ralph_trap_interrupted() {
     echo "ralph: interrupted before lock acquired" >&2
     exit 130
   else
+    _ralph_stop_active_provider
     _ralph_finish "interrupted" 130 \
       "${_RALPH_ITER:-0}" "${_RALPH_TASKS_TOTAL:-0}" \
       "${_RALPH_TASKS_CHECKED_START:-0}" "${_RALPH_TASKS_CHECKED_END:-0}" \
@@ -600,12 +611,13 @@ EOF
       _ralph_start_provider_heartbeat "$log_path" "$iteration" "$_max_iter_disp"
     fi
 
-    # provider_oneshot（带 timeout 支持）
+    # provider_oneshot（带 timeout / interrupt 清理支持）
     local rc=0
+    RALPH_WORKSPACE="$workspace" provider_oneshot "$prompt_file" "$log_path" "$iter_dir" &
+    local pid=$!
+    _RALPH_PROVIDER_PID="$pid"
     if [[ "$timeout_sec" -gt 0 ]]; then
       # 用后台 + kill 实现单轮超时
-      RALPH_WORKSPACE="$workspace" provider_oneshot "$prompt_file" "$log_path" "$iter_dir" &
-      local pid=$!
       local elapsed=0
       while kill -0 "$pid" 2>/dev/null; do
         sleep 1
@@ -633,8 +645,9 @@ EOF
       done
       wait "$pid" 2>/dev/null || rc=$?
     else
-      RALPH_WORKSPACE="$workspace" provider_oneshot "$prompt_file" "$log_path" "$iter_dir" || rc=$?
+      wait "$pid" 2>/dev/null || rc=$?
     fi
+    _RALPH_PROVIDER_PID=""
 
     # 停 -v live tail
     _ralph_stop_verbose_tail

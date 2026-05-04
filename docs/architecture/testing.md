@@ -85,7 +85,7 @@ tests/
 | I1 status/watch + dogfood prep | +16（实际 57） | SC-023 status、SC-024 watch 自动化部分、HUMAN-N、iteration_name、任务前缀、Provider 配置目录、exit-message |
 | M1 live tail regression | +2（实际 59） | `ralph run -v` happy/error stream-json filter marker 回归覆盖 |
 | I2 Codex adapter | +20（实际 79） | Codex happy path、CODEX_HOME 翻译/隔离、history 派生、诊断矩阵、effort/model 参数、动态任务总数、Codex `run -v` live tail |
-| I2 observability fix | +4（实际 83） | 长 provider oneshot 默认 heartbeat；timeout 清理 provider 子进程树；`watch -v` 在 provider oneshot 运行中 tail 当前 iter；watch help 暴露 `-v` |
+| I2 observability fix | +4（实际 83） | 长 provider oneshot 默认 heartbeat；timeout/interrupted 清理 provider 子进程树；`watch -v` 在 provider oneshot 运行中 tail 当前 iter；watch help 暴露 `-v` |
 
 未覆盖范围（已知，不计入失败）：
 

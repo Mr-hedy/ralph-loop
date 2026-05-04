@@ -3,8 +3,14 @@
 # source 本文件后即设置 RALPH_PROVIDER_CLI；三函数契约
 
 RALPH_PROVIDER_CLI="${RALPH_FAKE_CLI:-bash}"
-_RALPH_PP_DONE=0  # partial_progress 状态跟踪；每次 adapter 被 source 时重置
-_RALPH_APPEND_DONE=0  # append_task_once 状态跟踪；每次 adapter 被 source 时重置
+
+_fake_run_state_file() {
+  local iter_dir="$1"
+  local name="$2"
+  local run_dir
+  run_dir="$(dirname "$(dirname "$iter_dir")")"
+  printf '%s/.fake-%s.done' "$run_dir" "$name"
+}
 
 # ── provider_check_deps ──────────────────────────────────────────────────────
 provider_check_deps() {
@@ -66,7 +72,9 @@ provider_oneshot() {
     partial_progress)
       # iter 1：标记第 1 条任务 + 写一个文件（使 worktree fingerprint 变化）
       # iter 2+：什么都不做（触发 stagnation 累加）
-      if [[ "${_RALPH_PP_DONE:-0}" -eq 0 ]]; then
+      local state_file
+      state_file="$(_fake_run_state_file "$iter_dir" "partial-progress")"
+      if [[ ! -f "$state_file" ]]; then
         local tasks_file="${RALPH_WORKSPACE:-.}/.ralph/TASKS.md"
         if [[ -f "$tasks_file" ]]; then
           local found=0 tmpout
@@ -82,9 +90,9 @@ provider_oneshot() {
           mv "$tmpout" "$tasks_file"
         fi
         printf 'partial-progress-iter1\n' > "${RALPH_WORKSPACE:-.}/pp-test-file.txt"
-        _RALPH_PP_DONE=1
+        touch "$state_file"
       fi
-      echo "fake: partial_progress scenario (done=$_RALPH_PP_DONE)" >> "$log_path"
+      echo "fake: partial_progress scenario" >> "$log_path"
       return 0
       ;;
     append_task_once)
@@ -93,6 +101,8 @@ provider_oneshot() {
       local tasks_file="${RALPH_WORKSPACE:-.}/.ralph/TASKS.md"
       if [[ -f "$tasks_file" ]]; then
         local found=0 tmpout
+        local state_file
+        state_file="$(_fake_run_state_file "$iter_dir" "append-task-once")"
         tmpout="$(mktemp)"
         while IFS= read -r line || [[ -n "$line" ]]; do
           if [[ "$found" -eq 0 && "$line" =~ ^([[:space:]]*-[[:space:]]+)\[[[:space:]]\](.*)$ ]]; then
@@ -102,13 +112,13 @@ provider_oneshot() {
             printf '%s\n' "$line" >> "$tmpout"
           fi
         done < "$tasks_file"
-        if [[ "${_RALPH_APPEND_DONE:-0}" -eq 0 ]]; then
+        if [[ ! -f "$state_file" ]]; then
           printf '%s\n' "- [ ] Task B" >> "$tmpout"
-          _RALPH_APPEND_DONE=1
+          touch "$state_file"
         fi
         mv "$tmpout" "$tasks_file"
       fi
-      echo "fake: append_task_once scenario (appended=$_RALPH_APPEND_DONE)" >> "$log_path"
+      echo "fake: append_task_once scenario" >> "$log_path"
       return 0
       ;;
 	    slow)

@@ -338,9 +338,9 @@ provider_oneshot <prompt_file> <log_path> <iter_dir>
 ```bash
 provider_collect_session <iter_dir>
 # 副作用：
-#   - 从 provider 原生 session 目录定位本轮 session 文件
-#   - 硬链接或复制到 <iter_dir>/session.<provider>.*
-#   - 派生 <iter_dir>/session.history.log（人话视图，含 user / assistant / thinking / tool_use 摘要 / tool_result）
+#   - best-effort 采集 provider 原生 session 文件到 <iter_dir>/session.<provider>.jsonl
+#   - 按 provider-specific source 派生 <iter_dir>/session.history.log
+#     Claude: session.claude.jsonl；Codex: provider.stdout.log JSONL events
 #   - 更新 <iter_dir>/meta.json 的 capture_status / capture_warning / session_source_path / session_copied_path
 # 返回码：
 #   0 = 成功或受控降级（写了 warning 也算成功）
@@ -525,7 +525,13 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 
 ## 派生视图
 
-`session.history.log` 是从 provider 原生 session 文件（`session.<provider>.jsonl`）派生的**非权威**跨 provider 人话视图（REQ-006），目的是让复盘时不必直接读 JSONL；统一 chat + tools 双视图为单一文件：
+`session.history.log` 是每个 one-shot 的**非权威**跨 provider 人话视图（REQ-006），目的是让复盘时不必直接读 provider 原始 JSONL；统一 chat + tools 双视图为单一文件。
+
+派生来源是 provider-specific：
+
+- Claude：从 `session.claude.jsonl` 派生，包含 user / assistant / thinking / tool_use / tool_result。
+- Codex：从 `provider.stdout.log` 的 `codex exec --json` stdout JSONL events 派生，当前包含 assistant / tool_use / tool_result；`session.codex.jsonl` 保留为 raw evidence 和派生 bug 回滚 anchor，不作为 history parser 主输入。
+- 新增 provider 必须在 `docs/architecture/integrations.md` 明确 history source；不得默认假设 `session.<provider>.jsonl` 可解析成人话视图。
 
 ### `session.history.log` 格式
 
@@ -540,17 +546,17 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 <assistant text>
 
 [tool-use name=Bash] <timestamp>
-<tool input JSON summary; long input is truncated with a pointer to session.<provider>.jsonl>
+<tool input / command summary; long input is truncated with a pointer to the provider-specific source>
 
 [tool-result name=Bash] <timestamp>
 <truncated tool output, max 2000 chars>
 ```
 
 要素：
-- 用户消息 / assistant 文本 / thinking 块（**保留全文**）/ tool_use（长 input 摘要化，完整内容保留在 `session.<provider>.jsonl`）/ tool_result（截 2000 字符）+ 时间戳
+- 用户消息 / assistant 文本 / thinking 块（**保留全文**）/ tool_use（长 input 摘要化，完整内容保留在 provider-specific source；Claude 指向 `session.claude.jsonl`，Codex 指向 `provider.stdout.log`）/ tool_result（截 2000 字符）+ 时间戳
 - 删除原 `chat.log` 中"thinking 不输出"的过滤；删除独立 `tools.log` 文件（合并进来）
 
-派生规则由各 adapter 实现（参考 `_claude_derive_history`）。
+派生规则由各 adapter 实现（参考 `_claude_derive_history` / `_codex_derive_history`）。
 
 ## 状态观察
 

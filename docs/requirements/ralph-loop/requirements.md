@@ -162,7 +162,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | SC-010-1 | REQ-010 | 在任意 cwd 执行 `/abs/path/.ralph/bin/ralph run`，ralph 进程最终 cwd 为 `/abs/path` | `pwd` 或 `status.json` | 路径一致 | 集成测试 |
 | SC-011-1 | REQ-011 | 缺 PROMPT.md / TASKS.md / .env / 非 git 仓库 / provider CLI 不可执行任一条件，ralph 立即退出且不创建 run 目录；`RALPH_PROVIDER=claude` 且三路 UUID 生成全失败时同样快速失败 | 退出码 + `.ralph/runs/` 状态 | 快速失败 | 集成测试 6 个用例（5 个核心条件 + Claude UUID 路径） |
 | SC-012-1 | REQ-012 | 7 种退出原因（`done` / `provider_failed` / `timeout` / `max_iterations` / `stagnated` / `interrupted` / `blocked_by_human`）都能写入 `result.json.exit_reason`；`locked` 不产生 run 目录、不写 `result.json`，合计 8 种 | `result.json` + `.ralph/runs/` 状态 | 全覆盖 | 集成测试（各触发一次） |
-| SC-012-2 | REQ-012 | 单轮 `timeout` 退出时清理 provider oneshot 进程树，不遗留真实 provider 子进程继续运行 | fake provider 启动外部 child 并触发 timeout | `exit_reason=timeout` 且 child pid 已退出 | 集成测试（进程探针） |
+| SC-012-2 | REQ-012 | 单轮 `timeout` 或 lock 后 `interrupted` 退出时清理 provider oneshot 进程树，不遗留真实 provider 子进程继续运行 | fake provider 启动外部 child 并触发 timeout / SIGTERM | `exit_reason=timeout` 或 `interrupted` 且 child pid 已退出 | 集成测试（进程探针） |
 | SC-013-1 | REQ-013 | 连续 5 轮无勾选变化且 changed_files 空 → `stagnated` 退出 | `result.json.exit_reason` | `stagnated` | 集成测试：用 fake provider 模拟空转 |
 | SC-014-1 | REQ-014 | `--effort=low\|medium\|high` 翻译为各 provider 原生参数；`none` 或留空不传 | 构造的命令行 | flag 匹配或缺席 | 单元测试 |
 | SC-015-1 | REQ-015 | `status.json` 和 `provider.meta` 都记录本轮 provider；run 生命周期内不变更 | 文件字段 | 一致 | 集成测试 |
@@ -248,7 +248,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - 关联流程：BPF-001、BPF-002
 - 用户故事：作为维护者，我希望用 `.ralph/bin/ralph run` 驱动一轮长任务循环，以便让 agent 按 TASKS.md 顺序处理任务并沉淀证据。
 - 输入：
-  - CLI flag：`--provider=<claude|codex|gemini>`、`--model=<name>`、`--effort=<low|medium|high|none>`、`--max-iter=N`、`--timeout=SEC`（均可选）
+  - CLI flag：`--provider=<claude|codex|fake>`、`--model=<name>`、`--effort=<low|medium|high|none>`、`--max-iter=N`、`--timeout=SEC`（均可选；Gemini 为 T4 计划项，当前无 `adapter-gemini.sh`）
   - 环境变量：`RALPH_PROVIDER` / `RALPH_MODEL` / `RALPH_EFFORT` / `RALPH_MAX_ITER` / `RALPH_TIMEOUT`
   - 文件：`.ralph/.env`（`RALPH_*` 字段）
 - 输出：
@@ -433,7 +433,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-009 | SC-009-1, FR-001, TC-STK-003 | 单元测试 | 完整 |
 | REQ-010 | SC-010-1, TC-STK-004 | 集成测试 | 完整 |
 | REQ-011 | SC-011-1, BPF-002, NFR-REL-003 | 集成测试 5 用例 | 完整 |
-| REQ-012 | SC-012-1, SC-012-2, BPF-001, FR-001, NFR-REL-001 | 集成测试各触发一次 + timeout 进程探针 | 完整 |
+| REQ-012 | SC-012-1, SC-012-2, BPF-001, FR-001, NFR-REL-001 | 集成测试各触发一次 + timeout/interrupted 进程探针 | 完整 |
 | REQ-013 | SC-013-1, BPF-001 | 集成测试 | 完整 |
 | REQ-014 | SC-014-1, FR-005-007 | 单元测试 | 完整 |
 | REQ-015 | SC-015-1, FR-001 | 集成测试 | 完整 |
