@@ -665,6 +665,6 @@ Sticky bar 字段来源均为 status.json：
 
 ## 待落实
 
-- `adapter-fake.sh` 由 `RALPH_FAKE_SCENARIO` 环境变量选场景（不依赖"第 N 轮"模式），核心场景：`happy`（勾第 1 条未勾选任务，`exit=0`）/ `stagnation`（不改 TASKS + 不改 git，`exit=0`）/ `crash`（`exit=非零`，无结构化错误，诊断为 `unknown`）/ `api-error`（`exit=非零` + stderr 含 api 错误关键字，诊断为 `api`）/ `slow`（`sleep` 远超 `--timeout`，用于 `timeout` 用例）/ `slow_child`（启动外部 child 并等待，用于 timeout 进程树清理）/ `append_task_once`（运行中追加任务，用于任务总数刷新）。接受 `RALPH_FAKE_CLI` 覆盖 `RALPH_PROVIDER_CLI`、`RALPH_FAKE_SLEEP` 控制 sleep 时长。
+- `adapter-fake.sh` 由 `RALPH_FAKE_SCENARIO` 环境变量选场景（不依赖"第 N 轮"模式），核心场景：`happy`（勾第 1 条未勾选任务，`exit=0`）/ `stagnation`（不改 TASKS + 不改 git，`exit=0`）/ `crash`（`exit=非零`，无结构化错误，诊断为 `unknown`）/ `api-error`（`exit=非零` + stderr 含 api 错误关键字，诊断为 `api`）/ `slow`（`sleep` 远超 `--timeout`，用于 `timeout` 用例）/ `slow_child`（启动外部 child 并等待，用于 timeout/interrupted 进程树清理）/ `append_task_once`（运行中追加任务，用于任务总数刷新）。接受 `RALPH_FAKE_CLI` 覆盖 `RALPH_PROVIDER_CLI`、`RALPH_FAKE_SLEEP` 控制 sleep 时长。
 - Skill 封装（REQ-016）的具体接口在 v0.1 完成后单独设计。
 - `docs/architecture/testing.md` 在 T1 集成测试脚本成形后补齐。

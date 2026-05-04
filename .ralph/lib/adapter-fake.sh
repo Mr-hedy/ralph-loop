@@ -128,8 +128,8 @@ provider_oneshot() {
 	      sleep "$actual_sleep"
 	      return 0
 	      ;;
-	    slow_child)
-	      # 启动外部子进程并等待；用于验证 timeout 会清理 provider 子进程树。
+		    slow_child)
+		      # 启动外部子进程并等待；用于验证 timeout/interrupted 会清理 provider 子进程树。
 	      local actual_sleep="${sleep_sec:-30}"
 	      sleep "$actual_sleep" &
 	      local child_pid=$!
