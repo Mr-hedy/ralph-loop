@@ -34,7 +34,7 @@
 | `meta.json` | iter 元数据（含 session_id / provider_started_at / runtime_block / capture_status / error / 任务进度 / changed_files / stagnation_count 等） | 始终 |
 | `provider.stdout.log` | provider CLI stdout + stderr 合流原始输出（含 stream-json 事件、错误信息） | 始终 |
 | `session.<provider>.jsonl` | provider 原生 session 文件副本（保留 30 天后过期 / 派生视图 bug 回滚 / 跨机器 evidence 自包含三个用途；Gemini 为 `.json` 而非 `.jsonl`） | session 采集成功（精确匹配或 mtime fallback） |
-| `session.history.log` | 跨 provider 人话视图（provider 间内容有差异：Claude 含 user/assistant/thinking/tool-use/tool-result，Codex 含 assistant/tool-use/tool-result 但无 user/thinking），Claude 从 `session.claude.jsonl` 派生，Codex 从 `provider.stdout.log`（`--json` stdout 事件流）派生；完整 tool input 保留在各派生源中 | 始终（capture 失败时为空文件） |
+| `session.history.log` | 跨 provider 人话视图（provider 间内容有差异：Claude 含 user/assistant/thinking/tool-use/tool-result，Codex 含 assistant/tool-use/tool-result 但无 user/thinking，Gemini 含 assistant/tool-use/tool-result），Claude 从 `session.claude.jsonl` 派生，Codex 从 `provider.stdout.log`（`--json` stdout 事件流）派生，Gemini 从 `provider.stdout.log`（`--output-format stream-json` 事件流）派生；完整 tool input 保留在各派生源中 | 始终（capture 失败时为空文件） |
 
 各 provider native session 文件实例：
 - Claude：`session.claude.jsonl`（从 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/<cwd_hash>/<session_id>.jsonl` 复制；stream-json 模式下与 stdout 事件流内容相同，但保留独立副本作为 30 天后回看 anchor）
@@ -286,6 +286,18 @@ gemini -p "$prompt" --approval-mode=yolo --output-format stream-json
 Gemini CLI 无 `--thinking-budget` 或等价 CLI flag。`thinkingBudget` 仅可通过 `settings.json` 的 `modelConfigs` 配置，不在命令行暴露。
 
 Ralph `--effort` 对 Gemini **不传递**（`none` 或留空同样不传）。未来若 Gemini CLI 新增 CLI 入口，再扩展映射。
+
+### History 派生
+
+Gemini `session.history.log` 从 `provider.stdout.log`（`--output-format stream-json` stdout 事件流）派生。QA-2 真实 smoke 校准后的真实 CLI 事件类型：
+
+- `init`：含 `sessionId` 字段（session capture 用），history 派生跳过
+- `message`：含 `role`（`user` / `assistant`）+ `delta`（boolean）+ `text` 字段；`role=assistant` + `delta=true` 的 `text` 片段拼接为 `[assistant]` 内容
+- `tool_use`：含 `name` + `input` 字段，标记为 `[tool_use]`
+- `tool_result`：含 `output` 字段，标记为 `[tool_result]`
+- `result`：含 `status`（`success` / `error`），标记为 `[result]`
+
+注意：DEV-6 需修复当前 `_gemini_derive_history` 的事件匹配（mock 用的 `type:"text"` / `type:"complete"` 需对齐真实 `type:"message"` / `type:"result"` schema）。
 
 ## 错误诊断（续 Gemini）
 

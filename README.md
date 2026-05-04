@@ -19,6 +19,7 @@
 | jq | meta.json 写入 |
 | Claude CLI (`claude`) | Claude provider CLI —— 参考 [安装文档](https://docs.anthropic.com/en/docs/claude-code) |
 | Codex CLI (`codex`) | Codex provider CLI（I2 / T3 已落地） |
+| Gemini CLI (`gemini`) | Gemini provider CLI（I4 / T4 已落地） |
 
 ### 1. 部署到 workspace
 
@@ -33,7 +34,7 @@ cp -r <ralph-loop-repo>/.ralph/ <your-workspace>/.ralph/
 在 workspace 根创建 `.ralph/.env`（最小配置）：
 
 ```bash
-RALPH_PROVIDER=claude                         # claude / codex
+RALPH_PROVIDER=claude                         # claude / codex / gemini
 # 可选：
 # RALPH_EFFORT=low                       # low / medium / high / none（默认不传）
 # RALPH_MAX_ITER=20                      # 最大轮数，0 = 无限（默认 0）
@@ -42,7 +43,7 @@ RALPH_PROVIDER=claude                         # claude / codex
 # RALPH_MODEL=<name>                     # 覆盖 provider 默认模型
 # RALPH_PROVIDER_CONFIG_DIR=~/.claude-x  # 用独立账号 / API 配置跑 ralph
                                          # ralph 自动翻译为 provider 原生变量：
-                                         # Claude → CLAUDE_CONFIG_DIR；Codex → CODEX_HOME
+                                         # Claude → CLAUDE_CONFIG_DIR；Codex → CODEX_HOME；Gemini → GEMINI_CLI_HOME
                                          # 该目录必须已包含对应 provider 登录态 / 配置
 ```
 
@@ -111,7 +112,7 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 
 ## 当前状态
 
-- 版本：v0.1.1-dev（v0.1.0 已发布于 2026-04-28；I1/I2/I3 已完成，I4 Gemini adapter 规划中）
+- 版本：v0.1.1-dev（v0.1.0 已发布于 2026-04-28；I1/I2/I3 已完成，I4 Gemini adapter 实施中）
 - 当前开发任务：`.ralph/TASKS.md`（dogfood 模式，root `task.md` 已封版）
 - 当前 iteration 设计方案：`docs/requirements/ralph-loop/I4-design.md`（I3 已归档为 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`）
 - 续接状态：`handoff.md`

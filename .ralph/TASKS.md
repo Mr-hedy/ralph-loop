@@ -128,11 +128,14 @@
     - P1-2（留 DEV-5）：用户需知 `RALPH_PROVIDER_CONFIG_DIR` 会映射为 `GEMINI_CLI_HOME`，影响 auth 路径；README 需说明配置方法
     - Remaining risk：error 诊断（`provider_diagnose`）路径未经真实 CLI 验证；Gemini CLI 版本更新后事件 schema 可能变化
 
-- [ ] DEV-5: 同步 Gemini 用户入口文档与部署单元 README
+- [x] DEV-5: 同步 Gemini 用户入口文档与部署单元 README
   - 预期：用户能按 README/`.ralph/README.md` 正确配置 `RALPH_PROVIDER=gemini`，理解 Gemini 的配置目录、approval/sandbox、session capture 和已知限制。
   - 输入：DEV-1 校准结果；QA-2 真实 smoke 证据或阻塞结论；requirements/overview/integrations/security/testing。
   - 范围：`README.md`、`.ralph/README.md`、`docs/README.md`、`docs/roadmap.md`、必要的 requirements/architecture docs；不改 runtime。
   - 验证计划：`rg` 检查 Gemini 仍被写成 T4 planned 的旧入口是否只出现在历史语境；`git diff --check`；`bash scripts/check.sh`。
+  - 完成：5 个文件更新（README.md、.ralph/README.md、docs/roadmap.md、docs/requirements/ralph-loop/requirements.md、docs/architecture/integrations.md）。用户入口文档全部同步 Gemini adapter 三等公民地位：前置依赖表、provider 选择、.env 配置示例、config dir 隔离示例、iter 目录结构、FAQ、-v 模式事件 marker。补充 REVIEW-1 P1-3（SC-022-6/7 Gemini 配置目录 SC 条目）、P2-1（integrations.md Gemini history 派生内容格式）、P2-3（SC-025-2 加入 Gemini）；补充 QA-2 P1-2（README 说明 GEMINI_CLI_HOME 映射）。
+  - 验证：`rg` 确认无残留"T4 planned/规划中"旧入口（.ralph/README.md 仅含"I4 / T4 已落地"正确描述）；`git diff --check` 通过；`bash scripts/check.sh` 通过。
+  - 未验证：`bash scripts/integration-test.sh` 未运行（本次纯文档变更，不涉及测试代码或 runtime）。
 
 - [ ] DEV-6: 修复 QA-2 发现的 Gemini adapter 事件 schema 漂移（P0-1/P0-2/P1-1）
   - 预期：真实 Gemini CLI 调用后 session_id 正确提取、session.gemini.json 正确采集、session.history.log 非空、`run -v` 显示主要事件 marker。

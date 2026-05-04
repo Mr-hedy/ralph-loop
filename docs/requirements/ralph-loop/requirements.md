@@ -177,6 +177,8 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | SC-022-3 | REQ-022 | `provider_collect_session` 用 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/<cwd_hash>/` 定位 session；CLAUDE_CONFIG_DIR 设为自定义路径时，session 从该路径采集，且 `$HOME/.claude/projects/` 不被读取 | iter meta.json `session_source_path` 字段 + `$HOME/.claude/projects/` 内容快照 | source 路径在 custom dir 下 / `$HOME/.claude/projects/` 无 jsonl 写入 | 集成测试（CLAUDE_CONFIG_DIR aware capture 用例） |
 | SC-022-4 | REQ-022 | `adapter-codex.sh` source 时，若 `RALPH_PROVIDER_CONFIG_DIR` 非空 → export `CODEX_HOME` 等于该值；若为空或未设 → `CODEX_HOME` 保持未设 | 子 shell env | 翻译正确 / 鲁棒性正确 | 集成测试（2 用例：translate + empty robustness） |
 | SC-022-5 | REQ-022 | Codex `provider_collect_session` 用 `${CODEX_HOME:-$HOME/.codex}/sessions/` 定位 rollout 文件；CODEX_HOME 设为自定义路径时，session 从该路径采集，且 `$HOME/.codex/sessions/` 不被读取 | iter meta.json `session_source_path` 字段 + `$HOME/.codex/sessions/` 内容快照 | source 路径在 custom dir 下 / `$HOME/.codex/sessions/` 无 jsonl 写入 | 集成测试（CODEX_HOME aware capture 用例） |
+| SC-022-6 | REQ-022 | `adapter-gemini.sh` source 时，若 `RALPH_PROVIDER_CONFIG_DIR` 非空 → export `GEMINI_CLI_HOME` 等于该值；若为空或未设 → `GEMINI_CLI_HOME` 保持未设 | 子 shell env | 翻译正确 / 鲁棒性正确 | 集成测试（2 用例：translate + empty robustness） |
+| SC-022-7 | REQ-022 | Gemini `provider_collect_session` 用 `${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/*/chats/*.json` 定位 session；GEMINI_CLI_HOME 设为自定义路径时，session 从该路径采集 | iter meta.json `session_source_path` 字段 | source 路径在 custom dir 下 | 集成测试（GEMINI_CLI_HOME aware capture 用例） |
 | SC-023-1 | REQ-023 | `ralph status` plain text 输出包含 status.json 全部 15 字段（`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `iteration` / `iteration_name` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`） | stdout grep 关键字段名 | 字段齐全 | 集成测试 |
 | SC-023-2 | REQ-023 | `ralph status --json` 输出与 `.ralph/status.json` 文件内容字节一致（透传） | `diff <(ralph status --json) .ralph/status.json` | 完全一致 | 集成测试 |
 | SC-023-3 | REQ-023 | `.ralph/status.json` 不存在时 `ralph status` exit 0 + stdout 含"无运行" / "no run" 关键文案；不报错、不创建任何文件 | 退出码 + stdout grep + 文件系统检查 | exit 0 / 提示文案 / 无副作用 | 集成测试 |
@@ -186,7 +188,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | SC-024-4 | REQ-024 | watch 在非 TTY 环境（如 `ralph watch \| cat`）输出一次 one-line watch bar 后退出，不打印 `workspace:` / `run_dir:` 等 status 详情字段 | 退出码 + 输出行为 | exit 0 / 单行紧凑 watch 输出 / 无 status 详情字段 | 集成测试 |
 | SC-024-5 | REQ-024 | sticky bar 状态字段按 `isatty + NO_COLOR` 自适应上色：`state=running` / `exit_reason=done` 绿；`provider_failed` / `timeout` / `max_iterations` / `stagnated` 红；`blocked_by_human` / `locked` / `interrupted` 黄；`NO_COLOR=1` 或非 TTY 输出时不上色 | 终端录屏（含 8 类 exit_reason）+ `NO_COLOR=1` 验证 | 颜色映射正确 / 降级正确 | 手工验证 |
 | SC-025-1 | REQ-025 | `ralph run` 默认 stderr 输出启动 banner、每轮 iter 启停 marker；长 provider oneshot 输出 still-running heartbeat；stdout 保持 silent | stderr/stdout 捕获 | stderr 含 `ralph <version> \| run`、`iter N/M →`、`iter N/M ✓ done`；长 oneshot 含 `still running` + `provider.stdout.log`；stdout 为空 | 集成测试 / dogfood 验证 |
-| SC-025-2 | REQ-025 | `ralph run -v` live tail 会把 Claude stream-json / Codex JSONL events 过滤成人类可读 marker | stderr grep | Claude happy / Codex happy 路径含 `⚙ session` / `💬` / `✓ result` 至少一种；error 路径含 `❌ error` | 集成测试 |
+| SC-025-2 | REQ-025 | `ralph run -v` live tail 会把 Claude stream-json / Codex JSONL / Gemini stream-json events 过滤成人类可读 marker | stderr grep | Claude happy / Codex happy / Gemini happy 路径含 `⚙ session` / `💬` / `✓ result` 至少一种；error 路径含 `❌ error` | 集成测试 |
 | SC-025-3 | REQ-025 | `ralph run -v` 中断或退出时清理 live tail 相关进程，不遗留 `tail -f provider.stdout.log` | 进程表检查 | 退出后无指向本 run 的 `tail -f provider.stdout.log` | 进程探针 / 手工验证 |
 | SC-026-1 | REQ-026 | 人类终端输出将 ISO UTC 时间渲染为本地时间 + 时区偏移 | plain text grep | `YYYY-MM-DD HH:MM:SS +ZZZZ` | 集成测试（status plain text） |
 | SC-026-2 | REQ-026 | JSON 事实文件保持 ISO 8601 UTC 时间戳 | JSON grep/jq | `started_at` / `updated_at` 等字段为 `...Z` | 集成测试（status --json / run artifacts） |
@@ -425,7 +427,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-005 | SC-005-1, TC-STK-005 | fake adapter smoke | 完整 |
 | REQ-006 | SC-006-1, BPF-001, FR-005-007, FR-008, NFR-OBS-001, NFR-REL-002 | 集成测试 | 完整 |
 | REQ-007 | SC-007-1, FR-002, FR-003 | 集成测试 + 手工验证 | 完整（边界细节由 REQ-023/024 接管） |
-| REQ-022 | SC-022-1, SC-022-2, SC-022-3, SC-022-4, SC-022-5, FR-005, FR-006 | 集成测试 + adapter 翻译契约 + session 采集路径 | 完整（I1 dogfood 2026-05-01 暴露 SC-022-3 P0 bug 并修复；I2 DEV-1 2026-05-03 新增 SC-022-4/5 Codex 专属配置目录 SC）|
+| REQ-022 | SC-022-1, SC-022-2, SC-022-3, SC-022-4, SC-022-5, SC-022-6, SC-022-7, FR-005, FR-006 | 集成测试 + adapter 翻译契约 + session 采集路径 | 完整（I1 dogfood 2026-05-01 暴露 SC-022-3 P0 bug 并修复；I2 DEV-1 2026-05-03 新增 SC-022-4/5 Codex 专属配置目录 SC；I4 DEV-5 2026-05-04 新增 SC-022-6/7 Gemini 专属配置目录 SC）|
 | REQ-023 | SC-023-1, SC-023-2, SC-023-3, FR-002 | 集成测试 | 完整 |
 | REQ-024 | SC-024-1, SC-024-2, SC-024-3, SC-024-4, SC-024-5, FR-003 | 集成测试 + 手工验证 | 完整（HUMAN-1 已验证）|
 | REQ-025 | SC-025-1, SC-025-2, SC-025-3 | run 主循环 progress markers + heartbeat + -v live tail 集成测试 / 进程探针 | 完整 |

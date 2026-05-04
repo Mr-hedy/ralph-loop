@@ -23,8 +23,9 @@
 │   ├── tasks.sh           ← TASKS.md 解析 + HUMAN-N 扫描
 │   ├── session.sh         ← meta.json 读写骨架
 │   ├── adapter-claude.sh  ← Claude provider adapter
-│   ├── adapter-fake.sh    ← fake adapter（测试用）
-│   └── adapter-codex.sh   ← Codex provider adapter
+│   ├── adapter-codex.sh   ← Codex provider adapter
+│   ├── adapter-gemini.sh  ← Gemini provider adapter
+│   └── adapter-fake.sh    ← fake adapter（测试用）
 ├── runs/                  ← 运行期产物（gitignored）
 │   └── <run_id>/...
 ├── status.json            ← 当前活跃 run 指针（gitignored）
@@ -41,6 +42,7 @@
 .ralph/bin/ralph run                          # 用 .env 配置启动
 .ralph/bin/ralph run --provider claude        # CLI 覆盖 RALPH_PROVIDER
 .ralph/bin/ralph run --provider codex         # 使用 Codex adapter
+.ralph/bin/ralph run --provider gemini        # 使用 Gemini adapter
 .ralph/bin/ralph run --max-iter 10            # 限制最多 10 轮
 .ralph/bin/ralph run --timeout 600            # 单轮 600 秒超时
 .ralph/bin/ralph run --effort high            # 高 reasoning effort
@@ -60,7 +62,7 @@
 ...
 ```
 
-**`-v` 模式额外输出**：每轮 oneshot 期间，stream-json events 实时过滤打印（`💭 thinking` / `💬 text` / `🔧 tool_use` / `⏎ result` / `❌ error`）。
+**`-v` 模式额外输出**：每轮 oneshot 期间，stream-json events 实时过滤打印。Claude：`💭 thinking` / `💬 text` / `🔧 tool_use` / `⏎ result` / `❌ error`；Codex：`💬 text` / `🔧 tool_use` / `⏎ result` / `❌ error`；Gemini：`⚙ init` / `💬 message` / `🔧 tool_use` / `⏎ result` / `❌ error`。
 
 退出时打印 `exit-message.txt` 内容（含 `Ralph Run Complete` banner + 接力提示），同时落到 `runs/<run_id>/exit-message.txt`。
 
@@ -97,7 +99,7 @@
 
 ```bash
 # 必需
-RALPH_PROVIDER=claude              # claude / codex
+RALPH_PROVIDER=claude              # claude / codex / gemini
 
 # 可选（留空或注释 = 不传 flag，provider 走自身默认）
 RALPH_MODEL=                       # 覆盖 provider 默认模型
@@ -110,6 +112,7 @@ RALPH_STAGNATION_LIMIT=5           # 连续无进展轮数（默认 5）
 # adapter 在 source 时翻译为 provider 原生变量：
 #   Claude → CLAUDE_CONFIG_DIR
 #   Codex → CODEX_HOME
+#   Gemini → GEMINI_CLI_HOME
 RALPH_PROVIDER_CONFIG_DIR=~/.claude-glm    # tilde 自动展开为 $HOME
 
 # 调试
@@ -133,9 +136,9 @@ RALPH_PROVIDER_CONFIG_DIR=~/.claude-glm    # tilde 自动展开为 $HOME
 | 文件 | 内容 |
 |---|---|
 | `meta.json` | 元数据（session_id / provider_started_at / runtime_block / capture_status / error / 任务进度 / changed_files / stagnation_count） |
-| `provider.stdout.log` | provider CLI stdout + stderr 合流（Claude stream-json events / Codex JSONL events） |
-| `session.<provider>.jsonl` | provider 原生 session 副本（Claude `~/.claude/projects/...` / Codex `~/.codex/sessions/...`），保留 30 天后过期 + 派生 bug 回滚 anchor |
-| `session.history.log` | 跨 provider 人话视图（Claude 含 user / assistant / thinking / tool_use / tool_result；Codex 含 assistant / tool_use / tool_result），Claude 从 `session.claude.jsonl` 派生，Codex 从 `provider.stdout.log` 派生 |
+| `provider.stdout.log` | provider CLI stdout + stderr 合流（Claude stream-json events / Codex JSONL events / Gemini stream-json events） |
+| `session.<provider>.jsonl` | provider 原生 session 副本（Claude `~/.claude/projects/...` / Codex `~/.codex/sessions/...`），保留 30 天后过期 + 派生 bug 回滚 anchor；Gemini 为 `session.gemini.json`（JSON 格式，非 JSONL） |
+| `session.history.log` | 跨 provider 人话视图（Claude 含 user / assistant / thinking / tool_use / tool_result；Codex 含 assistant / tool_use / tool_result；Gemini 含 assistant / tool_use / tool_result），Claude 从 `session.claude.jsonl` 派生，Codex 从 `provider.stdout.log` 派生，Gemini 从 `provider.stdout.log` 派生 |
 
 **复盘建议**：
 - 看 agent 在做什么 → `cat session.history.log`
@@ -206,6 +209,23 @@ echo 'RALPH_PROVIDER_CONFIG_DIR=~/.codex-ralph' >> .ralph/.env
 
 Codex session 文件落到 `~/.codex-ralph/sessions/...`，adapter 自动从该路径采集 rollout 文件（REQ-022 / SC-022-5）。
 
+Gemini 同一抽象会翻译为 `GEMINI_CLI_HOME`：
+
+```bash
+# 一次性准备：让该目录拥有 Gemini 登录态 / auth 配置
+# Gemini CLI 会在该目录下创建 .gemini/ 子目录
+GEMINI_CLI_HOME=~/.gemini-ralph gemini auth login
+
+# 在 .ralph/.env 加：
+echo 'RALPH_PROVIDER=gemini' > .ralph/.env
+echo 'RALPH_PROVIDER_CONFIG_DIR=~/.gemini-ralph' >> .ralph/.env
+
+# 后续 ralph run 自动用 GEMINI_CLI_HOME=~/.gemini-ralph
+.ralph/bin/ralph run
+```
+
+Gemini session 文件落到 `~/.gemini-ralph/.gemini/tmp/...`，adapter 自动从该路径采集 session（REQ-022）。
+
 ## 任务前缀（8 类）
 
 详见 `.spec/rules/tasks.md`。速查：
@@ -232,7 +252,7 @@ A：默认 silent + 进度 marker（stderr）。长 oneshot 会每 60 秒输出 
 A：`watch -v` 依赖 `.ralph/status.json` 的 `run_id` / `iteration` 定位当前 iter log。v0.1.1 起 `ralph run` 会在 provider oneshot 启动前更新到当前 iter 并创建 `provider.stdout.log`；旧 run 产物若 status 指向不存在的 iter，可直接 tail 实际存在的 `iterations/iter-NNN/provider.stdout.log`。
 
 **Q：session.<provider>.jsonl 没采集到（meta.json `capture_status: warning`）**
-A：检查 provider 配置目录是否正确。Claude 使用 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/<cwd_hash>/<session_id>.jsonl`；Codex 使用 `${CODEX_HOME:-$HOME/.codex}/sessions/` 下的 `rollout-*-<thread_id>.jsonl`。
+A：检查 provider 配置目录是否正确。Claude 使用 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/<cwd_hash>/<session_id>.jsonl`；Codex 使用 `${CODEX_HOME:-$HOME/.codex}/sessions/` 下的 `rollout-*-<thread_id>.jsonl`；Gemini 使用 `${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/*/chats/*.json`。
 
 **Q：HUMAN-N 任务被 agent 勾掉了**
 A：违反 PROMPT.md 强约束。重跑前手动改回 `[ ]`；可能 agent 误判，需要在 PROMPT.md 加强约束或在任务描述明示。

@@ -15,7 +15,7 @@
   - I1 = dogfood T5（status + watch 真实功能）+ HUMAN-N 阻塞机制 + 任务类型路由（已完成，归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`）
   - I2 = T3（Codex adapter）（已完成，归档见 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`）
   - I3 = watch/status 观察面 bugfix（已完成，归档见 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`）
-  - I4 = T4（Gemini adapter）（已启动规划，设计见 `docs/requirements/ralph-loop/I4-design.md`）
+  - I4 = T4（Gemini adapter）（实施中，设计见 `docs/requirements/ralph-loop/I4-design.md`；adapter 已实现，QA-2 真实 smoke 已完成）
   - I5 等 = T7 或新议题，由用户在下一轮启动前排序
   - 历史 T 编号仅作为"该 iteration 关联的 v0.1 规划项"出现在 iteration 主题里，不再是 phase 单位
 
@@ -26,11 +26,11 @@
 - **I1 已完成（2026-05-03）**：dogfood T5（status + watch 真实功能），归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`。
 - **I2 已完成（2026-05-04）**：T3（Codex adapter），归档见 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`；设计方案见 `docs/requirements/ralph-loop/I2-design.md`。
 - **I3 已完成（2026-05-04）**：watch/status 观察面修复，归档见 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`；checkpoint 为 `2641605 checkpoint: watch status surface fix`。
-- **I4 已启动规划（2026-05-04）**：T4（Gemini adapter），设计方案见 `docs/requirements/ralph-loop/I4-design.md`；当前任务源为 `.ralph/TASKS.md`。
+- **I4 实施中（2026-05-04）**：T4（Gemini adapter），设计方案见 `docs/requirements/ralph-loop/I4-design.md`；DEV-1~QA-2 已完成，剩余 DEV-5/6 和 REVIEW-2。
 - 协作壳已初始化，`.spec/`、`docs/` 结构稳定。
 - Ralph v0.1 需求已收敛为 22 条决策，沉淀在 `requirements.md`（REQ-001 ~ REQ-016）。
 - 架构和稳定契约沉淀在 `docs/architecture/overview.md`；provider 集成细节沉淀在 `docs/architecture/integrations.md`；安全边界沉淀在 `docs/architecture/security.md`。
-- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude}.sh`；部署单元 `.ralph/PROMPT.md` + `.ralph/TASKS.md`（dogfood 任务源）+ `.ralph/TASKS.bak`（hello world 样例）。
+- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude,adapter-codex,adapter-gemini}.sh`；部署单元 `.ralph/PROMPT.md` + `.ralph/TASKS.md`（dogfood 任务源）+ `.ralph/TASKS.bak`（hello world 样例）。
 - T1（fake 闭环）、T2（Claude adapter + 单轮真实 smoke）、T6（v0.1 闭环 + 使用指南）均已完成。
 
 ## Phased Delivery
