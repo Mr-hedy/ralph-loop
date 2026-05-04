@@ -19,7 +19,7 @@ Ralph 是无人值守的 oneshot harness，每轮都必须跑到 provider 自然
 |---|---|---|
 | Claude | `--dangerously-skip-permissions` + `--allowedTools "Bash,Read,Edit,Write,Glob,Grep"` | 白名单固定，不做开关 |
 | Codex  | `codex exec` + `--sandbox workspace-write`（等价 `--full-auto`） | 保留 Codex 自带 sandbox；禁止升级到 `danger-full-access` |
-| Gemini | `--yolo`（等价 `--approval-mode=yolo`） | `yolo` 会跳过所有工具确认 |
+| Gemini | `--approval-mode=yolo`（等价旧 `--yolo`，已 deprecated） | `yolo` 会跳过所有工具确认 |
 
 稳定契约（NFR-SEC-002）：
 
@@ -51,7 +51,7 @@ REQ-022 引入的中立抽象：
 - 每个 adapter 在 source 时把它翻译为 provider 原生环境变量（详见 `integrations.md` §Adapter 配置目录翻译契约）：
   - `adapter-claude.sh` → `CLAUDE_CONFIG_DIR`
   - `adapter-codex.sh` → `CODEX_HOME`
-  - Gemini adapter 的原生变量将在 T4 落地时定义
+  - `adapter-gemini.sh` → `GEMINI_CLI_HOME`（I4 DEV-1 校准；官方 configuration 文档明确该变量改变 Gemini CLI 的根目录，CLI 在该目录下创建 `.gemini/`）
 - **鲁棒性约束**：变量未设或值为空时**不**做翻译 export，避免空值干扰 provider 默认行为。
 - 子进程 env 继承走 bash 默认行为（fork+exec），无需 adapter 在每次调用时重设。
 - 凭据值（API key / OAuth token）**不**写入 status.json / result.json / 任何运行证据。
@@ -62,7 +62,7 @@ REQ-022 引入的中立抽象：
 NFR-SEC-003 的禁入规则（本仓库和 `.ralph/` 部署包均适用）：
 
 - `.ralph/.env`、使用者 API key、provider 登录态、完整凭据：**不入仓**。
-- provider 原生 session 文件（`~/.claude/projects/`、`~/.codex/sessions/`、`~/.gemini/tmp/`）通常包含完整 prompts、tool outputs、命令结果，可能带敏感信息：默认**不入仓**。
+- provider 原生 session 文件（`~/.claude/projects/`、`~/.codex/sessions/`、`~/.gemini/tmp/`；隔离模式下路径由 `RALPH_PROVIDER_CONFIG_DIR` 翻译后的 provider 原生变量决定）通常包含完整 prompts、tool outputs、命令结果，可能带敏感信息：默认**不入仓**。
 - `.ralph/runs/` 及其下的 `provider.stdout.log`、`session.*`、`session.history.log`、`meta.json`、`result.json` 是本地复盘材料，**默认不入仓**；使用者应在 `.ralph/.gitignore` 忽略 `runs/`、`status.json`、`lock`。
 - `docs/`、`handoff.md`、`checkpoints/`、`postmortems/`、`task.md` 不得写入 secrets、完整凭据或会话 transcript；协作文档只承载结构性事实。
 

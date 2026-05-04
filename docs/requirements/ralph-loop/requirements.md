@@ -248,7 +248,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - 关联流程：BPF-001、BPF-002
 - 用户故事：作为维护者，我希望用 `.ralph/bin/ralph run` 驱动一轮长任务循环，以便让 agent 按 TASKS.md 顺序处理任务并沉淀证据。
 - 输入：
-  - CLI flag：`--provider=<claude|codex|fake>`、`--model=<name>`、`--effort=<low|medium|high|none>`、`--max-iter=N`、`--timeout=SEC`（均可选；Gemini 为 T4 计划项，当前无 `adapter-gemini.sh`）
+  - CLI flag：`--provider=<claude|codex|gemini|fake>`、`--model=<name>`、`--effort=<low|medium|high|none>`、`--max-iter=N`、`--timeout=SEC`（均可选；Gemini adapter 由 I4 实现）
   - 环境变量：`RALPH_PROVIDER` / `RALPH_MODEL` / `RALPH_EFFORT` / `RALPH_MAX_ITER` / `RALPH_TIMEOUT`
   - 文件：`.ralph/.env`（`RALPH_*` 字段）
 - 输出：
@@ -344,10 +344,11 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - 关联流程：BPF-001
 - 输入/输出：同上
 - 业务规则：
-  - 命令：`gemini -p <prompt> --yolo`
-  - 可选 flag：`--model`、`--thinking-budget`（从 effort 翻译）
-  - session 定位：优先从输出取 session id 精确匹配；退化按 mtime 取 `~/.gemini/tmp/<basename>[-N]/chats/*.json` 中最新文件
-  - 错误诊断：依赖 exit code + stderr 关键字
+  - 命令：`gemini -p <prompt> --approval-mode=yolo --output-format stream-json`
+  - 可选 flag：`--model`；`--sandbox`（adapter 可选启用）
+  - effort 暂不传递（Gemini CLI 无 `--thinking-budget` flag；`thinkingBudget` 为 `settings.json` 内部配置，不暴露 CLI 入口；`none` 或留空不传）
+  - session 定位：按 mtime 取 `${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/<project-identifier>/chats/*.json` 中最新文件；`<project-identifier>` 由 `~/.gemini/projects.json` 映射，Ralph 不自行计算或拼接
+  - 错误诊断：`--output-format stream-json` 模式下从 stdout 事件流诊断；退化时依赖 exit code + stderr 关键字
 
 ### FR-008：错误诊断
 
@@ -388,7 +389,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - provider CLI 在不指定 `--model` / `--effort` 时能用自身默认跑 oneshot 正常退出（Claude `claude -p`、Codex `codex exec`、Gemini `gemini -p` 均如此）。
 - agent 在 oneshot 内会遵守 PROMPT.md 约定"一个 task 一个 oneshot"；stagnation 和 max_iter 是兜底。
 - Claude `~/.claude/projects/` 的 cwd 哈希规则在当前官方版本稳定；若未来变更，按版本分支处理。
-- Gemini `-p` 模式下 session id 不稳定输出，退化按 mtime 定位最新 session 文件。
+- Gemini `-p` 模式下 session id 不稳定输出，退化按 mtime 定位最新 session 文件（I4 DEV-1 校准：Gemini CLI 无 `--thinking-budget` flag，effort 暂不传递）。
 
 ## 边缘情况
 

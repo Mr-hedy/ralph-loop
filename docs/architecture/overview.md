@@ -79,7 +79,7 @@ ralph help    # 帮助
 
 | Flag | 值 | 环境变量 | `.env` 字段 | 默认 | 说明 |
 |---|---|---|---|---|---|
-| `--provider` | `claude\|codex\|fake` | `RALPH_PROVIDER` | `RALPH_PROVIDER` | **无默认**（必需） | provider 绑定；run 生命周期内不变；Gemini 为 T4 计划项 |
+| `--provider` | `claude\|codex\|gemini\|fake` | `RALPH_PROVIDER` | `RALPH_PROVIDER` | **无默认**（必需） | provider 绑定；run 生命周期内不变 |
 | `--model` | provider 原生 model 名 | `RALPH_MODEL` | `RALPH_MODEL` | 空 → 不传 | 留空由 provider CLI 走自身默认 |
 | `--effort` | `low\|medium\|high\|none` | `RALPH_EFFORT` | `RALPH_EFFORT` | 空或 `none` → 不传 | adapter 翻译到原生 flag |
 | `--max-iter` | 整数 | `RALPH_MAX_ITER` | `RALPH_MAX_ITER` | `0`（不限） | 0 表示不限 |
@@ -532,6 +532,7 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 
 - Claude：从 `session.claude.jsonl` 派生，包含 user / assistant / thinking / tool_use / tool_result。
 - Codex：从 `provider.stdout.log` 的 `codex exec --json` stdout JSONL events 派生，当前包含 assistant / tool_use / tool_result；`session.codex.jsonl` 保留为 raw evidence 和派生 bug 回滚 anchor，不作为 history parser 主输入。
+- Gemini：从 `provider.stdout.log` 的 `--output-format stream-json` stdout 事件流派生（I4 DEV-1 校准）；`session.gemini.json` 保留为 native session 副本。
 - 新增 provider 必须在 `docs/architecture/integrations.md` 明确 history source；不得默认假设 `session.<provider>.jsonl` 可解析成人话视图。
 
 ### `session.history.log` 格式
