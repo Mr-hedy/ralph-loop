@@ -42,11 +42,14 @@
 
 ## 当前任务
 
-- [ ] DEV-1: 校准 Gemini CLI 当前契约并同步需求/架构事实源
+- [x] DEV-1: 校准 Gemini CLI 当前契约并同步需求/架构事实源
   - 预期：I4 后续实现不再依赖旧 Gemini 假设；requirements、integrations、overview/security/testing 对命令、配置目录、session 文件、history source 和 effort 映射只有一个事实源。
   - 输入：`docs/requirements/ralph-loop/I4-design.md`；REQ-004/006/014/022；FR-007；`docs/architecture/integrations.md` Gemini 小节；本机 Gemini CLI 0.39.1 help；官方 Gemini CLI docs。
   - 范围：`docs/requirements/ralph-loop/requirements.md`、`docs/architecture/integrations.md`、`docs/architecture/overview.md`、`docs/architecture/security.md`、`docs/architecture/testing.md`；不写 runtime adapter。
   - 验证计划：记录 `gemini --version` / `gemini --help` 关键输出；对照官方 CLI reference/configuration docs；`rg` 确认旧 `--yolo`/`--thinking-budget`/Gemini session 文件口径无冲突；`git diff --check`；`bash scripts/check.sh`。
+  - 完成：4 个活跃事实源已校准（requirements FR-001/FR-007、integrations Gemini 全节 + 配置目录表、overview provider choices + history source、security approval flag + config dir mapping）。commit `b1979b7`。
+  - 验证：`gemini --version` = `0.39.1`；`gemini --help` 确认 `--approval-mode`/`--output-format stream-json`/无 `--thinking-budget`；官方 configuration docs 确认 `GEMINI_CLI_HOME` 环境变量语义；integrations/integrations 确认 `session.gemini.json`（非 `.jsonl`）口径统一；`git diff --check` 通过；`bash scripts/check.sh` 通过。
+  - 未验证：testing.md 未修改（Gemini 测试覆盖在 QA-1 新增，不需在 DEV-1 预写）；`bash scripts/integration-test.sh` 未运行（本次纯文档变更，不涉及测试代码）。
 
 - [ ] DEV-2: 实现 `.ralph/lib/adapter-gemini.sh` oneshot 与启动校验
   - 预期：`RALPH_PROVIDER=gemini` 能通过 provider loading 和 dependency check，按 DEV-1 校准后的 Gemini CLI 命令执行 fresh oneshot，并把 stdout/stderr 合流写入 `provider.stdout.log`。
