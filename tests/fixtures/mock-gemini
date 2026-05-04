@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# tests/fixtures/mock-gemini — Gemini CLI test double
+# 模拟 gemini CLI `--output-format stream-json` 行为：
+# stdout 输出 JSONL events 流（含 _received_* 字段用于测试断言）
+# 在 ${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/ 下写 native session（DEV-3 mock 扩展点）
+# 参见 docs/architecture/integrations.md §Gemini CLI Session 机制
+set -euo pipefail
+
+received_model=""
+received_approval_mode=""
+received_output_format=""
+received_prompt=""
+
+# 解析 gemini flags（-p/--prompt 接收 prompt 正文；其余 flag 记录用于断言）
+# 支持 --flag value 和 --flag=value 两种形式
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -p|--prompt)            received_prompt="$2";            shift 2 ;;
+    --model)                received_model="$2";             shift 2 ;;
+    --model=*)              received_model="${1#--model=}";  shift   ;;
+    --approval-mode)        received_approval_mode="$2";     shift 2 ;;
+    --approval-mode=*)      received_approval_mode="${1#--approval-mode=}"; shift ;;
+    --output-format)        received_output_format="$2";     shift 2 ;;
+    --output-format=*)      received_output_format="${1#--output-format=}"; shift ;;
+    --sandbox)              shift 2 ;;  # ignore for now
+    --yolo)                 received_approval_mode="yolo";   shift   ;;
+    *)                      shift ;;
+  esac
+done
+
+scenario="${RALPH_MOCK_GEMINI_SCENARIO:-happy}"
+
+# ── stdout JSONL events（--output-format stream-json 模式）──────────────────
+_emit_init() {
+  jq -nc \
+    --arg model "$received_model" \
+    --arg approval_mode "$received_approval_mode" \
+    --arg output_format "$received_output_format" \
+    --arg prompt_preview "${received_prompt:0:100}" \
+    '{type:"init",_received_model:$model,_received_approval_mode:$approval_mode,_received_output_format:$output_format,_received_prompt_preview:$prompt_preview}'
+}
+
+_emit_text() {
+  local text="$1"
+  jq -nc --arg text "$text" \
+    '{type:"text",text:$text}'
+}
+
+_emit_complete() {
+  local text="$1"
+  jq -nc --arg text "$text" \
+    '{type:"complete",text:$text}'
+}
+
+# ── 写 native Gemini session 文件（DEV-3 mock 扩展点）────────────────────────
+# 路径：${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/<project-id>/chats/session-*.json
+_write_native_session() {
+  local gemini_root="${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/mock-project/chats"
+  mkdir -p "$gemini_root"
+  local session_id="${RALPH_MOCK_GEMINI_SESSION_ID:-mock-gemini-session-001}"
+  local ts
+  ts="$(date -u +"%Y-%m-%dT%H-%M")"
+  local now_iso
+  now_iso="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  cat > "$gemini_root/session-${ts}-${session_id}.json" << ENDJSON
+{"sessionId":"$session_id","projectHash":"mock","startTime":"$now_iso","lastUpdated":"$now_iso","messages":[{"role":"user","parts":[{"text":"Do one task"}]},{"role":"model","parts":[{"text":"Done."}]}],"kind":"chat"}
+ENDJSON
+  echo "$gemini_root/session-${ts}-${session_id}.json"
+}
+
+# ── 勾选 TASKS.md 第 1 条未勾选任务（通过 RALPH_WORKSPACE）──────────────────
+_check_first_task() {
+  if [[ -n "${RALPH_WORKSPACE:-}" ]]; then
+    local _tasks="${RALPH_WORKSPACE}/.ralph/TASKS.md"
+    if [[ -f "$_tasks" ]]; then
+      local _tmpout
+      _tmpout="$(mktemp)"
+      local _found=0
+      while IFS= read -r _line || [[ -n "$_line" ]]; do
+        if [[ "$_found" -eq 0 && "$_line" =~ ^([[:space:]]*-[[:space:]]+)\[[[:space:]]\](.*)$ ]]; then
+          printf '%s[x]%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" >> "$_tmpout"
+          _found=1
+        else
+          printf '%s\n' "$_line" >> "$_tmpout"
+        fi
+      done < "$_tasks"
+      mv "$_tmpout" "$_tasks"
+    fi
+  fi
+}
+
+case "$scenario" in
+  happy)
+    _emit_init
+    _emit_text "I will complete this task."
+    _emit_complete "Done."
+
+    # 写 native session（供 DEV-3 collect 测试使用）
+    _write_native_session >/dev/null 2>&1 || true
+
+    _check_first_task
+    if [[ -n "${RALPH_MOCK_GEMINI_POST_STREAM_SLEEP:-}" ]]; then
+      sleep "$RALPH_MOCK_GEMINI_POST_STREAM_SLEEP"
+    fi
+    exit 0
+    ;;
+
+  crash)
+    # CLI 崩溃：不写任何 stdout，exit 1
+    exit 1
+    ;;
+
+  *)
+    printf 'mock-gemini: unknown scenario: %s\n' "$scenario" >&2
+    exit 1
+    ;;
+esac

@@ -51,11 +51,14 @@
   - 验证：`gemini --version` = `0.39.1`；`gemini --help` 确认 `--approval-mode`/`--output-format stream-json`/无 `--thinking-budget`；官方 configuration docs 确认 `GEMINI_CLI_HOME` 环境变量语义；integrations/integrations 确认 `session.gemini.json`（非 `.jsonl`）口径统一；`git diff --check` 通过；`bash scripts/check.sh` 通过。
   - 未验证：testing.md 未修改（Gemini 测试覆盖在 QA-1 新增，不需在 DEV-1 预写）；`bash scripts/integration-test.sh` 未运行（本次纯文档变更，不涉及测试代码）。
 
-- [ ] DEV-2: 实现 `.ralph/lib/adapter-gemini.sh` oneshot 与启动校验
+- [x] DEV-2: 实现 `.ralph/lib/adapter-gemini.sh` oneshot 与启动校验
   - 预期：`RALPH_PROVIDER=gemini` 能通过 provider loading 和 dependency check，按 DEV-1 校准后的 Gemini CLI 命令执行 fresh oneshot，并把 stdout/stderr 合流写入 `provider.stdout.log`。
   - 输入：DEV-1 Gemini 契约；adapter 三函数契约；Claude/Codex adapter 现有模式；REQ-004/005/014/015。
   - 范围：新增 `.ralph/lib/adapter-gemini.sh`；必要时最小更新 `.ralph/bin/ralph` help/provider choices；新增 `tests/fixtures/mock-gemini` 的最小 command-recording 场景用于本任务验证；不改 Claude/Codex 行为。
   - 验证计划：`bash -n .ralph/lib/adapter-gemini.sh .ralph/bin/ralph tests/fixtures/mock-gemini`；mock Gemini dependency check；mock 命令记录断言 model/effort/config-dir 空值鲁棒性和 approval/sandbox/output-format 参数。
+  - 完成：新增 adapter-gemini.sh（provider_check_deps + provider_oneshot + DEV-3/4 最小桩）；mock-gemini（happy/crash 场景 + received 参数记录，支持 --flag value 和 --flag=value 两种形式）；ralph help choices 更新为 claude/codex/gemini/fake。
+  - 验证：`bash -n` 三个文件通过；adapter 翻译 RALPH_PROVIDER_CONFIG_DIR→GEMINI_CLI_HOME 通过；空值不 export 通过；mock 命令记录断言 approval-mode=yolo/output-format=stream-json/model 空值鲁棒性通过；`bash scripts/check.sh` 通过；`git diff --check` 通过。
+  - 未验证：E2E mock `ralph run --provider gemini` 测试中 symlink 解析导致 workspace 定位到项目根（非测试 temp dir），未产生有效 E2E 证据；真实 Gemini CLI 调用（QA-2）；session capture 完整实现（DEV-3）；error diagnose 完整实现（DEV-4）；`bash scripts/integration-test.sh` 未扩展 Gemini 用例（QA-1 职责）。
 
 - [ ] DEV-3: 实现 Gemini session capture 与 `session.history.log` 派生
   - 预期：Gemini iter 目录产出明确的 native session 副本和跨 provider 人话视图；session capture 缺失时降级为 warning，不中断 run。
