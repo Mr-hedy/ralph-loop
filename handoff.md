@@ -1,8 +1,8 @@
 # 当前目标与约束
 
-- 本轮目标：修复 `ralph watch` 与 `ralph status` 输出契约混淆，完成自审后先刷新 handoff，再创建 checkpoint rollback anchor。
+- 本轮目标：修复 `ralph watch` 与 `ralph status` 输出契约混淆，并创建 checkpoint rollback anchor。
 - 硬约束：中文回复；当前开发任务事实源是 `.ralph/TASKS.md`；root `task.md` 已封版；`.ralph/runs/`、`.ralph/status.json`、`.ralph/lock`、`.env` 和 provider 运行日志不入仓。
-- 用户明确要求：修复后自行 adversarial-review，有问题自行修；没问题先做 handoff，再做 checkpoint。
+- 用户明确要求：修复后自行 adversarial-review，有问题自行修；没问题先做 handoff，再做 checkpoint。已按顺序完成。
 
 # 当前阶段与范围
 
@@ -61,21 +61,21 @@
 
 # Checkpoint 与 Postmortem 状态
 
-- Checkpoint：本轮 checkpoint 尚未创建；计划创建 `docs/checkpoints/2026-05-04-02-watch-status-surface-fix.md` 并提交。上一稳定 checkpoint 是 `docs/checkpoints/2026-05-04-01-i2-codex-observability-hardening.md`，commit `de01779 checkpoint: I2 codex observability hardening`。
+- Checkpoint：已创建 `docs/checkpoints/2026-05-04-02-watch-status-surface-fix.md`，commit `2641605 checkpoint: watch status surface fix`。上一稳定 checkpoint 是 `docs/checkpoints/2026-05-04-01-i2-codex-observability-hardening.md`，commit `de01779 checkpoint: I2 codex observability hardening`。
 - Postmortem：已更新既有 PM-0003：`docs/postmortems/pm-task-closure-req-traceability.md`，记录 watch/status surface separation 回归模式和预防检查。
 
 # 工作区状态
 
 - 分支：`main`
-- 最近提交：`b569060 docs(I2): archive Codex adapter iteration`
-- 当前 dirty 范围：`.ralph/bin/ralph`、`.ralph/lib/watch.sh`、`scripts/integration-test.sh`、README、`.ralph/README.md`、requirements、overview、testing docs、`.ralph/TASKS.md`、postmortem、`handoff.md`。
-- diff 范围符合本轮 bugfix；未发现 runtime artifact、`.env` 或 provider 日志进入仓库。
+- 最近提交：`2641605 checkpoint: watch status surface fix`
+- 当前 dirty 范围：仅本 `handoff.md` 刷新，准备单独提交为 checkpoint 后 handoff 状态更新。
+- checkpoint commit 已确认：`git log -1 --stat --oneline` 显示 12 文件变更，包含 checkpoint note；`git status --short` 在 checkpoint commit 后为 clean。
 
 # 建议下一步
 
-- 立即按 checkpoint skill 创建 `docs/checkpoints/2026-05-04-02-watch-status-surface-fix.md`。
-- checkpoint commit 后刷新 `handoff.md`，写入 checkpoint note path 和 commit id，确保最终 handoff 不停留在“待创建”状态。
+- 提交本 handoff 刷新。
+- 下一轮可由用户决定：归档 I3 bugfix，或进入 T4 Gemini adapter / T7 skill 封装等新主题。
 
 # 交接摘要
 
-- 当前核心事实：watch/status 输出面已经重新分离，自动化明确防止 `watch` 非 TTY 再泄漏 `status` 详情字段；下一步只剩 checkpoint 提交与最终 handoff 刷新。
+- 当前核心事实：watch/status 输出面已经重新分离，自动化明确防止 `watch` 非 TTY 再泄漏 `status` 详情字段；checkpoint `2641605` 已保存稳定点。
