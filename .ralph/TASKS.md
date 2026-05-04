@@ -104,17 +104,41 @@
     - P2-3（留 DEV-5）：SC-025-2 只提 Claude/Codex verbose filter，未提 Gemini
   - Remaining risk：mock 测试覆盖了 adapter 对假设事件 schema 的处理逻辑，但 mock 事件 schema 与真实 Gemini CLI 事件 schema 的匹配度需 QA-2 真实 smoke 验证。无安全边界问题（session 文件隔离在 HOME 隔离下正确；config dir 翻译空值鲁棒性已覆盖；无 secrets 泄漏路径）。
 
-- [ ] QA-2: 真实 Gemini provider 集成测试
+- [x] QA-2: 真实 Gemini provider 集成测试
   - 预期：真实 `RALPH_PROVIDER=gemini` 在无敏感临时 workspace 中跑到 `exit_reason=done`，并产出 Gemini iter 证据契约。
   - 输入：DEV-1 ~ REVIEW-1 已完成；本机 Gemini CLI 0.39.1 与已登录 auth/config 可用；用户确认无需额外人工介入。
   - 范围：临时 workspace；真实 Gemini CLI；运行证据只记录 run_id、exit_reason、文件存在性和关键字段，不提交 `.ralph/runs/` 或 provider 原始 session。
   - 验证计划：`ralph run --provider gemini --max-iter ...` 跑到 `done`；检查 `result.json`、`meta.json`、`provider.stdout.log`、Gemini native session 副本、`session.history.log`；记录未验证范围和失败诊断。
+  - 完成：2 次真实 Gemini CLI 调用（run 1: `20260504-123018` / run 2: `20260504-123737`），均成功 `exit_reason=done`。发现 3 个 P0/P1 bug（事件 schema 漂移导致 session capture 和 history 派生全部失败），需 DEV-6 修复。发现 1 个环境配置问题（`RALPH_PROVIDER_CONFIG_DIR` 泄漏到 GEMINI_CLI_HOME 阻断认证）。
+  - 验证：
+    - 核心路径通过：`result.json` exit_reason=done、tasks 0→1/1、duration 42s~74s、hello.txt/hello2.txt 内容正确、git commit 生成、TASKS.md 任务勾选。
+    - `meta.json` provider_started_at 正确写入，exit_code=0，changed_files 记录正确。
+    - session capture 失败（P0-1）：session_id=null、capture_status=warning、无 session.gemini.json。根因：grep `^[[:space:]]*\{` 匹配了 stderr 中的缩进 `{` 行，导致 jq parse error exit 5，`|| _gemini_sid=""` 捕获退出码丢弃了有效输出。修复方案：grep 改为 `^\{` 或用 `jq -R 'try fromjson'` 过滤。
+    - history 派生失败（P0-2）：session.history.log 为空。根因：`_gemini_derive_history` 查找 type:"text" / type:"complete"，但真实 CLI 输出 type:"message" + role:"assistant" + delta:true。adapter mock 事件 schema 与真实 CLI 不匹配。
+    - verbose filter 事件覆盖不全（P1-1）：真实 CLI 事件类型为 init/message/tool_use/tool_result/result，verbose filter 只处理 init/text/complete/error，4/5 真实事件类型无对应 marker。
+    - 环境配置阻断（非代码 bug）：shell 环境已 export `RALPH_PROVIDER_CONFIG_DIR=/Users/hedy/.claude-glm`，adapter 将其映射为 `GEMINI_CLI_HOME`，指向无 auth 配置的目录。用户需在 `.ralph/.env` 中显式清空或设为 HOME。临时 workspace 须加入 Gemini `trustedFolders.json`。
+    - 真实 CLI 事件类型：`init`, `message`, `result`, `tool_result`, `tool_use`（非 mock 的 `text`/`complete`/`error`）。
+    - 真实 CLI exit code 0 表示成功（即使 stderr 含 500 重试日志）。
+    - 真实 CLI model: `auto-gemini-3`（gemini-2.5-flash-lite 路由 + gemini-3-flash-preview 主模型）。
+  - 未验证：Gemini CLI 的 error 事件 schema（2 次运行均成功，未触发真实错误路径）；`ralph run -v` 真实 verbose 输出；非 yolo approval mode；sandbox mode；model override（--model）；GEMINI_CLI_HOME 非默认目录下的 session 查找；长时间运行多迭代场景。
+  - Findings 清单：
+    - P0-1（留 DEV-6）：session_id 提取失败 — grep pattern `^[[:space:]]*\{` 过宽，匹配 stderr 缩进 `{` 行导致 jq exit 5 + `||` 回退丢弃有效输出
+    - P0-2（留 DEV-6）：`_gemini_derive_history` 事件类型不匹配 — mock 用 type:"text"/"complete"，真实 CLI 用 type:"message" + role:"assistant" + delta:true
+    - P1-1（留 DEV-6）：`_ralph_filter_verbose` Gemini 分支只处理 init/text/complete/error，真实 CLI 5 种事件类型中 4 种无 marker
+    - P1-2（留 DEV-5）：用户需知 `RALPH_PROVIDER_CONFIG_DIR` 会映射为 `GEMINI_CLI_HOME`，影响 auth 路径；README 需说明配置方法
+    - Remaining risk：error 诊断（`provider_diagnose`）路径未经真实 CLI 验证；Gemini CLI 版本更新后事件 schema 可能变化
 
 - [ ] DEV-5: 同步 Gemini 用户入口文档与部署单元 README
   - 预期：用户能按 README/`.ralph/README.md` 正确配置 `RALPH_PROVIDER=gemini`，理解 Gemini 的配置目录、approval/sandbox、session capture 和已知限制。
   - 输入：DEV-1 校准结果；QA-2 真实 smoke 证据或阻塞结论；requirements/overview/integrations/security/testing。
   - 范围：`README.md`、`.ralph/README.md`、`docs/README.md`、`docs/roadmap.md`、必要的 requirements/architecture docs；不改 runtime。
   - 验证计划：`rg` 检查 Gemini 仍被写成 T4 planned 的旧入口是否只出现在历史语境；`git diff --check`；`bash scripts/check.sh`。
+
+- [ ] DEV-6: 修复 QA-2 发现的 Gemini adapter 事件 schema 漂移（P0-1/P0-2/P1-1）
+  - 预期：真实 Gemini CLI 调用后 session_id 正确提取、session.gemini.json 正确采集、session.history.log 非空、`run -v` 显示主要事件 marker。
+  - 输入：QA-2 真实 smoke 证据（真实 CLI 事件类型：init/message/result/tool_result/tool_use；stderr 含缩进 `{` 噪音行）；adapter-gemini.sh 当前实现；QA-1 mock 测试。
+  - 范围：`adapter-gemini.sh`（session_id 提取 grep、`_gemini_derive_history` 事件匹配、verbose filter Gemini 分支）；`tests/fixtures/mock-gemini`（事件 schema 对齐真实 CLI）；`scripts/integration-test.sh`（更新 mock 事件）；`docs/architecture/integrations.md`（事件类型文档）；不改变 adapter 函数签名或 run.sh 主循环。
+  - 验证计划：mock 集成测试通过（事件 schema 对齐真实 CLI）；真实 `ralph run --provider gemini` 跑到 done 后 meta.json session_id 非空、session.gemini.json 存在、session.history.log 非空；`run -v` stderr 含 Gemini 事件 marker；`bash scripts/check.sh`；`git diff --check`。
 
 - [ ] REVIEW-2: I4 最终 adversarial-review 与归档准备
   - 预期：I4 在归档前没有未处理的 P0/P1 事实源漂移、测试假阳性、真实 smoke 证据缺口或用户入口误导。
