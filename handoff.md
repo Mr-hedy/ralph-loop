@@ -1,48 +1,46 @@
 # 当前目标与约束
 
-- 本轮目标：在 I2 Codex adapter 与 observability/timeout 修复收口后，先刷新 handoff，再创建 checkpoint rollback anchor。
+- 本轮目标：修复 `ralph watch` 与 `ralph status` 输出契约混淆，完成自审后先刷新 handoff，再创建 checkpoint rollback anchor。
 - 硬约束：中文回复；当前开发任务事实源是 `.ralph/TASKS.md`；root `task.md` 已封版；`.ralph/runs/`、`.ralph/status.json`、`.ralph/lock`、`.env` 和 provider 运行日志不入仓。
-- 用户明确要求：先做 handoff，再做 checkpoint。后台/长任务不能强杀；本轮无需再跑真实 Claude/Codex 长 timeout，除非后续用户单独要求。
+- 用户明确要求：修复后自行 adversarial-review，有问题自行修；没问题先做 handoff，再做 checkpoint。
 
 # 当前阶段与范围
 
-- 阶段：I2 checkpoint 已创建，主题仍为 dogfood T3 — Codex adapter 收口。
-- 影响模块：`.ralph/` 部署单元、run/status/watch/provider observability、Codex/fake adapter、集成测试、README/requirements/architecture docs、任务事实源。
+- 阶段：I3 bugfix，主题为 watch/status 观察面修复。
+- 影响模块：`.ralph/` 部署单元的 CLI/watch helper、SC-024 integration test、README/requirements/architecture/testing docs、任务事实源、postmortem。
 - 变更类型：代码、测试、文档、任务源、流程记录。
 
 # 稳定决策
 
-- Codex iter 证据契约稳定为 4 文件：`meta.json` / `provider.stdout.log` / `session.codex.jsonl` / `session.history.log`。
-- Codex `session.history.log` 从 `provider.stdout.log` 的稳定 `codex exec --json` event stream 派生，不解析内部 rollout JSONL 作为 history 事实源。
-- `RALPH_PROVIDER_CONFIG_DIR` 对 Codex 翻译为 `CODEX_HOME`；为空时不 export，避免破坏默认登录态。
-- `ralph run -v` 负责 provider event live-tail；无 `-v` 时 run loop 每 60s 输出 provider heartbeat，可用 `RALPH_PROGRESS_HEARTBEAT_SEC=0` 关闭。
-- `ralph watch -v` 依赖 `status.json.iteration` 定位当前 iter；run loop 必须在 provider oneshot 前写入当前 iteration 和已 touch 的 `provider.stdout.log`。
-- `--timeout` 是单轮 provider oneshot timeout，不是整个 run 总超时；timeout 必须清理 provider oneshot 进程树。
-- 真实 provider smoke 已覆盖 Codex happy path；真实 Claude/Codex timeout 长任务未重跑，当前用 fake external child 测试覆盖同一 Ralph 进程树风险。
+- `ralph status` 是详细一次性快照，继续输出 status.json 的 15 个字段。
+- `ralph watch` 默认是紧凑 sticky bar；`ralph watch -v` 才展示上方当前 iter `provider.stdout.log` tail。
+- `ralph watch | cat` / redirect / 非 TTY 不应退化为 `ralph status`；只输出一次 one-line watch bar 后 exit 0。
+- `watch -v` 的 run_id separator、iter tail 切换只属于 verbose tail 区域；默认 watch 不刷详细 log。
+- 当前支持的 provider flag 为 `claude|codex|fake`；Gemini 仍是 T4 计划项。
 
 # 已完成工作
 
-- I2 Codex adapter 已实现并通过真实 Codex smoke 复验：run id `20260503-145326-3085d11`，`exit_reason=done`，`hello.txt` 内容正确，iter 4 文件齐全，`session.history.log` 非空。
-- 修复 I2 adversarial review 提出的 docs/requirements/测试/任务源问题：Codex 使用入口、requirements 旧 artifact、DEV-5 完成证据、Codex effort/model 实参断言、error-event fallback fixture、动态追加任务总数。
-- 修复 Codex `ralph run -v` 无事件 marker：`_ralph_filter_verbose` 支持 `thread.started`、`agent_message`、`command_execution`、`turn.completed`、`turn.failed`、`error`。
-- 修复 Claude provider 长 oneshot 默认无反馈：新增 provider heartbeat，输出 elapsed、log bytes/lines 和 `tail -f provider.stdout.log` 路径。
-- 修复 `ralph watch -v` 第一轮盯 `iter-000`/上一轮导致空白：provider 开始前更新 status 指向当前 iter。
-- 修复 timeout 只杀 shell 不保证清理子进程：timeout 分支改为终止 provider oneshot 进程树，fake adapter 新增 `slow_child` 回归场景。
-- 同步 README、`.ralph/README.md`、requirements、overview/security/testing docs、`.ralph/TASKS.md` 中的 I2 当前事实与验证证据。
+- `.ralph/bin/ralph` 的非 TTY fallback 改为调用 `ralph_watch_once`，不再 source `status.sh` 后调用 `ralph_status`。
+- `.ralph/lib/watch.sh` 新增 `ralph_watch_once`，复用 `_ralph_watch_bar_text` 输出单行 watch bar，并在非 TTY 下自然无颜色。
+- `scripts/integration-test.sh` 的 SC-024-4 改为断言 one-line watch bar，并反向断言不出现 `workspace:` / `run_dir:` / `started_at:` / `last_error:` 等 status 详情字段。
+- README、`.ralph/README.md`、requirements、overview、testing docs 已同步默认 sticky、`-v` tail、非 TTY one-line bar 的契约。
+- `.ralph/TASKS.md` 已进入 I3 bugfix 主题并勾选 DEV-1，记录完成证据与未验证范围。
+- `docs/postmortems/pm-task-closure-req-traceability.md` 已追加 2026-05-04 watch/status 观察面混淆条目，并新增反向断言预防规则。
+- 自审额外修复 `docs/architecture/overview.md` provider 表仍写 `claude|codex|gemini` 的漂移，改为 `claude|codex|fake` 并标注 Gemini T4。
 
 # 最新验证
 
-- 命令：`bash -n .ralph/lib/run.sh .ralph/lib/adapter-fake.sh .ralph/bin/ralph scripts/integration-test.sh tests/fixtures/mock-codex`
+- 命令：`bash -n .ralph/bin/ralph .ralph/lib/watch.sh scripts/integration-test.sh`
 - 结果：通过
 - 诊断：shell 语法检查无输出。
 
-- 命令：`RALPH_FAKE_SCENARIO=slow_child RALPH_FAKE_SLEEP=30 bash <temp>/.ralph/bin/ralph run --provider fake --timeout 2`
+- 命令：`bash .ralph/bin/ralph watch | cat`
 - 结果：通过
-- 诊断：`exit_reason=timeout`，返回码 3，fixture 记录的 child pid 已退出。
+- 诊断：输出一行 watch bar：`run: ... iter_name: I2 iter 5 11/9 tasks state: finished exit_reason: done provider: claude`；无 `workspace:` / `run_dir:` 详情字段。`11/9 tasks` 来自本仓库已忽略的旧 runtime `.ralph/status.json`，不是本次代码契约。
 
-- 命令：`bash .ralph/bin/ralph watch --help`
+- 命令：`git diff --check`
 - 结果：通过
-- 诊断：help 中包含 `--verbose, -v` 和 `provider.stdout.log`。
+- 诊断：无 whitespace error。
 
 - 命令：`bash scripts/check.sh`
 - 结果：通过
@@ -52,32 +50,32 @@
 - 结果：通过
 - 诊断：`PASS=83 FAIL=0`。
 
-- 命令：`git diff --check`
+- 命令：`rg` 自审旧契约残留
 - 结果：通过
-- 诊断：无 whitespace error。
+- 诊断：当前代码、README、requirements、overview、测试中未发现“watch 非 TTY = status 输出”旧契约；唯一命中是 `.ralph/TASKS.md` 中记录的反向断言说明。
 
 # 已验证与未验证
 
-- 已验证：Codex real happy path、Codex/fake automated adapter paths、run/watch observability regression、default heartbeat、timeout process tree cleanup、docs/help/requirements consistency、完整集成测试 83/83。
-- 未验证：真实 Claude 长任务 + `ralph watch -v` 视觉观察未重跑；真实 Claude/Codex timeout 手工进程树未重跑。当前判断为不必重跑，因为根因位于 Ralph status/log 定位与 shell 进程树清理，已由 fake slow/slow_child 覆盖。
+- 已验证：非 TTY watch fallback、SC-024-4 自动化、watch help 文案、provider flag 文档同步、requirements/overview/README/testing docs 一致性、完整集成测试 83/83。
+- 未验证：真实 TTY 视觉录屏未重跑；真实 Claude/Codex 长任务 timeout 未重跑。本轮风险集中在非 TTY fallback 与文档/测试契约，已由 direct probe 和 integration test 覆盖。
 
 # Checkpoint 与 Postmortem 状态
 
-- Checkpoint：已创建 `docs/checkpoints/2026-05-04-01-i2-codex-observability-hardening.md`，commit `de01779 checkpoint: I2 codex observability hardening`。
-- Postmortem：已更新既有 PM-0003：`docs/postmortems/pm-task-closure-req-traceability.md`，记录 2026-05-04 的观测面误定位与 timeout 子进程测试缺口。
+- Checkpoint：本轮 checkpoint 尚未创建；计划创建 `docs/checkpoints/2026-05-04-02-watch-status-surface-fix.md` 并提交。上一稳定 checkpoint 是 `docs/checkpoints/2026-05-04-01-i2-codex-observability-hardening.md`，commit `de01779 checkpoint: I2 codex observability hardening`。
+- Postmortem：已更新既有 PM-0003：`docs/postmortems/pm-task-closure-req-traceability.md`，记录 watch/status surface separation 回归模式和预防检查。
 
 # 工作区状态
 
 - 分支：`main`
-- 最近提交：`de01779 checkpoint: I2 codex observability hardening`
-- 当前工作区：checkpoint commit 后曾 clean；本 handoff 仅为补入 checkpoint commit id 的后续刷新。
-- diff 范围：仅 `handoff.md` 状态刷新；不改 runtime、测试或任务事实源。
+- 最近提交：`b569060 docs(I2): archive Codex adapter iteration`
+- 当前 dirty 范围：`.ralph/bin/ralph`、`.ralph/lib/watch.sh`、`scripts/integration-test.sh`、README、`.ralph/README.md`、requirements、overview、testing docs、`.ralph/TASKS.md`、postmortem、`handoff.md`。
+- diff 范围符合本轮 bugfix；未发现 runtime artifact、`.env` 或 provider 日志进入仓库。
 
 # 建议下一步
 
-- 提交本 handoff 刷新后，若继续 I2，优先做一次最终 adversarial review。
-- 若 review 无新问题，再按 iteration 归档约定生成 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`，清空 `.ralph/TASKS.md` 当前任务段并更新 roadmap。
+- 立即按 checkpoint skill 创建 `docs/checkpoints/2026-05-04-02-watch-status-surface-fix.md`。
+- checkpoint commit 后刷新 `handoff.md`，写入 checkpoint note path 和 commit id，确保最终 handoff 不停留在“待创建”状态。
 
 # 交接摘要
 
-- I2 已从 Codex adapter 扩展到用户可见 observability 与 timeout hardening；当前核心事实是：真实 Codex happy path 已复验，checkpoint `de01779` 已保存稳定点，剩余真实长 timeout smoke 不是继续 I2 的阻塞项。
+- 当前核心事实：watch/status 输出面已经重新分离，自动化明确防止 `watch` 非 TTY 再泄漏 `status` 详情字段；下一步只剩 checkpoint 提交与最终 handoff 刷新。

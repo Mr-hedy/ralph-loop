@@ -28,7 +28,7 @@ Commands:
   run     Start the agent run loop in the current workspace.
   help    Show this help or help for a subcommand.
   status  Show current or last run state.
-  watch   Stream live run events (sticky bar + iter log tail).
+  watch   Watch run state with a sticky status bar.
 
 Examples:
   ralph run --provider claude
@@ -133,6 +133,8 @@ Output:
   Default: sticky bar with run_id, iteration, task progress, state,
            exit_reason, provider.
   -v:      tail of current iter provider.stdout.log above the sticky bar.
+  Non-TTY: one-line sticky bar snapshot, then exit 0. Use `ralph status`
+           when you need the detailed status fields.
 
 When no status.json exists, the bar shows "no active run".
 
@@ -154,11 +156,11 @@ ralph_watch_cmd() {
   done
   export RALPH_WATCH_VERBOSE="$verbose"
 
-  # Non-TTY fallback: print status once and exit (SC-024-4)
+  # Non-TTY fallback: print one-line watch bar once and exit (SC-024-4).
   if [[ ! -t 1 ]]; then
-    # shellcheck source=../lib/status.sh
-    source "$RALPH_ROOT/lib/status.sh"
-    ralph_status
+    # shellcheck source=../lib/watch.sh
+    source "$RALPH_ROOT/lib/watch.sh"
+    ralph_watch_once
     return 0
   fi
 

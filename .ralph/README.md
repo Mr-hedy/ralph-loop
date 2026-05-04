@@ -19,7 +19,7 @@
 │   ├── common.sh          ← 通用函数（lock / uuid / 时间戳 / .env 加载）
 │   ├── run.sh             ← ralph run 主循环
 │   ├── status.sh          ← ralph status 渲染
-│   ├── watch.sh           ← ralph watch sticky bar + tail
+│   ├── watch.sh           ← ralph watch sticky bar + optional tail
 │   ├── tasks.sh           ← TASKS.md 解析 + HUMAN-N 扫描
 │   ├── session.sh         ← meta.json 读写骨架
 │   ├── adapter-claude.sh  ← Claude provider adapter
@@ -82,7 +82,7 @@
 ```bash
 .ralph/bin/ralph watch                       # 仅 sticky bar
 .ralph/bin/ralph watch -v                    # sticky bar + 上方 iter log live tail
-.ralph/bin/ralph watch | cat                 # 非 TTY 退化为 status 单次打印
+.ralph/bin/ralph watch | cat                 # 非 TTY 输出一次 one-line watch bar
 ```
 
 行为：

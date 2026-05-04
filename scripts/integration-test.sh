@@ -1256,7 +1256,7 @@ rm -f "$tmpout" "$stderr_file"
 cleanup_ws "$ws"
 
 echo ""
-echo "-- SC-024-4: watch non-TTY fallback → status output + exit 0"
+echo "-- SC-024-4: watch non-TTY fallback → one-line bar + exit 0"
 ws=$(setup_workspace)
 cat > "$ws/.ralph/status.json" <<'SJEOF'
 {
@@ -1279,16 +1279,29 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
 SJEOF
 rc=0
 watch_out=$(bash "$ws/.ralph/bin/ralph" watch 2>/dev/null | cat) || rc=$?
-has_fields=0
-if echo "$watch_out" | grep -q "run_id:" \
-  && echo "$watch_out" | grep -q "iteration_name:" \
-  && echo "$watch_out" | grep -q "state:"; then
-  has_fields=1
+one_line=0
+line_count="$(printf '%s\n' "$watch_out" | wc -l | tr -d ' ')"
+[[ "$line_count" -eq 1 ]] && one_line=1
+has_bar=0
+if printf '%s\n' "$watch_out" | grep -q "run: 20260501-120..." \
+  && printf '%s\n' "$watch_out" | grep -q "iter_name: I1" \
+  && printf '%s\n' "$watch_out" | grep -q "iter 3" \
+  && printf '%s\n' "$watch_out" | grep -q "2/5 tasks" \
+  && printf '%s\n' "$watch_out" | grep -q "state: running" \
+  && printf '%s\n' "$watch_out" | grep -q "provider: fake"; then
+  has_bar=1
 fi
-if [[ "$rc" -eq 0 && "$has_fields" -eq 1 ]]; then
-  _pass "SC-024-4: watch non-TTY → status-like output with iteration_name, exit 0"
+detail_absent=0
+if ! printf '%s\n' "$watch_out" | grep -q "workspace:" \
+  && ! printf '%s\n' "$watch_out" | grep -q "run_dir:" \
+  && ! printf '%s\n' "$watch_out" | grep -q "started_at:" \
+  && ! printf '%s\n' "$watch_out" | grep -q "last_error:"; then
+  detail_absent=1
+fi
+if [[ "$rc" -eq 0 && "$one_line" -eq 1 && "$has_bar" -eq 1 && "$detail_absent" -eq 1 ]]; then
+  _pass "SC-024-4: watch non-TTY → one-line bar without status detail fields, exit 0"
 else
-  _fail "SC-024-4: rc=$rc has_fields=$has_fields"
+  _fail "SC-024-4: rc=$rc one_line=$one_line has_bar=$has_bar detail_absent=$detail_absent output=$watch_out"
 fi
 cleanup_ws "$ws"
 

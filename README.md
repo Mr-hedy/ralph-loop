@@ -71,7 +71,8 @@ cd <your-workspace>
 ```bash
 ralph status                  # plain text：run_id / iter / tasks 进度 / state / exit_reason 等
 ralph status --json           # 透传 .ralph/status.json 原始 JSON
-ralph watch                   # 实时监控：底部 sticky bar + 上方 iter log tail（2 秒刷新，Ctrl-C 退出）
+ralph watch                   # 实时监控：底部 sticky bar（2 秒刷新，Ctrl-C 退出）
+ralph watch -v                # sticky bar + 上方 iter log live tail
 ralph run -v                  # 重跑时直接把 provider stream 过滤到 stderr
 ```
 

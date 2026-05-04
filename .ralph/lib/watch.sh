@@ -203,6 +203,19 @@ _ralph_watch_on_sigint() {
   exit 130
 }
 
+# ── Non-TTY snapshot entry point ────────────────────────────────────────────
+ralph_watch_once() {
+  local workspace status_file
+  workspace="$(ralph_workspace_root)"
+  status_file="${workspace}/.ralph/status.json"
+
+  # shellcheck source=status.sh
+  source "$RALPH_ROOT/lib/status.sh"
+
+  _ralph_watch_bar_text "$status_file"
+  printf '\n'
+}
+
 # ── Main watch entry point ──────────────────────────────────────────────────
 ralph_watch() {
   local workspace status_file

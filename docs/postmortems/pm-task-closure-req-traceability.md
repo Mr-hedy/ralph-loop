@@ -14,6 +14,7 @@ linked_commits:
   - "pending T6 prep commit (本 PM 与 T6 prep 同包提交)"
   - "pending I1 observability checkpoint (M1 live-tail regression coverage)"
   - "pending 2026-05-04 I2 checkpoint (watch-v observation surface + timeout child-process regression coverage)"
+  - "pending 2026-05-04 I3 checkpoint (watch/status surface separation regression coverage)"
 trigger_conditions:
   - "任务收口 adversarial review 只检查'本任务实现 vs 任务范围'，不重新跑 P0/P1 REQ → 实现 traceability"
   - "测试覆盖完全建立在 fake / mock 条件下，未对'mock 假设是否成立于真实长链路'做显式声明"
@@ -31,6 +32,7 @@ prevention_checks:
   - "fake/mock 测试用例必须在测试文件或 fixture 注释中标注'此场景隐含假设：<X>；真实长链路触发条件需在 T_real_smoke 阶段 cover'"
   - "新增或修改用户可见观测链路（status/watch/progress marker/live tail/session history）时，至少保留一条集成测试或进程探针断言主路径输出确实可见"
   - "处理'无输出/卡住'反馈时，先列出并验证观察面矩阵：ralph run、ralph run -v、ralph watch、ralph watch -v、background log/pid、provider.stdout.log；确认哪个 surface 为空再改代码"
+  - "成对观察命令共享数据源时，测试必须同时断言目标输出存在和相邻命令的详情字段不存在（例如 watch 不应输出 status 的 workspace/run_dir/last_error 字段）"
   - "修改 timeout/signal/process cleanup 时，必须有外部 child pid fixture，并断言 timeout 后 child pid 不再存活"
 ---
 
@@ -76,6 +78,14 @@ I2 Codex adapter 收口后，用户连续追问“运行后一直没有任何反
 - `ralph run` 默认 heartbeat、`ralph watch --help`、README/requirements/testing docs 同步更新，避免“默认 sticky bar”和“`-v` log tail”继续漂移。
 
 后续处理同类反馈时，第一步必须先写出 observation surface 矩阵：`ralph run`、`ralph run -v`、`ralph watch`、`ralph watch -v`、后台 `ralph-background-*.log`、provider iter log，逐个用真实 artifact 证明空白发生在哪一层，再决定改 run loop、watch、provider adapter 还是 docs/help。
+
+## 2026-05-04 再次命中：`watch` 非 TTY fallback 与 `status` 观察面混淆
+
+用户指出 `watch` 输出“所有的细节内容都刷出来了”，复查发现 `.ralph/bin/ralph` 在 `stdout` 非 TTY 时直接调用 `ralph_status`。这让 `ralph watch | cat`、日志采集、非交互 runner 都打印完整 15 字段 status，而不是 watch 的紧凑监控面。
+
+更深层问题是 requirements / overview / integration test 把“非 TTY 退化为 status 单次打印”写成验收口径，测试只断言 `run_id:` / `iteration_name:` / `state:` 出现，等于保护了错误契约。修复后 `watch` 非 TTY 输出一次 one-line watch bar，详细字段仍由 `ralph status` 提供；集成测试同时断言 bar 关键字段存在，并断言 `workspace:` / `run_dir:` / `started_at:` / `last_error:` 不出现。
+
+后续凡是调整共享同一数据源的观察命令，不能只测“有输出”。必须把相邻命令的边界写入反向断言，避免把一个命令的完整输出泄漏到另一个命令的 fallback 或 verbose 路径。
 
 ## 根因
 

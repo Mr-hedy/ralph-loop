@@ -68,7 +68,8 @@ ralph run
 ```bash
 ralph run     # 主循环
 ralph status  # 一次性状态快照
-ralph watch   # 周期刷新状态 + 日志 tail
+ralph watch   # 周期刷新 sticky 状态条
+ralph watch -v # sticky 状态条 + 当前 iter log tail
 ralph help    # 帮助
 ```
 
@@ -78,7 +79,7 @@ ralph help    # 帮助
 
 | Flag | 值 | 环境变量 | `.env` 字段 | 默认 | 说明 |
 |---|---|---|---|---|---|
-| `--provider` | `claude\|codex\|gemini` | `RALPH_PROVIDER` | `RALPH_PROVIDER` | **无默认**（必需） | provider 绑定；run 生命周期内不变 |
+| `--provider` | `claude\|codex\|fake` | `RALPH_PROVIDER` | `RALPH_PROVIDER` | **无默认**（必需） | provider 绑定；run 生命周期内不变；Gemini 为 T4 计划项 |
 | `--model` | provider 原生 model 名 | `RALPH_MODEL` | `RALPH_MODEL` | 空 → 不传 | 留空由 provider CLI 走自身默认 |
 | `--effort` | `low\|medium\|high\|none` | `RALPH_EFFORT` | `RALPH_EFFORT` | 空或 `none` → 不传 | adapter 翻译到原生 flag |
 | `--max-iter` | 整数 | `RALPH_MAX_ITER` | `RALPH_MAX_ITER` | `0`（不限） | 0 表示不限 |
@@ -98,7 +99,7 @@ ralph help    # 帮助
 
 ### `ralph watch` 参数
 
-无参数。固定 2 秒刷新间隔，不暴露 `--interval` flag。仅限 TTY 环境；非 TTY 退化为 `ralph status` 单次打印。
+`-v` / `--verbose` 启用上方当前 iter log tail；默认只渲染 sticky 状态条。固定 2 秒刷新间隔，不暴露 `--interval` flag。非 TTY 输出一次 one-line watch bar 后退出；详细字段由 `ralph status` 提供。
 
 ## 运行目录
 
@@ -565,22 +566,22 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 ### 数据流
 
 ```text
-.ralph/status.json ───── ralph status ──→ stdout（一次性打印，exit 0）
+.ralph/status.json ───── ralph status ──→ stdout（一次性详细打印，exit 0）
                    │
-                   └──→ ralph watch ──→ TTY 双区域循环刷新
+                   └──→ ralph watch ──→ TTY sticky bar / 非 TTY one-line bar
                           │
-                          └──→ .ralph/runs/<run_id>/iterations/iter-NNN/provider.stdout.log
-                                ↑ 上方区域 tail 目标
+                          └──→ ralph watch -v ──→ .ralph/runs/<run_id>/iterations/iter-NNN/provider.stdout.log
+                                                   ↑ 上方区域 tail 目标
 ```
 
 - `status`：单次读取 status.json，渲染 15 字段 plain text（`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `iteration` / `iteration_name` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`），任务进度渲染为 `<checked> / <total> checked`。`--json` flag 字节透传 status.json 不做二次序列化。status.json 不存在时输出提示文案，exit 0（REQ-023 / SC-023-1/2/3）。
-- `watch`：每 2 秒重读 status.json + 增量 tail iter log，渲染 TTY 双区域布局。非 TTY 环境退化为 status 单次打印（REQ-024 / SC-024-4）。
+- `watch`：每 2 秒重读 status.json，默认只渲染 sticky bar；`-v` 额外增量 tail iter log，渲染 TTY 双区域布局。非 TTY 环境输出一次 one-line watch bar，不打印 status 详情字段（REQ-024 / SC-024-4）。
 
-### Watch 双区域布局
+### Watch 布局
 
 ```text
 ┌─────────────────────────────────────────────────────┐
-│  上方区域（scroll region）                           │
+│  ralph watch -v 上方区域（scroll region）             │
 │  tail 当前活跃 iter log 的增量输出                   │
 │  路径: .ralph/runs/<run_id>/iterations/iter-NNN/provider.stdout.log │
 │  iter 切换时自动切换 tail 目标，重置偏移量            │
@@ -592,6 +593,8 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 │  state:<state>  exit_reason:<reason>  provider:<p>  │
 └─────────────────────────────────────────────────────┘
 ```
+
+默认 `ralph watch` 不启用上方区域，只刷新 sticky bar；`ralph watch -v` 才启用上方 tail 区域。
 
 Sticky bar 字段来源均为 status.json：
 
@@ -606,11 +609,11 @@ Sticky bar 字段来源均为 status.json：
 
 ### Watch 行为规则
 
-- **run_id 切换**：status.json `run_id` 变化时，上方区域插入 separator 行 `─── new run: <new_run_id> ───`，tail 目标切换到新 run 的 iter log，偏移量重置（SC-024-2）。
-- **iter 切换**：同一 run 内 `iteration` 变化时，tail 目标自动切换到新 iter log，偏移量重置。
+- **run_id 切换**：`-v` 模式下 status.json `run_id` 变化时，上方区域插入 separator 行 `─── new run: <new_run_id> ───`，tail 目标切换到新 run 的 iter log，偏移量重置（SC-024-2）。
+- **iter 切换**：`-v` 模式下同一 run 内 `iteration` 变化时，tail 目标自动切换到新 iter log，偏移量重置。
 - **run 结束**：`state=finished` 后 watch 不自动退出，最后一帧保留并继续刷新（SC-024-3）。
 - **退出**：仅 Ctrl-C（SIGINT），退出时 `tput clear` 清屏 + 恢复光标 + 重置 scroll region。
-- **非 TTY 退化**：`isatty(stdout)=false` 时退化为 `ralph status` 单次打印后 exit 0（SC-024-4）。
+- **非 TTY 退化**：`isatty(stdout)=false` 时输出一次 one-line watch bar 后 exit 0；不打印 `workspace:` / `run_dir:` 等 status 详情字段（SC-024-4）。
 
 ### Watch 彩色规则
 
