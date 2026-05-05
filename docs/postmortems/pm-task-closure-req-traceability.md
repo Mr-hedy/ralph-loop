@@ -15,17 +15,20 @@ linked_commits:
   - "pending I1 observability checkpoint (M1 live-tail regression coverage)"
   - "pending 2026-05-04 I2 checkpoint (watch-v observation surface + timeout child-process regression coverage)"
   - "pending 2026-05-04 I3 checkpoint (watch/status surface separation regression coverage)"
+  - "pending 2026-05-05 I4 checkpoint (background execution mode adherence + Gemini closeout)"
 trigger_conditions:
   - "任务收口 adversarial review 只检查'本任务实现 vs 任务范围'，不重新跑 P0/P1 REQ → 实现 traceability"
   - "测试覆盖完全建立在 fake / mock 条件下，未对'mock 假设是否成立于真实长链路'做显式声明"
   - "REQ 文本含'单元测试'/'集成测试'级别的 SC 但任务拆分时未显式排进子任务"
   - "用户报告'没有输出/卡住'时，未先精确区分观察面是 run、run -v、watch、watch -v、background log 还是 provider.stdout.log"
+  - "用户明确要求后台执行 Ralph run 时，agent 未把执行模式当成启动前硬约束检查"
 failure_pattern:
   - "fake/mock 路径通过 → 误判'内核能力已验证'，但 fake 隐含的简化条件（如 stagnation 场景从第 1 轮就不动）让真实长链路下才会暴露的 bug 永久潜伏"
   - "REQ 在 requirements.md 列出且有 SC 验收条目，但任务拆分时未显式列子任务 → adversarial review 只看任务范围内的实现 → SC 永远不被验证"
   - "用户可见的诊断/可观察性行为只做手工验证，没有最小自动化断言 → 实现细节重写时可静默回归"
   - "用户可见问题先按相邻实现路径修复，而不是先证明人类实际观察到的 UI/CLI surface 与对应 artifact path，容易连续修到非根因路径"
   - "timeout/signal 类测试若只覆盖 shell 函数返回，不建模真实 provider 外部子进程，可能漏掉子进程残留"
+  - "长任务启动方式如果没有在命令执行前复述并选择前台/后台策略，agent 可能用前台工具会话启动，导致用户要求的后台日志/pid 观察面不存在"
 prevention_checks:
   - "任务收口 adversarial review 必须包含 'REQ traceability rerun' 步骤：对该任务声明覆盖的每条 P0/P1 REQ，grep 实现代码确认接入；grep 集成测试确认 SC-NNN-N 有对应用例；对照 SC 文本和实际用例断言是否一致"
   - "任务范围段必须显式列出'本任务覆盖的 SC-NNN-N 清单'；任务收口检查清单与之机械对账"
@@ -34,6 +37,7 @@ prevention_checks:
   - "处理'无输出/卡住'反馈时，先列出并验证观察面矩阵：ralph run、ralph run -v、ralph watch、ralph watch -v、background log/pid、provider.stdout.log；确认哪个 surface 为空再改代码"
   - "成对观察命令共享数据源时，测试必须同时断言目标输出存在和相邻命令的详情字段不存在（例如 watch 不应输出 status 的 workspace/run_dir/last_error 字段）"
   - "修改 timeout/signal/process cleanup 时，必须有外部 child pid fixture，并断言 timeout 后 child pid 不再存活"
+  - "用户要求'后台执行'、'不要杀任务'或'无 timeout'时，启动 Ralph 前必须显式选择后台 wrapper（log + pid + lock/status 观察面），并在启动后回报 log/pid 路径；若误启为前台且 run 已拿锁，只能继续观察自然结束，不得强切或重启"
 ---
 
 # 任务收口 adversarial review 缺乏 REQ traceability + 现实条件外推，导致 P0 缺陷漏到下阶段
@@ -86,6 +90,24 @@ I2 Codex adapter 收口后，用户连续追问“运行后一直没有任何反
 更深层问题是 requirements / overview / integration test 把“非 TTY 退化为 status 单次打印”写成验收口径，测试只断言 `run_id:` / `iteration_name:` / `state:` 出现，等于保护了错误契约。修复后 `watch` 非 TTY 输出一次 one-line watch bar，详细字段仍由 `ralph status` 提供；集成测试同时断言 bar 关键字段存在，并断言 `workspace:` / `run_dir:` / `started_at:` / `last_error:` 不出现。
 
 后续凡是调整共享同一数据源的观察命令，不能只测“有输出”。必须把相邻命令的边界写入反向断言，避免把一个命令的完整输出泄漏到另一个命令的 fallback 或 verbose 路径。
+
+## 2026-05-05 再次命中：用户要求后台执行，但 Ralph run 被前台启动
+
+I4 Gemini adapter 执行时，用户明确要求“使用 ralph-loop 的能力”“后台执行”“任务没跑完不要强制杀死任务”“没有 timeout 限制”。实际操作中，agent 直接在 Codex 工具会话里执行 `bash .ralph/bin/ralph run`，没有使用后台 wrapper，也没有在启动前回报后台 log/pid 路径。
+
+失败影响不是 runtime 代码错误，而是协作控制面错误：
+
+- 用户预期存在后台 pid/log 观察面，但本轮只有前台工具 session id。
+- run 已拿 `.ralph/lock` 后不能安全重启为后台；强切会违反“不杀任务”约束，只能继续轮询前台会话直到自然结束。
+- 后续排查“到底有没有执行”时，用户看到的后台 log/pid 与实际执行面不一致，增加了不必要的不信任和排查成本。
+
+根因是执行前没有把“后台/前台”当成 hard constraint 检查，也没有把用户的“不要杀任务 / 无 timeout”要求转成启动策略。处理长任务时，启动命令本身就是稳定合约的一部分，不能只关注 Ralph 内部任务列表。
+
+预防规则：
+
+- 启动 Ralph 长任务前，若用户提到“后台执行 / background / 不要杀 / 没有 timeout”，必须先复述执行策略并使用后台 wrapper，至少产出 log path、pid path、lock/status 观察方式。
+- 若已经误启为前台且 run 已拿锁，不要二次启动、不强杀、不强切；说明当前状态，继续观察自然结束，结束后在 handoff/checkpoint 记录该偏差。
+- 后续实现专用后台 wrapper 或脚本时，需把 `ralph-background-*.log`、pid 文件、`.ralph/lock` 和 `.ralph/status.json` 的关系写入 `.ralph/README.md` 或对应 runbook，避免“后台文件是什么”只能靠口头解释。
 
 ## 根因
 
