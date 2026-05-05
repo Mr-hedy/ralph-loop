@@ -796,6 +796,8 @@ _ralph_filter_verbose() {
         ((.message.content // []) | if type == "array" then . else [] end | .[]
           | select(.type == "tool_result")
           | "  ⏎ result " + ((.content // "") | tostring | .[0:80]))
+      elif .type == "result" and has("text") then
+        "  ✓ result " + ((.text // "") | trunc(120))
       elif .type == "result" then
         if .is_error then "  ❌ error: " + ((.result // "") | .[0:120])
         else "  ✓ result " + ((.result // "") | .[0:120]) end
@@ -819,8 +821,6 @@ _ralph_filter_verbose() {
         "  🔧 " + ((.name // "?") | trunc(40)) + " " + (((.input // {}) | tostring) | trunc(60))
       elif .type == "tool_result" then
         "  ⏎ result " + ((.content // "") | tostring | trunc(80))
-      elif .type == "result" then
-        "  ✓ result " + ((.text // "") | trunc(120))
       elif .type == "text" then
         "  💬 " + ((.text // "") | trunc(120))
       elif .type == "complete" then

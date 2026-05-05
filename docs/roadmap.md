@@ -15,7 +15,7 @@
   - I1 = dogfood T5（status + watch 真实功能）+ HUMAN-N 阻塞机制 + 任务类型路由（已完成，归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`）
   - I2 = T3（Codex adapter）（已完成，归档见 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`）
   - I3 = watch/status 观察面 bugfix（已完成，归档见 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`）
-  - I4 = T4（Gemini adapter）（实施中，设计见 `docs/requirements/ralph-loop/I4-design.md`；adapter 已实现，QA-2 真实 smoke 已完成）
+  - I4 = T4（Gemini adapter）（已完成，归档见 `docs/requirements/ralph-loop/I4-FINAL-TASK.md`；设计见 `docs/requirements/ralph-loop/I4-design.md`）
   - I5 等 = T7 或新议题，由用户在下一轮启动前排序
   - 历史 T 编号仅作为"该 iteration 关联的 v0.1 规划项"出现在 iteration 主题里，不再是 phase 单位
 
@@ -102,8 +102,8 @@
 
 ### 非 T6 范围
 
-- 不实现 Codex / Gemini adapter（T3/T4 继续后置）。
-- 不实现 `status` / `watch` 子命令（T5）——直接读 `.ralph/status.json` 替代。
+- 当时不实现 Codex / Gemini adapter（已后续由 I2 / I4 完成）。
+- 当时不实现 `status` / `watch` 子命令（已后续由 I1 完成）。
 - 不做 ralph init / 不让 ralph 工具运行时写 PROMPT.md 或 TASKS.md（requirements §非目标 line 23；样板入仓属交付配置，由 REQ-017 管辖，与 init 不冲突）。
 - 不引入 conductor / STATUS.md / role 系统等业务域扩展。
 

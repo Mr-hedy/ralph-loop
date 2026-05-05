@@ -138,12 +138,12 @@ RALPH_PROVIDER_CONFIG_DIR=~/.claude-glm    # tilde 自动展开为 $HOME
 | `meta.json` | 元数据（session_id / provider_started_at / runtime_block / capture_status / error / 任务进度 / changed_files / stagnation_count） |
 | `provider.stdout.log` | provider CLI stdout + stderr 合流（Claude stream-json events / Codex JSONL events / Gemini stream-json events） |
 | `session.<provider>.jsonl` | provider 原生 session 副本（Claude `~/.claude/projects/...` / Codex `~/.codex/sessions/...`），保留 30 天后过期 + 派生 bug 回滚 anchor；Gemini 为 `session.gemini.json`（JSON 格式，非 JSONL） |
-| `session.history.log` | 跨 provider 人话视图（Claude 含 user / assistant / thinking / tool_use / tool_result；Codex 含 assistant / tool_use / tool_result；Gemini 含 assistant / tool_use / tool_result），Claude 从 `session.claude.jsonl` 派生，Codex 从 `provider.stdout.log` 派生，Gemini 从 `provider.stdout.log` 派生 |
+| `session.history.log` | 跨 provider 人话视图（Claude 含 user / assistant / thinking / tool_use / tool_result；Codex 含 assistant / tool_use / tool_result；Gemini 含 assistant / tool_use / tool_result / result），Claude 从 `session.claude.jsonl` 派生，Codex 从 `provider.stdout.log` 派生，Gemini 从 `provider.stdout.log` 派生 |
 
 **复盘建议**：
 - 看 agent 在做什么 → `cat session.history.log`
 - 看 provider CLI 错误 → `cat provider.stdout.log`
-- 看完整事件流 → `cat session.<provider>.jsonl | jq -c .`
+- 看原生 session → `cat session.claude.jsonl` / `cat session.codex.jsonl` / `cat session.gemini.json`
 - 看 iter 元数据 → `cat meta.json | jq`
 
 ## 退出原因（8 种）
@@ -251,7 +251,7 @@ A：默认 silent + 进度 marker（stderr）。长 oneshot 会每 60 秒输出 
 **Q：ralph watch -v 没有 tail 输出**
 A：`watch -v` 依赖 `.ralph/status.json` 的 `run_id` / `iteration` 定位当前 iter log。v0.1.1 起 `ralph run` 会在 provider oneshot 启动前更新到当前 iter 并创建 `provider.stdout.log`；旧 run 产物若 status 指向不存在的 iter，可直接 tail 实际存在的 `iterations/iter-NNN/provider.stdout.log`。
 
-**Q：session.<provider>.jsonl 没采集到（meta.json `capture_status: warning`）**
+**Q：provider 原生 session 没采集到（meta.json `capture_status: warning`）**
 A：检查 provider 配置目录是否正确。Claude 使用 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/<cwd_hash>/<session_id>.jsonl`；Codex 使用 `${CODEX_HOME:-$HOME/.codex}/sessions/` 下的 `rollout-*-<thread_id>.jsonl`；Gemini 使用 `${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/*/chats/*.json`。
 
 **Q：HUMAN-N 任务被 agent 勾掉了**

@@ -54,7 +54,7 @@
 | 项目是什么、当前状态 | `../README.md` |
 | 当前协作规范和文档结构 | `../.spec/README.md` |
 | 当前要执行什么 | `../.ralph/TASKS.md`（dogfood 任务源） |
-| 当前 iteration 设计方案 | `requirements/ralph-loop/I4-design.md` |
+| 当前 iteration 设计方案 | 等待 I5 启动 |
 | v0.1 历史任务 | `../task.md`（已封版） |
 | 项目级需求和跨模块约束 | `requirements.md` |
 | Ralph harness 模块需求 | `requirements/ralph-loop/requirements.md` |

@@ -1,6 +1,6 @@
 # Testing
 
-- 状态：T1/T2/T6/I1/I2/I3 已稳定，I4 Gemini mock 测试已覆盖；当前 97 PASS（+3 预存 env 泄漏 FAIL）
+- 状态：T1/T2/T6/I1/I2/I3/I4 已稳定；当前 `bash scripts/integration-test.sh` 为 PASS=100 FAIL=0。
 - 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/architecture/overview.md`（启动校验、退出原因、运行目录 schema）、`docs/architecture/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
 - 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/testing.md`），不写具体用例的验证计划（写到任务事实源 `task.md` 对应任务的"验证计划"段）。
 - 变更条件：测试入口脚本变化、新增 fixture 或 mock 类型、隔离规则失效、新平台支持、测试覆盖目标变化。
@@ -41,7 +41,7 @@ tests/
 - **PATH 隔离**：测试若需要修改 PATH（例如模拟某命令缺失），修改必须限定在被测子进程（`env PATH=... ralph run ...`），harness 自身 PATH 不得变更。harness 自己的 jq / git / bash 等工具必须始终可用，否则 harness 自身瘫痪后无法做断言。
 - **配置文件隔离**：测试不得修改使用者的 `~/.gitconfig`、`~/.bashrc`、`~/.ssh/`、shell history 等配置；所有 git config 通过临时仓库的本地 config 设置。
 - **网络隔离**：单元/集成测试默认不访问外网；需要真实 provider CLI 的 smoke 测试单独标识为人工触发。
-- **RALPH 环境变量隔离**：测试若依赖 `RALPH_PROVIDER_CONFIG_DIR` 等变量为空值，必须在 `env` 命令中显式清空（`RALPH_PROVIDER_CONFIG_DIR=""`），否则 ralph loop 父进程环境会泄漏到测试子进程。已知预存失败 3 条（missing .env、CLAUDE_CONFIG_DIR aware、load_env tilde）均由此导致。
+- **RALPH 环境变量隔离**：测试若依赖 `RALPH_PROVIDER_CONFIG_DIR` 等变量为空值，必须在 `env` 命令中显式清空（`RALPH_PROVIDER_CONFIG_DIR=""`），否则 ralph loop 父进程环境会泄漏到测试子进程。I4 收口复验确认完整集成测试已恢复到 FAIL=0。
 
 **自检要求**：
 
@@ -89,7 +89,7 @@ tests/
 | I2 Codex adapter | +20（实际 79） | Codex happy path、CODEX_HOME 翻译/隔离、history 派生、诊断矩阵、effort/model 参数、动态任务总数、Codex `run -v` live tail |
 | I2 observability fix | +4（实际 83） | 长 provider oneshot 默认 heartbeat；timeout/interrupted 清理 provider 子进程树；`watch -v` 在 provider oneshot 运行中 tail 当前 iter；watch help 暴露 `-v` |
 | I3 watch surface fix | 0（实际 83） | `watch` 非 TTY fallback 改为 one-line watch bar，并断言不泄漏 `status` 详情字段 |
-| I4 Gemini mock tests | +14（实际 97） | Gemini happy path + run -v markers、GEMINI_CLI_HOME 翻译/隔离/空值鲁棒、session capture（精确/mtime fallback/missing）、错误诊断矩阵 7 类、model 参数、依赖缺失 |
+| I4 Gemini mock tests | +17（实际 100） | Gemini happy path + run -v markers、GEMINI_CLI_HOME 翻译/隔离/空值鲁棒、session capture（精确/mtime fallback/missing）、错误诊断矩阵 7 类、model 参数、依赖缺失 |
 
 未覆盖范围（已知，不计入失败）：
 

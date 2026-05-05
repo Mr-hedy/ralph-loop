@@ -155,7 +155,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | SC-003-1 | REQ-003 | PROMPT.md 模板包含"一个 task 一个 oneshot"协议段落 | PROMPT.md 示例文本 | 含"恰好一个未勾选任务" | 文档 + 示例 review |
 | SC-004-1 | REQ-004 | 三 provider 各自跑通一次 smoke run（至少一条 task 完成） | 真实 provider CLI | 三个 `exit_reason=done` | 手工集成验证，结果附在 T2/T3/T4 完成 PR |
 | SC-005-1 | REQ-005 | adapter 契约稳定为三函数：`provider_oneshot` / `provider_collect_session` / `provider_diagnose` | 接口文档 + fake adapter | 三函数签名一致 | fake provider smoke test |
-| SC-006-1 | REQ-006 | 每轮产出 `provider.stdout.log`、`meta.json`、`session.history.log`；provider 原生 `session.<provider>.jsonl` 采集成功时存在，采集失败时写 `capture_status=warning` 但 loop 继续 | `iterations/iter-xxx/` 目录 | 核心证据每轮齐全；session 副本 best-effort | 集成测试 |
+| SC-006-1 | REQ-006 | 每轮产出 `provider.stdout.log`、`meta.json`、`session.history.log`；provider 原生 `session.<provider>.<ext>`（Claude/Codex 为 `.jsonl`，Gemini 为 `.json`）采集成功时存在，采集失败时写 `capture_status=warning` 但 loop 继续 | `iterations/iter-xxx/` 目录 | 核心证据每轮齐全；session 副本 best-effort | 集成测试 |
 | SC-007-1 | REQ-007 | `ralph status` 与 `ralph watch` 子命令均能从 `ralph` CLI 入口启动（`ralph status` exit 0 / `ralph watch` 进入刷新循环直到 Ctrl-C） | exit code + stdout/TTY 行为 | 子命令可用 | 集成测试 + 手工验证 |
 | SC-008-1 | REQ-008 | ralph 通过 `${BASH_SOURCE[0]}` 解析出 workspace 根为 `.ralph/` 的父目录 | 启动日志 + `status.json.workspace` | 路径匹配 | 单元测试 + 集成测试 |
 | SC-009-1 | REQ-009 | `.env` 中未设或留空的 `RALPH_MODEL` / `RALPH_EFFORT` / `RALPH_MAX_ITER` / `RALPH_TIMEOUT`，对应 flag 不拼进 oneshot 命令 | 构造出的命令行字符串 | flag 缺席 | 单元测试 |
@@ -250,7 +250,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - 关联流程：BPF-001、BPF-002
 - 用户故事：作为维护者，我希望用 `.ralph/bin/ralph run` 驱动一轮长任务循环，以便让 agent 按 TASKS.md 顺序处理任务并沉淀证据。
 - 输入：
-  - CLI flag：`--provider=<claude|codex|gemini|fake>`、`--model=<name>`、`--effort=<low|medium|high|none>`、`--max-iter=N`、`--timeout=SEC`（均可选；Gemini adapter 由 I4 实现）
+  - CLI flag：`--provider=<claude|codex|gemini|fake>`、`--model=<name>`、`--effort=<low|medium|high|none>`、`--max-iter=N`、`--timeout=SEC`（flag 均可选；provider 必须最终由 CLI/env/.env 之一提供；Gemini adapter 已由 I4 实现）
   - 环境变量：`RALPH_PROVIDER` / `RALPH_MODEL` / `RALPH_EFFORT` / `RALPH_MAX_ITER` / `RALPH_TIMEOUT`
   - 文件：`.ralph/.env`（`RALPH_*` 字段）
 - 输出：
@@ -349,7 +349,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
   - 命令：`gemini -p <prompt> --approval-mode=yolo --output-format stream-json`
   - 可选 flag：`--model`；`--sandbox`（adapter 可选启用）
   - effort 暂不传递（Gemini CLI 无 `--thinking-budget` flag；`thinkingBudget` 为 `settings.json` 内部配置，不暴露 CLI 入口；`none` 或留空不传）
-  - session 定位：按 mtime 取 `${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/<project-identifier>/chats/*.json` 中最新文件；`<project-identifier>` 由 `~/.gemini/projects.json` 映射，Ralph 不自行计算或拼接
+  - session 定位：优先从 init 事件解析 session id 并精确匹配 `${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/*/chats/*.json` 的 `sessionId`；缺失或不匹配时按 mtime 取最新候选；`<project-identifier>` 由 `~/.gemini/projects.json` 映射，Ralph 不自行计算或拼接
   - 错误诊断：`--output-format stream-json` 模式下从 stdout 事件流诊断；退化时依赖 exit code + stderr 关键字
 
 ### FR-008：错误诊断

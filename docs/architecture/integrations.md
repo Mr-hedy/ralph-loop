@@ -34,7 +34,7 @@
 | `meta.json` | iter 元数据（含 session_id / provider_started_at / runtime_block / capture_status / error / 任务进度 / changed_files / stagnation_count 等） | 始终 |
 | `provider.stdout.log` | provider CLI stdout + stderr 合流原始输出（含 stream-json 事件、错误信息） | 始终 |
 | `session.<provider>.jsonl` | provider 原生 session 文件副本（保留 30 天后过期 / 派生视图 bug 回滚 / 跨机器 evidence 自包含三个用途；Gemini 为 `.json` 而非 `.jsonl`） | session 采集成功（精确匹配或 mtime fallback） |
-| `session.history.log` | 跨 provider 人话视图（provider 间内容有差异：Claude 含 user/assistant/thinking/tool-use/tool-result，Codex 含 assistant/tool-use/tool-result 但无 user/thinking，Gemini 含 assistant/tool-use/tool-result），Claude 从 `session.claude.jsonl` 派生，Codex 从 `provider.stdout.log`（`--json` stdout 事件流）派生，Gemini 从 `provider.stdout.log`（`--output-format stream-json` 事件流）派生；完整 tool input 保留在各派生源中 | 始终（capture 失败时为空文件） |
+| `session.history.log` | 跨 provider 人话视图（provider 间内容有差异：Claude 含 user/assistant/thinking/tool-use/tool-result，Codex 含 assistant/tool-use/tool-result 但无 user/thinking，Gemini 含 assistant/tool-use/tool-result/result），Claude 从 `session.claude.jsonl` 派生，Codex 从 `provider.stdout.log`（`--json` stdout 事件流）派生，Gemini 从 `provider.stdout.log`（`--output-format stream-json` 事件流）派生；完整 tool input 保留在各派生源中 | 始终（capture 失败时为空文件） |
 
 各 provider native session 文件实例：
 - Claude：`session.claude.jsonl`（从 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/<cwd_hash>/<session_id>.jsonl` 复制；stream-json 模式下与 stdout 事件流内容相同，但保留独立副本作为 30 天后回看 anchor）
@@ -55,7 +55,7 @@ Ralph 默认使用 provider 的 fresh oneshot 执行，不默认 resume。sessio
 每轮至少保存两类证据：
 
 - process log：provider CLI 的 stdout/stderr 原始输出，保存到 `iterations/iter-xxx/provider.stdout.log`。
-- native session：provider 自己持久化的会话文件，复制到 `iterations/iter-xxx/session.<provider>.jsonl`。
+- native session：provider 自己持久化的会话文件，复制到 `iterations/iter-xxx/session.<provider>.<ext>`（Claude/Codex 为 `.jsonl`，Gemini 为 `.json`）。
 
 采集失败不能直接判定任务失败。失败时应记录 warning，并继续使用 process log 和 `.ralph/TASKS.md` 判断 run 状态。
 
@@ -292,7 +292,7 @@ Ralph `--effort` 对 Gemini **不传递**（`none` 或留空同样不传）。�
 Gemini `session.history.log` 从 `provider.stdout.log`（`--output-format stream-json` stdout 事件流）派生。QA-2 真实 smoke 校准后的真实 CLI 事件类型：
 
 - `init`：含 `sessionId` 字段（session capture 用），history 派生跳过
-- `message`：含 `role`（`user` / `assistant`）+ `delta`（boolean）+ `text` 字段；`role=assistant` + `delta=true` 的 `text` 片段拼接为 `[assistant]` 内容
+- `message`：含 `role`（`user` / `assistant`）+ `delta`（boolean）+ `text` 字段；`role=assistant` 的 `text` 按事件顺序写为 `[assistant]` 片段
 - `tool_use`：含 `name` + `input` 字段，标记为 `[tool-use <name>]`，input 截断 2000 字符
 - `tool_result`：含 `content` 字段，标记为 `[tool-result]`，content 截断 2000 字符
 - `result`：含 `text` 字段，标记为 `[result]`
@@ -338,8 +338,8 @@ provider exit code 0 不等于 agent 成功。Ralph 需要按 provider 协议做
     iter-001/
       meta.json                       # 元数据 + runtime_block + provider_started_at + capture_status
       provider.stdout.log             # provider stdout (events 流) + stderr 全量 tee
-      session.<provider>.jsonl        # native session 副本（Claude/Codex/Gemini 各有；命名见上文 §iter 目录文件结构）
-      session.history.log             # 跨 provider 人话视图（user / assistant / thinking / tool_use / tool_result）
+      session.<provider>.<ext>        # native session 副本（Claude/Codex 为 .jsonl，Gemini 为 .json；命名见上文 §iter 目录文件结构）
+      session.history.log             # 跨 provider 人话视图（user / assistant / thinking / tool-use / tool-result / result）
 ```
 
 `meta.json` 权威 schema 在 [`overview.md#iter-xxxmetajson-schema`](./overview.md#iter-xxxmetajson-schema)；session 相关字段：

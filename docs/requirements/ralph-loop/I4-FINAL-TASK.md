@@ -83,8 +83,8 @@
   - 输入：DEV-2/3/4；`scripts/integration-test.sh` 现有 Claude/Codex adapter 测试结构；`tests/fixtures/mock-codex` 模式。
   - 范围：扩展 DEV-2/3/4 已建立的 `tests/fixtures/mock-gemini`；更新 `scripts/integration-test.sh`；更新 `docs/architecture/testing.md` 覆盖矩阵。
   - 验证计划：`bash scripts/integration-test.sh` 通过；新增用例覆盖 happy path、config-dir 或明确不翻译的空值鲁棒性、model/effort 参数、session capture、history、diagnose、dependency missing、`run -v` marker。
-  - 完成：新增 17 个 Gemini 集成测试（happy path + run -v markers + config dir 翻译/空值鲁棒 + GEMINI_CLI_HOME aware session + mtime fallback + missing session + 错误诊断 7 类 + model 空/设置 + dep check）；修复 `RALPH_PROVIDER_CONFIG_DIR` 环境泄漏问题（显式清空 env 命令）；更新 testing.md 覆盖矩阵和隔离规则。97 PASS（+14 来自 Gemini），3 FAIL 为预存 ralph loop 环境泄漏问题（与本任务无关）。
-  - 验证：`bash -n scripts/integration-test.sh` 通过；`bash scripts/check.sh` 通过；`git diff --check` 通过；`bash scripts/integration-test.sh` 97 PASS 3 FAIL（3 FAIL 为预存 env 泄漏：missing .env、CLAUDE_CONFIG_DIR aware、load_env tilde）。
+  - 完成：新增 17 个 Gemini 集成测试（happy path + run -v markers + config dir 翻译/空值鲁棒 + GEMINI_CLI_HOME aware session + mtime fallback + missing session + 错误诊断 7 类 + model 空/设置 + dep check）；修复 `RALPH_PROVIDER_CONFIG_DIR` 环境泄漏问题（显式清空 env 命令）；更新 testing.md 覆盖矩阵和隔离规则。I4 收口复验为 100 PASS / 0 FAIL。
+  - 验证：`bash -n scripts/integration-test.sh` 通过；`bash scripts/check.sh` 通过；`git diff --check` 通过；`bash scripts/integration-test.sh` PASS=100 FAIL=0。
   - 未验证：真实 Gemini CLI 端到端（QA-2 职责）；E2E mock `ralph run --provider gemini` 完整 run（DEV-2 已知 symlink 定位问题，不影响 mock 单元覆盖）。
 
 - [x] REVIEW-1: Gemini mock 实现后 adversarial-review
@@ -143,7 +143,7 @@
   - 范围：`adapter-gemini.sh`（session_id 提取 grep、`_gemini_derive_history` 事件匹配、verbose filter Gemini 分支）；`tests/fixtures/mock-gemini`（事件 schema 对齐真实 CLI）；`scripts/integration-test.sh`（更新 mock 事件）；`docs/architecture/integrations.md`（事件类型文档）；不改变 adapter 函数签名或 run.sh 主循环。
   - 验证计划：mock 集成测试通过（事件 schema 对齐真实 CLI）；真实 `ralph run --provider gemini` 跑到 done 后 meta.json session_id 非空、session.gemini.json 存在、session.history.log 非空；`run -v` stderr 含 Gemini 事件 marker；`bash scripts/check.sh`；`git diff --check`。
   - 完成：5 个文件修改。P0-1：session_id 提取 grep 改为 `^\{`（只匹配列首 JSON 行，跳过 stderr 缩进噪音）。P0-2：`_gemini_derive_history` 事件匹配从 `text`/`complete` 改为 `message`（role=assistant）+ `result`（QA-2 真实 schema）。P1-1：verbose filter 新增 `message`/`tool_use`/`tool_result`/`result` 4 种真实事件 marker，保留旧 `text`/`complete` 兼容。mock-gemini 新增 `_emit_message`/`_emit_result`，所有 scenario 对齐真实事件类型。integration-test.sh 断言和 grep 模式同步更新。integrations.md 移除 DEV-6 TODO。
-  - 验证：`bash -n` 4 个文件通过；`bash scripts/check.sh` 通过；`bash scripts/integration-test.sh` 97 PASS 3 FAIL（3 FAIL 为预存 env 泄漏，与本次无关）；`git diff --check` 通过。
+  - 验证：`bash -n` 4 个文件通过；`bash scripts/check.sh` 通过；`bash scripts/integration-test.sh` PASS=100 FAIL=0；`git diff --check` 通过。
   - 未验证：真实 Gemini CLI 端到端 `ralph run --provider gemini`（需用户在真实环境手动运行）；真实 `ralph run -v` verbose 输出；真实 CLI error 事件 schema。
 
 - [x] REVIEW-2: I4 最终 adversarial-review 与归档准备
@@ -151,8 +151,8 @@
   - 输入：DEV-1 ~ DEV-5、QA-1/2、docs 和测试结果。
   - 范围：代码、测试、requirements、architecture、README、roadmap、`.ralph/TASKS.md`；不新增功能。
   - 验证计划：adversarial-review findings 清零或转为明确后续任务；`bash scripts/check.sh`；`bash scripts/integration-test.sh`；`git diff --check`；必要时准备 `docs/requirements/ralph-loop/I4-FINAL-TASK.md` 归档建议。
-  - 完成：发现并修复 P1-A（`_gemini_derive_history` 缺少 tool_use/tool_result 事件处理 + result 标记错误）和 P1-B（integrations.md 格式不一致 [tool_use]→[tool-use]）。修复 4 个文件：adapter-gemini.sh（jq 新增 tool_use→[tool-use]、tool_result→[tool-result]、result→[result]）、integrations.md（对齐 overview.md 格式）、mock-gemini（新增 _emit_tool_use/_emit_tool_result，happy path 含 tool 事件，删除死代码 _emit_text/_emit_complete）、integration-test.sh（Gemini happy path 断言新增 tool marker 检查）。无 P0 finding。3 条可观察风险（error diagnose 未真实验证、CLI 版本漂移、mock 死代码已清理）和 3 条接受风险（真实 E2E 需手动验证、3 条预存 FAIL、DEV-2 symlink 定位问题）已记录。
-  - 验证：`bash -n` 3 个文件通过；`bash scripts/check.sh` 通过；`bash scripts/integration-test.sh` 97 PASS 3 FAIL（3 FAIL 预存 env 泄漏）；`git diff --check` 通过。
+  - 完成：发现并修复 P1-A（`_gemini_derive_history` 缺少 tool_use/tool_result 事件处理 + result 标记错误）和 P1-B（integrations.md 格式不一致 [tool_use]→[tool-use]）。修复 4 个文件：adapter-gemini.sh（jq 新增 tool_use→[tool-use]、tool_result→[tool-result]、result→[result]）、integrations.md（对齐 overview.md 格式）、mock-gemini（新增 _emit_tool_use/_emit_tool_result，happy path 含 tool 事件，删除死代码 _emit_text/_emit_complete）、integration-test.sh（Gemini happy path 断言新增 tool marker 检查）。无 P0 finding。2 条可观察风险（error diagnose 未真实验证、CLI 版本漂移）和 2 条接受风险（真实 E2E 需手动验证、DEV-2 symlink 定位问题）已记录。
+  - 验证：`bash -n` 3 个文件通过；`bash scripts/check.sh` 通过；`bash scripts/integration-test.sh` PASS=100 FAIL=0；`git diff --check` 通过。
   - 未验证：真实 Gemini CLI 端到端（需用户手动运行）；真实 CLI error 事件 schema。
   - Findings 清单：
     - P1-A ✓已修：`_gemini_derive_history` 只处理 message→[assistant] 和 result→[assistant]，integrations.md 承诺的 tool_use→[tool-use]、tool_result→[tool-result]、result→[result] 均未实现
@@ -160,6 +160,5 @@
     - 可观察 1：error diagnose 路径未经真实 CLI 验证（QA-2 两次运行均成功）
     - 可观察 2：Gemini CLI 版本更新后事件 schema 可能变化
     - 接受 1：真实 E2E 需用户手动验证
-    - 接受 2：3 条预存 FAIL（env 泄漏）
-    - 接受 3：DEV-2 symlink 定位问题不影响 mock 覆盖
+    - 接受 2：DEV-2 symlink 定位问题不影响 mock 覆盖
   - 归档建议：I4 所有任务已 [x]，建议执行 `cp .ralph/TASKS.md docs/requirements/ralph-loop/I4-FINAL-TASK.md` 归档。
