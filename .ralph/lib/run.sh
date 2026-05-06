@@ -18,6 +18,13 @@ _RALPH_TAIL_FILTER_PID=""
 _RALPH_TAIL_FIFO=""
 _RALPH_HEARTBEAT_PID=""
 _RALPH_PROVIDER_PID=""
+_RALPH_CURRENT_TASK_ID=""
+_RALPH_CURRENT_TASK_TRY=0
+_RALPH_STICKY_MODE=0
+_RALPH_STICKY_TAIL_PID=""
+_RALPH_STICKY_FILTER_PID=""
+_RALPH_STICKY_EVENT_FILE=""
+_RALPH_STICKY_LAST_POS=0
 
 # ── 退出辅助函数 ─────────────────────────────────────────────────────────────
 _ralph_stop_verbose_tail() {
@@ -41,6 +48,38 @@ _ralph_stop_provider_heartbeat() {
     wait "$pid" 2>/dev/null || true
   fi
   _RALPH_HEARTBEAT_PID=""
+}
+
+_ralph_stop_sticky_tail() {
+  local pid
+  for pid in "${_RALPH_STICKY_TAIL_PID:-}" "${_RALPH_STICKY_FILTER_PID:-}"; do
+    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
+  done
+  for pid in "${_RALPH_STICKY_TAIL_PID:-}" "${_RALPH_STICKY_FILTER_PID:-}"; do
+    [[ -n "$pid" ]] && wait "$pid" 2>/dev/null || true
+  done
+  [[ -n "${_RALPH_STICKY_EVENT_FILE:-}" ]] && rm -f "$_RALPH_STICKY_EVENT_FILE" 2>/dev/null || true
+  _RALPH_STICKY_TAIL_PID=""
+  _RALPH_STICKY_FILTER_PID=""
+  _RALPH_STICKY_EVENT_FILE=""
+  _RALPH_STICKY_LAST_POS=0
+}
+
+# 更新 sticky renderer 需要的变量（每次 render_frame 前调用）
+_ralph_sticky_update_vars() {
+  _RALPH_STICKY_RUN_START_TS="${_RALPH_START_TIME:-$(date +%s)}"
+  _RALPH_STICKY_ROUND="${_RALPH_ROUND:-0}"
+  _RALPH_STICKY_TASKS_DONE="${_RALPH_TASKS_CHECKED_END:-0}"
+  _RALPH_STICKY_TASKS_TOTAL="${_RALPH_TASKS_TOTAL:-0}"
+  _RALPH_STICKY_CURRENT_TASK=""
+  if declare -f first_unchecked_task >/dev/null 2>&1; then
+    _RALPH_STICKY_CURRENT_TASK="$(first_unchecked_task "${_RALPH_WORKSPACE:-.}/.ralph/TASKS.md" 2>/dev/null)" || _RALPH_STICKY_CURRENT_TASK=""
+  fi
+  _RALPH_STICKY_TASK_TRY="${_RALPH_CURRENT_TASK_TRY:-1}"
+  _RALPH_STICKY_MAX_ROUND="${RALPH_LOOP_MAX_ROUND:-0}"
+  _RALPH_STICKY_PROVIDER="${_RALPH_PROVIDER:-unknown}"
+  _RALPH_STICKY_LOG_PATH="${_RALPH_CURRENT_LOG_PATH:-}"
+  _RALPH_STICKY_EXIT_REASON="${_RALPH_EXIT_REASON:-}"
 }
 
 _ralph_child_pids() {
@@ -257,7 +296,19 @@ _ralph_finish() {
   local last_error="${8:-null}"
 
   _ralph_stop_verbose_tail
+  _ralph_stop_sticky_tail
   _ralph_stop_provider_heartbeat
+
+  # sticky 最终帧（显示退出状态 ✓/✗/⏸）后清理终端
+  if [[ "${_RALPH_STICKY_MODE:-0}" -eq 1 ]]; then
+    _RALPH_EXIT_REASON="$exit_reason"
+    _RALPH_STICKY_EXIT_REASON="$exit_reason"
+    _RALPH_STICKY_TASKS_DONE="$tasks_checked_end"
+    _RALPH_STICKY_TASKS_TOTAL="$tasks_total"
+    _RALPH_STICKY_ROUND="${_RALPH_ROUND:-$rounds}"
+    ralph_sticky_render_frame
+    ralph_sticky_cleanup
+  fi
 
   if [[ "$_RALPH_LOCK_ACQUIRED" -eq 1 && -n "$_RALPH_RUN_DIR" ]]; then
     _ralph_write_result "$exit_reason" "$rounds" "$tasks_total" \
@@ -276,6 +327,9 @@ _ralph_finish() {
 
 # ── trap ─────────────────────────────────────────────────────────────────────
 _ralph_trap_interrupted() {
+  if [[ "${_RALPH_STICKY_MODE:-0}" -eq 1 ]]; then
+    ralph_sticky_cleanup
+  fi
   if [[ "$_RALPH_LOCK_ACQUIRED" -eq 0 ]]; then
     # lock 获取前：不产生 run 目录
     echo "ralph: interrupted before lock acquired" >&2
@@ -488,6 +542,17 @@ EOF
     "$tasks_total" \
     "$provider" >&2
 
+  # sticky 模式判定：RALPH_VERBOSE=1 且 stdout 是 TTY
+  if [[ "${RALPH_VERBOSE:-0}" == "1" ]] && [[ -t 1 ]]; then
+    _RALPH_STICKY_MODE=1
+    source "$_RALPH_LIB_DIR/sticky.sh"
+    _RALPH_STICKY_RUN_START_TS="$_RALPH_START_TIME"
+    _RALPH_STICKY_PROVIDER="$provider"
+    _RALPH_STICKY_STALL_LIMIT="$stall_limit"
+    _RALPH_STICKY_MAX_ROUND="$max_round"
+    ralph_sticky_enter
+  fi
+
   # status.json 初始写入
   _ralph_write_status "running" "$run_id" "$provider" "$model" "$effort" \
     "$started_at" 0 "$tasks_total" "$tasks_checked_start"
@@ -511,6 +576,16 @@ EOF
   while true; do
     round=$(( round + 1 ))
     _RALPH_ROUND="$round"
+
+    # per-task round tracking：比较当前第一个未勾 task 与上轮
+    local _first_task_text=""
+    _first_task_text="$(first_unchecked_task "$tasks_md" 2>/dev/null)" || _first_task_text=""
+    if [[ "$_first_task_text" != "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
+      _RALPH_CURRENT_TASK_ID="$_first_task_text"
+      _RALPH_CURRENT_TASK_TRY=1
+    else
+      _RALPH_CURRENT_TASK_TRY=$(( _RALPH_CURRENT_TASK_TRY + 1 ))
+    fi
 
     # 全部完成判定（在 max_round 检查前）
     local checked_before
@@ -577,37 +652,41 @@ EOF
     # 当前正在写入的 provider.stdout.log。
     _ralph_update_status "running" "" "$round" "$tasks_total" "$checked_before"
 
-    # 进度 marker：round 启动（D-2 默认）
-    # max_round=0 显示为 ∞；first task 描述截前 60 字符做提示
+    # 进度 marker：round 启动
     local _max_round_disp="∞"
     [[ "$max_round" -gt 0 ]] && _max_round_disp="$max_round"
     local _first_task=""
     if declare -f first_unchecked_task >/dev/null 2>&1; then
       _first_task="$(first_unchecked_task "$tasks_md" 2>/dev/null)" || _first_task=""
     fi
-    local _now_local
-    _now_local="$(date +"%H:%M:%S")"
-    local _start_marker="[$_now_local] round $round/$_max_round_disp"
-    if [[ -n "$_first_task" ]]; then
-      _start_marker+=" → ${_first_task:0:80}"
+    _RALPH_CURRENT_LOG_PATH="$log_path"
+    if [[ "$_RALPH_STICKY_MODE" -ne 1 ]]; then
+      local _now_local
+      _now_local="$(date +"%H:%M:%S")"
+      local _start_marker="[$_now_local] round $round/$_max_round_disp"
+      if [[ -n "$_first_task" ]]; then
+        _start_marker+=" → ${_first_task:0:80}"
+      fi
+      printf '%s\n' "$_start_marker" >&2
     fi
-    printf '%s\n' "$_start_marker" >&2
 
-    # 启动 -v live tail（如启用 RALPH_VERBOSE=1）：在 provider_oneshot 期间
-    # tail provider.stdout.log，过滤 stream-json events 实时打印 agent 行为
-    # 重要：redirection 顺序 `>&2 2>/dev/null` —— stdout 先转 fd2（终端 stderr）
-    # 再 stderr 转 /dev/null。反序会让 stdout 也跟去 /dev/null（fd2 已被覆盖）
-    if [[ "${RALPH_VERBOSE:-0}" == "1" ]]; then
-      _ralph_stop_verbose_tail
+    # 进度输出：sticky → event filter + render loop / plain → heartbeat
+    if [[ "$_RALPH_STICKY_MODE" -eq 1 ]]; then
+      # sticky 模式：后台 tail → filter → event 文件；主进程 render 循环
+      _ralph_stop_sticky_tail
       touch "$log_path"
-      _RALPH_TAIL_FIFO="$(mktemp -t ralph-tail.XXXXXX)"
-      rm -f "$_RALPH_TAIL_FIFO"
-      mkfifo "$_RALPH_TAIL_FIFO"
-      tail -f "$log_path" > "$_RALPH_TAIL_FIFO" 2>/dev/null &
-      _RALPH_TAIL_PID=$!
-      _ralph_filter_verbose < "$_RALPH_TAIL_FIFO" >&2 2>/dev/null &
-      _RALPH_TAIL_FILTER_PID=$!
+      _RALPH_STICKY_EVENT_FILE="$(mktemp -t ralph-sticky-events.XXXXXX)"
+      _RALPH_STICKY_LAST_POS=0
+      local _sticky_fifo
+      _sticky_fifo="$(mktemp -t ralph-sticky-tail.XXXXXX)"
+      rm -f "$_sticky_fifo"
+      mkfifo "$_sticky_fifo"
+      tail -f "$log_path" > "$_sticky_fifo" 2>/dev/null &
+      _RALPH_STICKY_TAIL_PID=$!
+      _ralph_filter_verbose < "$_sticky_fifo" >> "$_RALPH_STICKY_EVENT_FILE" 2>/dev/null &
+      _RALPH_STICKY_FILTER_PID=$!
     else
+      # plain 模式：60s heartbeat
       _ralph_start_provider_heartbeat "$log_path" "$round" "$_max_round_disp"
     fi
 
@@ -616,8 +695,57 @@ EOF
     RALPH_WORKSPACE="$workspace" provider_oneshot "$prompt_file" "$log_path" "$round_dir" &
     local pid=$!
     _RALPH_PROVIDER_PID="$pid"
-    if [[ "$timeout_sec" -gt 0 ]]; then
-      # 用后台 + kill 实现单轮超时
+
+    if [[ "$_RALPH_STICKY_MODE" -eq 1 ]]; then
+      # sticky 模式：polling loop → 读事件 + render frame + 超时检测
+      _RALPH_STICKY_ROUND_START_TS=$(( round_start_ts / 1000 ))
+      while kill -0 "$pid" 2>/dev/null; do
+        sleep 0.2
+        # 读取新事件
+        if [[ -f "$_RALPH_STICKY_EVENT_FILE" ]]; then
+          local _ev_size=0
+          _ev_size="$(wc -c < "$_RALPH_STICKY_EVENT_FILE" 2>/dev/null | tr -d '[:space:]')" || _ev_size=0
+          if [[ "$_ev_size" -gt "$_RALPH_STICKY_LAST_POS" ]]; then
+            local _new_events
+            _new_events="$(tail -c "+$(( _RALPH_STICKY_LAST_POS + 1 ))" "$_RALPH_STICKY_EVENT_FILE" 2>/dev/null)" || _new_events=""
+            _RALPH_STICKY_LAST_POS="$_ev_size"
+            local _ev_line
+            while IFS= read -r _ev_line; do
+              [[ -n "$_ev_line" ]] && ralph_sticky_append_event "$_ev_line"
+            done <<< "$_new_events"
+          fi
+        fi
+        _ralph_sticky_update_vars
+        ralph_sticky_render_frame
+        # 超时检测
+        if [[ "$timeout_sec" -gt 0 ]]; then
+          local _elapsed_ms=$(( $(date -u +%s) * 1000 - round_start_ts ))
+          if [[ "$(( _elapsed_ms / 1000 ))" -ge "$timeout_sec" ]]; then
+            _ralph_terminate_process_tree "$pid"
+            local timeout_pid_rc=0
+            wait "$pid" 2>/dev/null || timeout_pid_rc=$?
+            local timeout_end_ts timeout_dur_ms
+            timeout_end_ts=$(( $(date -u +%s) * 1000 ))
+            timeout_dur_ms=$(( timeout_end_ts - round_start_ts ))
+            update_meta_field "$round_dir" exit_code "$timeout_pid_rc"
+            update_meta_field "$round_dir" duration_ms "$timeout_dur_ms"
+            provider_collect_session "$round_dir" || true
+            provider_diagnose "$round_dir" || true
+            local total_after_timeout checked_after_timeout
+            total_after_timeout="$(count_total "$tasks_md")"
+            checked_after_timeout="$(count_checked "$tasks_md")"
+            tasks_total="$total_after_timeout"
+            _RALPH_TASKS_TOTAL="$tasks_total"
+            _RALPH_TASKS_CHECKED_END="$checked_after_timeout"
+            _ralph_stop_sticky_tail
+            _ralph_finish "timeout" 3 "$round" "$tasks_total" \
+              "$tasks_checked_start" "$checked_after_timeout" "$started_at" "null"
+          fi
+        fi
+      done
+      wait "$pid" 2>/dev/null || rc=$?
+    elif [[ "$timeout_sec" -gt 0 ]]; then
+      # plain + timeout：用后台 + kill 实现单轮超时
       local elapsed=0
       while kill -0 "$pid" 2>/dev/null; do
         sleep 1
@@ -649,8 +777,9 @@ EOF
     fi
     _RALPH_PROVIDER_PID=""
 
-    # 停 -v live tail
+    # 停 tail / heartbeat / sticky
     _ralph_stop_verbose_tail
+    _ralph_stop_sticky_tail
     _ralph_stop_provider_heartbeat
 
     # 清理 prompt 临时文件（provider 已经读完）
@@ -709,6 +838,7 @@ EOF
     else
       stall_count=0
     fi
+    _RALPH_STICKY_STALL_COUNT="$stall_count"
 
     # changed_files_total（cumulative since start_sha，诊断用）
     local changed_files_total_list
@@ -751,19 +881,21 @@ EOF
     # status.json 刷新
     _ralph_update_status "running" "" "$round" "$tasks_total" "$checked_after"
 
-    # 进度 marker：round 完成（D-2 默认）
+    # 进度 marker：round 完成
     local _round_dur_sec=$(( duration_ms / 1000 ))
     local _run_dur_sec=$(( $(date -u +%s) - _RALPH_START_TIME ))
     local _delta_tasks=$(( checked_after - checked_before ))
-    local _now_local
-    _now_local="$(date +"%H:%M:%S")"
-    local _end_status="✓ done"
-    [[ "$_delta_tasks" -eq 0 ]] && _end_status="◷ no progress"
-    printf '[%s] round %d/%s %s | tasks %d/%d | round %s | run %s\n' \
-      "$_now_local" "$round" "$_max_round_disp" "$_end_status" \
-      "$checked_after" "$tasks_total" \
-      "$(ralph_format_duration "$_round_dur_sec")" \
-      "$(ralph_format_duration "$_run_dur_sec")" >&2
+    if [[ "$_RALPH_STICKY_MODE" -ne 1 ]]; then
+      local _now_local
+      _now_local="$(date +"%H:%M:%S")"
+      local _end_status="✓ done"
+      [[ "$_delta_tasks" -eq 0 ]] && _end_status="◷ no progress"
+      printf '[%s] round %d/%s %s | tasks %d/%d | round %s | run %s\n' \
+        "$_now_local" "$round" "$_max_round_disp" "$_end_status" \
+        "$checked_after" "$tasks_total" \
+        "$(ralph_format_duration "$_round_dur_sec")" \
+        "$(ralph_format_duration "$_run_dur_sec")" >&2
+    fi
 
     # stall 退出
     if [[ "$stall_count" -ge "$stall_limit" ]]; then

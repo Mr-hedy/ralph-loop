@@ -89,11 +89,14 @@
   - 未验证：独立 mock 测试（source + enter/render/cleanup 视觉对比 `ralph-sticky-poc.sh`）；trap INT/TERM 下 stty 还原测试；tmux/screen 嵌套测试（QA-5 范围）。
   - 依赖：DEV-1, DEV-2
 
-- [ ] DEV-4: 改造 .ralph/lib/run.sh — plain 默认 + -v 启动 sticky + per-task round 计数
+- [x] DEV-4: 改造 .ralph/lib/run.sh — plain 默认 + -v 启动 sticky + per-task round 计数
   - 预期：`ralph run`（无 `-v`）保留 plain 输出契约（启动 banner + round 启停 marker + 60s heartbeat + 退出总结）但全量 iter→round 改名；`ralph run -v` 启动 `sticky.sh` 渲染；TTY 检测自动降级（非 TTY → plain）；plain 模式 60s heartbeat 保留，sticky 模式不需要 heartbeat（健康灯替代）；新增 `_RALPH_CURRENT_TASK_ID` / `_RALPH_CURRENT_TASK_TRY` 变量维护 per-task round 计数（task 切换时 try 归零，相同 task 时 try +=1）；底栏显示 per-task try 数。
   - 输入：I5-design §2 §3 §6；DEV-3 完成后；当前 `.ralph/lib/run.sh` plain marker / verbose tail 逻辑。
   - 范围：`.ralph/lib/run.sh`；不改 watch.sh / sticky.sh；不改 plain 模式输出格式（保持 REQ-025 兼容）。
   - 验证计划：`ralph run` 无 -v 时输出与 `ralph-plain-poc.sh` 形态一致（≤ ~30 行 / 4 round 长 run）；`ralph run -v` 在 TTY 启动 sticky 三段式；`ralph run -v 2> /tmp/log` 走 plain（log 无 ANSI）；per-task round 计数：连续 5 次同 task 时底栏显示 round 5/∞；task 切换时归零；`bash scripts/integration-test.sh` 通过。
+  - 完成：run.sh 改造完成。新增全局变量 `_RALPH_CURRENT_TASK_ID` / `_RALPH_CURRENT_TASK_TRY` / `_RALPH_STICKY_MODE` 等；新增 `_ralph_stop_sticky_tail` + `_ralph_sticky_update_vars` 辅助函数。`ralph run -v` + stdout TTY → source sticky.sh + sticky render loop（tail log → filter → event 文件 → polling 读事件 + render_frame 每 200ms）；非 TTY 或无 -v → plain 模式（heartbeat，无 verbose tail）。Round start/end marker 仅 plain 模式输出。`_ralph_finish` 渲染 sticky 最终帧（显示 ✓/✗/⏸）后 cleanup。per-task tracking：每轮比较 `first_unchecked_task` 结果，同 task 时 try++，不同时重置为 1。
+  - 验证：`bash -n` 通过；`bash scripts/check.sh` 通过；`bash scripts/integration-test.sh` exit 0 通过（预存 6 个已知失败项未增加）；plain 模式冒烟测试确认 banner + round marker + summary 输出正确；`git diff --check` 通过。
+  - 未验证：TTY 下 `ralph run -v` 实际 sticky 视觉效果（需真实终端，QA-5/QA-6 范围）；per-task try 在底栏显示（sticky 视觉需 TTY）；tmux/screen 兼容性（QA-5 范围）。
   - 依赖：DEV-1, DEV-2, DEV-3
 
 - [ ] DEV-5: 改造 .ralph/lib/watch.sh — TTY sticky / 非 TTY 一行 bar / 删除 -v
