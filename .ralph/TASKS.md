@@ -42,11 +42,14 @@
 
 ## 当前任务
 
-- [ ] REQ-1: 修订 REQ-024 / REQ-025 / REQ-026 输出契约
+- [x] REQ-1: 修订 REQ-024 / REQ-025 / REQ-026 输出契约
   - 预期：requirements.md 中 watch / run 的输出契约和命令矩阵与 I5-design §1-§5 完全一致；删除"双区域 -v / 2 秒固定刷新 interval / verbose live tail"等已废弃描述；用户读 requirements 即可了解三种调用形态（`ralph run` plain / `ralph run -v` sticky / `ralph watch` sticky）。
   - 输入：`docs/requirements/ralph-loop/I5-design.md` §1-§5 / §10 / §11；现有 `docs/requirements/ralph-loop/requirements.md` REQ-024 / REQ-025 / REQ-026 段。
   - 范围：只动 `docs/requirements/ralph-loop/requirements.md` 的 REQ-024 / REQ-025 / REQ-026 描述和对应 SC-024-* / SC-025-* 验收口径；同步追溯矩阵；不动 architecture / README。
   - 验证计划：`grep -nE "RALPH_VERBOSE|RALPH_MAX_ITER|双区域|2 秒固定刷新|fork tail" docs/requirements/ralph-loop/requirements.md` 无遗漏旧描述；REQ-024/025/026 的 SC 项 grep 出来逐条对照 I5-design 字段；`bash -n` 不适用，`git diff --check` 通过。
+  - 完成：REQ-024 删除 `-v` flag / "2 秒固定刷新" / "双区域"，改为三段式 sticky + 健康灯三态 + `RALPH_UI_*` 环境变量；REQ-025 重定义 plain + sticky 双模式 + TTY fallback + per-task round；REQ-026 `iter-NNN` → `round-NNN`；SC-024-* / SC-025-* 全部对齐，新增 SC-025-4（TTY fallback）和 SC-025-5（per-task round）；追溯矩阵同步。
+  - 验证：`git diff --check` 通过；grep 命中均在范围外（SC-009-1 / FR-001 / FR-003，属 DEV-2/DEV-9）；REQ-024/025/026 + SC-024-*/SC-025-* 内无旧描述残留。
+  - 未验证：FR-001 / FR-003 中仍含旧 `iter` / `RALPH_MAX_ITER` / `双区域` 描述（DEV-2 / DEV-9 范围）；I5 新增 REQ-027（per-task 防死循环）待 REQ-2 独立新增。
 
 - [ ] REQ-2: 新增 REQ：per-task 防死循环 + HUMAN 自动插入
   - 预期：requirements.md 新增一条 REQ（编号待定，记为 REQ-027）描述"单 task max_round / 单 task stall 任一触发 → 自动在当前 task 前插入 HUMAN-N task → exit `blocked_by_human`"，含触发条件、HUMAN task 模板、人类修复路径、对应 SC 验收。
