@@ -51,11 +51,14 @@
   - 验证：`git diff --check` 通过；grep 命中均在范围外（SC-009-1 / FR-001 / FR-003，属 DEV-2/DEV-9）；REQ-024/025/026 + SC-024-*/SC-025-* 内无旧描述残留。
   - 未验证：FR-001 / FR-003 中仍含旧 `iter` / `RALPH_MAX_ITER` / `双区域` 描述（DEV-2 / DEV-9 范围）；I5 新增 REQ-027（per-task 防死循环）待 REQ-2 独立新增。
 
-- [ ] REQ-2: 新增 REQ：per-task 防死循环 + HUMAN 自动插入
+- [x] REQ-2: 新增 REQ：per-task 防死循环 + HUMAN 自动插入
   - 预期：requirements.md 新增一条 REQ（编号待定，记为 REQ-027）描述"单 task max_round / 单 task stall 任一触发 → 自动在当前 task 前插入 HUMAN-N task → exit `blocked_by_human`"，含触发条件、HUMAN task 模板、人类修复路径、对应 SC 验收。
   - 输入：I5-design §6 §7；现有 `docs/architecture/overview.md` 中 stall 相关描述。
   - 范围：在 `docs/requirements/ralph-loop/requirements.md` 追加 REQ-027 + SC-027-*；同步追溯矩阵；不改 architecture / README。
   - 验证计划：requirements.md 中能找到 REQ-027 完整条目（描述 + SC + 优先级）；SC 验收能映射到具体集成测试场景（QA 阶段会覆盖）；`git diff --check` 通过。
+  - 完成：requirements.md 新增 REQ-027（P1-重要 / 功能 / I5-design §6 §7），描述 per-task max_round + per-task stall 双触发 → 自动插 HUMAN-N → exit blocked_by_human；新增 SC-027-1~6 覆盖 max_round 触发 / stall 触发 / task 切换归零 / HUMAN 模板 / exit_reason / 勾掉后继续；追溯矩阵新增 REQ-027 行。
+  - 验证：`git diff --check` 通过；`grep -c REQ-027 requirements.md` = 8；`grep -c SC-027- requirements.md` = 7（6 条 SC + 1 条追溯矩阵引用）。
+  - 未验证：REQ-012 / REQ-013 / FR-001 中仍含旧 `max_iterations` / `stagnated` / `--max-iter` 描述（DEV-1 / DEV-2 / DEV-6 范围内同步）；REQ-027 未验证与现有 BPF-001 流程的一致性（DEV-6 实施时同步）。
 
 - [ ] DEV-1: iter → round 全量改名（lib + status.json + 文件路径）
   - 预期：ralph 代码内部所有 `iter` / `iteration` 标识改为 `round`；`status.json` / `result.json` / `meta.json` 字段 `iteration` → `round`，`iterations` → `rounds`；运行时目录 `.ralph/runs/<run_id>/iterations/iter-NNN/` → `.ralph/runs/<run_id>/rounds/round-NNN/`；CLI flag `--max-iter` → `--max-round`，`--timeout` → `--round-timeout`；新版 ralph 跑出来的 run 完全使用新命名，旧 run 目录保留可见但 `ralph status` 不展示。
