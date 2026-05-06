@@ -2,7 +2,8 @@
 
 - 状态：已确认
 - 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-001 ~ REQ-016，澄清结论 22 条决策）；本文在 design 层面给出稳定契约。
-- 范围：本文承载 Ralph 系统上下文、主要组成、稳定契约（CLI、运行目录、adapter 接口、退出码、stagnation、lock、错误诊断类别）、关键数据流和架构文档索引。Provider 特定命令构造、session 路径和诊断关键字在 [`integrations.md`](./integrations.md)；approval / sandbox 策略和安全边界在 [`security.md`](./security.md)。
+- 范围：本文承载 Ralph 系统上下文、主要组成、稳定契约（CLI、运行目录、adapter 接口、退出码、stall、lock、错误诊断类别）、关键数据流和架构文档索引。
+Provider 特定命令构造、session 路径和诊断关键字在 [`integrations.md`](./integrations.md)；approval / sandbox 策略和安全边界在 [`security.md`](./security.md)。
 - 变更条件：CLI 契约、退出原因枚举、adapter 函数签名或 `.ralph/runs/<id>/` schema 变化时必须同步更新；并触发下游 `integrations.md` / `security.md` / 模块需求 / roadmap / task 检查。
 
 ## 总体模型
@@ -12,11 +13,11 @@ Ralph 是一个 shell-first CLI harness。它不做推理，只把长任务组�
 每轮执行流程：
 
 1. 读 `.ralph/TASKS.md`，若全部勾选 → 退出 `done`
-2. 拼 prompt：`.ralph/PROMPT.md` 全文 + runtime 上下文块（run_id、iteration、git sha 等）
+2. 拼 prompt：`.ralph/PROMPT.md` 全文 + runtime 上下文块（run_id、round、git sha 等）
 3. 调 provider CLI oneshot，捕获 stdout/stderr
 4. 采集 provider 原生 session → 派生 `session.history.log`（人话视图）
 5. 错误诊断 + 收集 `changed_files`
-6. 写 `iter-xxx/meta.json`、刷新 `status.json`
+6. 写 `round-NNN/meta.json`、刷新 `status.json`
 7. 判断退出条件（见 [退出原因](#退出原因)）；否则进入下一轮
 
 Agent 端契约由 PROMPT.md 承载："每轮恰好完成一个未勾选任务并勾 `[x]`"（REQ-003）。
@@ -32,29 +33,30 @@ ralph run
   validate: .ralph/PROMPT.md, .ralph/TASKS.md, RALPH_PROVIDER, .git/                # workspace 完整性（不再含 command -v RALPH_PROVIDER_CLI，已合并入依赖框架）
   acquire .ralph/lock     # flock; conflict → exit `locked`, do NOT create run dir
   run_id = YYYYMMDD-HHMMSS-<shortsha>
-  mkdir .ralph/runs/$run_id/iterations/
+  mkdir .ralph/runs/$run_id/rounds/
   start_sha = git rev-parse HEAD || ""
   write .ralph/runs/$run_id/context.json
   write .ralph/status.json (state=running)
-  stagnation_count = 0
-  for iteration in 1..INF:
+  stall_count = 0
+  for round in 1..INF:
     tasks = parse_tasks(.ralph/TASKS.md)
     if all(t.checked for t in tasks): exit `done`
-    if max_iter > 0 and iteration > max_iter: exit `max_iterations`
-    prompt_file = render_prompt(.ralph/PROMPT.md, run_id, iteration, tasks)
+    # max_round / stall_limit 为 per-task 判定
+    if max_round > 0 and current_task_try > max_round: exit `blocked_by_human` (auto-insert HUMAN)
+    prompt_file = render_prompt(.ralph/PROMPT.md, run_id, round, tasks)
     source adapter-$provider.sh
-    fp_before = worktree_fingerprint()         # 本轮前快照（方案 B，T6.1）
-    provider_oneshot $prompt_file iter-$N/provider.stdout.log iter-$N/  # writes log + session_id/provider_started_at/runtime_block 到 meta
-    provider_collect_session iter-$N/      # writes session.<provider>.jsonl（Gemini 为 .json）+ session.history.log
-    provider_diagnose iter-$N/             # writes error{type,message} to meta
+    fp_before = worktree_fingerprint()         # 本轮前快照
+    provider_oneshot $prompt_file round-$N/provider.stdout.log round-$N/
+    provider_collect_session round-$N/
+    provider_diagnose round-$N/
     fp_after = worktree_fingerprint()          # 本轮后快照
     tasks_after = parse_tasks(.ralph/TASKS.md)
     if checked_count(tasks_after) == checked_count(tasks) and fp_after == fp_before:
-      stagnation_count += 1
+      stall_count += 1
     else:
-      stagnation_count = 0
-    if stagnation_count >= stagnation_limit: exit `stagnated`
-    write iter-$N/meta.json
+      stall_count = 0
+    if stall_count >= stall_limit: exit `blocked_by_human` (auto-insert HUMAN)
+    write round-$N/meta.json
     update .ralph/status.json
   write .ralph/runs/$run_id/result.json
   copy .ralph/TASKS.md to .ralph/runs/$run_id/TASKS.md
@@ -66,10 +68,10 @@ ralph run
 ### 子命令
 
 ```bash
-ralph run     # 主循环
+ralph run     # 主循环 (默认 plain 模式)
+ralph run -v  # 启用 sticky TUI 模式 (仅 TTY)
 ralph status  # 一次性状态快照
-ralph watch   # 周期刷新 sticky 状态条
-ralph watch -v # sticky 状态条 + 当前 iter log tail
+ralph watch   # 周期刷新 sticky TUI (TTY 默认，非 TTY 为 one-line bar)
 ralph help    # 帮助
 ```
 
@@ -80,10 +82,11 @@ ralph help    # 帮助
 | Flag | 值 | 环境变量 | `.env` 字段 | 默认 | 说明 |
 |---|---|---|---|---|---|
 | `--provider` | `claude\|codex\|gemini\|fake` | `RALPH_PROVIDER` | `RALPH_PROVIDER` | **无默认**（必需） | provider 绑定；run 生命周期内不变 |
-| `--model` | provider 原生 model 名 | `RALPH_MODEL` | `RALPH_MODEL` | 空 → 不传 | 留空由 provider CLI 走自身默认 |
-| `--effort` | `low\|medium\|high\|none` | `RALPH_EFFORT` | `RALPH_EFFORT` | 空或 `none` → 不传 | adapter 翻译到原生 flag |
-| `--max-iter` | 整数 | `RALPH_MAX_ITER` | `RALPH_MAX_ITER` | `0`（不限） | 0 表示不限 |
-| `--timeout` | 整数（秒） | `RALPH_TIMEOUT` | `RALPH_TIMEOUT` | `0`（不限） | 单轮最长执行时间 |
+| `--model` | provider 原生 model 名 | `RALPH_PROVIDER_MODEL` | `RALPH_PROVIDER_MODEL` | 空 → 不传 | 留空由 provider CLI 走自身默认 |
+| `--effort` | `low\|medium\|high\|none` | `RALPH_PROVIDER_EFFORT` | `RALPH_PROVIDER_EFFORT` | 空或 `none` → 不传 | adapter 翻译到原生 flag |
+| `--max-round` | 整数 | `RALPH_LOOP_MAX_ROUND` | `RALPH_LOOP_MAX_ROUND` | `0`（不限） | **Per-task** 上限；0 表示不限 |
+| `--round-timeout` | 整数（秒） | `RALPH_LOOP_ROUND_TIMEOUT` | `RALPH_LOOP_ROUND_TIMEOUT` | `0`（不限） | 单 round 最长执行时间 |
+| `--stall-limit` | 整数 | `RALPH_LOOP_STALL_LIMIT` | `RALPH_LOOP_STALL_LIMIT` | `5` | **Per-task** 连续无进展上限 |
 
 **不存在**的 flag（显式声明为非目标）：
 
@@ -99,7 +102,7 @@ ralph help    # 帮助
 
 ### `ralph watch` 参数
 
-`-v` / `--verbose` 启用上方当前 iter log tail；默认只渲染 sticky 状态条。固定 2 秒刷新间隔，不暴露 `--interval` flag。非 TTY 输出一次 one-line watch bar 后退出；详细字段由 `ralph status` 提供。
+`ralph watch` 始终采用 sticky TUI 渲染（TTY 模式）；非 TTY 输出一次 one-line watch bar 后退出。不再支持 `-v` / `--verbose` flag。详细字段由 `ralph status` 提供。
 
 ## 运行目录
 
@@ -140,17 +143,18 @@ ralph help    # 帮助
   context.json                      # 启动参数、provider、版本、start_sha
   result.json                       # 退出原因、迭代次数、任务统计、last_error
   TASKS.md                          # run 结束时的任务板快照
-  iterations/
-    iter-001/
+  rounds/
+    round-001/
       meta.json                     # 元数据（含 runtime_block + provider_started_at + capture_status + error）
       provider.stdout.log           # provider stdout (events 流) + stderr 全量 tee
-      session.<provider>.jsonl      # provider 原生 session 副本（Claude/Codex `.jsonl`，Gemini `.json`；命名见 integrations.md §iter 目录文件结构）
+      session.<provider>.jsonl      # provider 原生 session 副本（Claude/Codex `.jsonl`，Gemini 为 .json；命名见 integrations.md §round 目录文件结构）
       session.history.log           # 跨 provider 人话视图（user / assistant / thinking / tool_use / tool_result）
-    iter-002/
+    round-002/
+
     ...
 ```
 
-iter dir **4 文件契约** —— 详细命名约定见 [`integrations.md#iter-目录文件结构-4-文件契约`](./integrations.md#iter-目录文件结构4-文件契约)。
+round dir **4 文件契约** —— 详细命名约定见 [`integrations.md#round-目录文件结构-4-文件契约`](./integrations.md#round-目录文件结构4-文件契约)。
 
 ### `run_id` 规则
 
@@ -168,7 +172,7 @@ iter dir **4 文件契约** —— 详细命名约定见 [`integrations.md#iter-
   "effort": null,
   "started_at": "2026-04-24T10:00:00Z",
   "updated_at": "2026-04-24T10:05:12Z",
-  "iteration": 3,
+  "round": 3,
   "state": "running",
   "tasks_total": 10,
   "tasks_checked": 4,
@@ -189,9 +193,9 @@ run 结束时 `state` 变更为 `finished`，`exit_reason` 填入。
   "provider_version": "0.121.0",
   "model": null,
   "effort": null,
-  "max_iter": 0,
-  "timeout": 0,
-  "stagnation_limit": 5,
+  "max_round": 0,
+  "round_timeout": 0,
+  "stall_limit": 5,
   "start_sha": "abc1234...",
   "started_at": "...",
   "env_source": ".ralph/.env + process env + CLI flags"
@@ -204,7 +208,7 @@ run 结束时 `state` 变更为 `finished`，`exit_reason` 填入。
 {
   "run_id": "...",
   "exit_reason": "done",
-  "iterations": 7,
+  "rounds": 7,
   "tasks_total": 10,
   "tasks_checked_start": 0,
   "tasks_checked_end": 10,
@@ -215,27 +219,27 @@ run 结束时 `state` 变更为 `finished`，`exit_reason` 填入。
 }
 ```
 
-### `iter-xxx/meta.json` schema
+### `round-xxx/meta.json` schema
 
 ```json
 {
-  "iteration": 3,
+  "round": 3,
   "provider": "codex",
   "session_id": "abc-...",
   "provider_started_at": "2026-04-24T10:03:12Z",
-  "runtime_block": "run_id: ...\niteration: 3\nstart_sha: ...\nworkspace: ...",
+  "runtime_block": "run_id: ...\nround: 3\nstart_sha: ...\nworkspace: ...",
   "session_source_path": "/home/.../rollout-...jsonl",
-  "session_copied_path": ".ralph/runs/.../iter-003/session.codex.jsonl",
+  "session_copied_path": ".ralph/runs/.../round-003/session.codex.jsonl",
   "capture_status": "ok",
   "capture_warning": null,
   "exit_code": 0,
   "duration_ms": 48000,
   "error": null,
   "changed_files_total": ["src/foo.ts"],
-  "changed_files_iter": ["src/foo.ts"],
+  "changed_files_round": ["src/foo.ts"],
   "tasks_before": { "total": 10, "checked": 3 },
   "tasks_after":  { "total": 10, "checked": 4 },
-  "stagnation_count": 0
+  "stall_count": 0
 }
 ```
 
@@ -243,7 +247,7 @@ run 结束时 `state` 变更为 `finished`，`exit_reason` 填入。
 - `provider_started_at`：provider CLI 调用前的 ISO 8601 UTC 时间戳，用于 session 文件 mtime fallback 锚点（替代旧 `.session_start` 文件）
 - `runtime_block`：本轮 prompt 中动态部分（`<ralph-runtime>` 块内容），与 git `start_sha` 的 PROMPT.md 共同构成完整 prompt 还原源（替代旧 `prompt.md` 文件）
 - `changed_files_total`：自 run 启动至本轮结束的累计文件变更
-- `changed_files_iter`：本轮（vs 上轮）的文件变更，用于 stagnation 判定
+- `changed_files_round`：本轮（vs 上轮）的文件变更，用于 stall 判定
 
 ## `.ralph/.env` 格式
 
@@ -252,10 +256,16 @@ run 结束时 `state` 变更为 `finished`，`exit_reason` 填入。
 RALPH_PROVIDER=codex
 
 # 可选；留空或不写 = 不传对应 flag
-RALPH_MODEL=
-RALPH_EFFORT=
-RALPH_MAX_ITER=
-RALPH_TIMEOUT=
+RALPH_PROVIDER_MODEL=
+RALPH_PROVIDER_EFFORT=
+RALPH_LOOP_MAX_ROUND=
+RALPH_LOOP_ROUND_TIMEOUT=
+RALPH_LOOP_STALL_LIMIT=
+
+# UI 渲染 (可选)
+RALPH_UI_STICKY_EVENT_LINES=
+RALPH_UI_HEALTH_GREEN_SEC=
+RALPH_UI_HEALTH_RED_SEC=
 ```
 
 加载规则（TC-STK-003）：
@@ -290,7 +300,7 @@ Ralph 每轮把 PROMPT.md 全文拼到 oneshot 前，并附加 runtime 上下文
 ```markdown
 <ralph-runtime>
 run_id: 20260424-100000-abc1234
-iteration: 3
+round: 3
 start_sha: abc1234...
 workspace: /abs/path
 </ralph-runtime>
@@ -312,7 +322,7 @@ Ralph 只解析顶层 checklist（REQ-002 FR-004）：
 - 不限缩进（深层缩进的 `- [ ]` 也视为顶层任务；这是 trantor parseTasks 的既有行为，沿用）
 - 子项语义由 agent 自由使用；Ralph 不解析
 
-全部勾选 → `done` 退出。TASKS.md 空或无 checklist → 视为完成，`done` 退出不产生 iteration。
+全部勾选 → `done` 退出。TASKS.md 空或无 checklist → 视为完成，`done` 退出不产生 round。
 
 ## Adapter 契约
 
@@ -324,11 +334,11 @@ Ralph 只解析顶层 checklist（REQ-002 FR-004）：
 ### `provider_oneshot`
 
 ```bash
-provider_oneshot <prompt_file> <log_path> <iter_dir>
+provider_oneshot <prompt_file> <log_path> <round_dir>
 # 副作用：
 #   - 执行 provider CLI oneshot
 #   - stdout/stderr tee 到 <log_path>
-#   - 写 <iter_dir>/provider.meta（至少含 session_id, provider, model, start_ts, end_ts）
+#   - 写 <round_dir>/provider.meta（至少含 session_id, provider, model, start_ts, end_ts）
 # 返回码：
 #   0 = provider 正常退出（不代表 agent 成功）
 #   非 0 = provider 本身异常（crash、认证失败等）
@@ -337,12 +347,12 @@ provider_oneshot <prompt_file> <log_path> <iter_dir>
 ### `provider_collect_session`
 
 ```bash
-provider_collect_session <iter_dir>
+provider_collect_session <round_dir>
 # 副作用：
-#   - best-effort 采集 provider 原生 session 文件到 <iter_dir>/session.<provider>.jsonl（Gemini 为 .json）
-#   - 按 provider-specific source 派生 <iter_dir>/session.history.log
+#   - best-effort 采集 provider 原生 session 文件到 <round_dir>/session.<provider>.jsonl（Gemini 为 .json）
+#   - 按 provider-specific source 派生 <round_dir>/session.history.log
 #     Claude: session.claude.jsonl；Codex: provider.stdout.log JSONL events；Gemini: provider.stdout.log stream-json events
-#   - 更新 <iter_dir>/meta.json 的 capture_status / capture_warning / session_source_path / session_copied_path
+#   - 更新 <round_dir>/meta.json 的 capture_status / capture_warning / session_source_path / session_copied_path
 # 返回码：
 #   0 = 成功或受控降级（写了 warning 也算成功）
 #   非 0 不应出现（失败必须内部降级为 warning，不中断 loop）
@@ -351,10 +361,10 @@ provider_collect_session <iter_dir>
 ### `provider_diagnose`
 
 ```bash
-provider_diagnose <iter_dir>
+provider_diagnose <round_dir>
 # 副作用：
 #   - 分析 log、session 和 exit code，确定错误类别
-#   - 更新 <iter_dir>/meta.json 的 error 字段
+#   - 更新 <round_dir>/meta.json 的 error 字段
 #     error = null                           # provider 正常 + agent 正常
 #     error = { type, message, raw }         # 其中 type ∈ auth | quota | rate_limit | network | concurrency | api | unknown
 # 返回码：始终 0（诊断本身不失败）
@@ -370,16 +380,14 @@ provider_diagnose <iter_dir>
 |---|---|---|---|---|
 | `done` | 0 | 所有顶层 checklist 完成 | 有 | 有 |
 | `provider_failed` | 2 | provider CLI 退出码非 0 | 有 | 有 |
-| `timeout` | 3 | 单轮执行超时 | 有 | 有 |
-| `max_iterations` | 4 | 达到 `--max-iter`（仅当 `>0` 时触发） | 有 | 有 |
-| `stagnated` | 5 | 连续 N 轮无进展 | 有 | 有 |
+| `timeout` | 3 | 单 round 执行超时 | 有 | 有 |
 | `locked` | 6 | 已有 run 运行中 | **无** | **无** |
-| `blocked_by_human` | 7 | 第一个未勾选任务前缀是 `HUMAN-`（v0.1.1 新增，见 REQ-018 / Iteration 协议） | 有 | 有（不调 provider，无 iter-NNN） |
-| `interrupted` | 130 | SIGINT / Ctrl-C | 有（尽力写） | 有（若在 lock 获取前被中断，则同 `locked`，不产生 run 目录、不写 `result.json`） |
+| `blocked_by_human` | 7 | 第一个未勾选任务前缀是 `HUMAN-` 或触发 per-task 熔断 (I5) | 有 | 有 |
+| `interrupted` | 130 | SIGINT / Ctrl-C | 有 | 有 |
 
-`locked` 始终**不产生 run 目录**；`interrupted` 在 lock 获取前触发时同样不产生（REQ-012）。`blocked_by_human` 产生 run 目录但不创建 iteration 子目录（不调用 provider）。
+**已于 I5 移除**：`max_iterations`（由 per-task `max_round` 熔断替代）和 `stagnated`（由 per-task `stall_limit` 触发 `blocked_by_human` 替代）。
 
-**接力打印**：所有 exit_reason 下，ralph 退出时向 stderr 打印格式化总结，并写入 `.ralph/runs/<run_id>/exit-message.txt`（REQ-019）。打印内容含 `run_id` / `iteration_name` / `exit_reason` / `iterations` / 任务进度 / 阻塞点（如有）/ 接力提示。
+**接力打印**：所有 exit_reason 下，ralph 退出时向 stderr 打印格式化总结，并写入 `.ralph/runs/<run_id>/exit-message.txt`。打印内容含 `run_id` / `iteration_name` / `exit_reason` / `rounds` / 任务进度 / 阻塞点（如有）/ 接力提示。
 
 ## Iteration 协议
 
@@ -444,7 +452,7 @@ ralph 启动时调用 `parse_current_iteration()`（`.ralph/lib/tasks.sh`）解�
 
 - 每轮启动前调用 `is_blocked_by_human()`（`.ralph/lib/tasks.sh`）扫描 TASKS.md 第一个 `- [ ]` 任务。
 - 前缀匹配 `HUMAN-[0-9]+` → 不调用 provider，立即以 `blocked_by_human`（exit code 7）退出。
-- 主循环外预检（首轮启动前）+ 主循环内每轮检查（done 之后、max_iter 之前）双重保险。
+- 主循环外预检（首轮启动前）+ 主循环内每轮检查（done 之后、max_round 之前）双重保险。
 
 **人类侧解锁**：
 
@@ -464,24 +472,21 @@ git commit
 
 归档文件不可变，归档后不再修改。详见 `.spec/rules/roadmap.md` "Phase / Iteration 完成动作" 段。
 
-## Stagnation 判定
+## Stall 判定 (I5: Per-task)
 
-每轮结束后（**本轮 vs 上轮**对比，T6.1 决策）：
+每轮结束后（**本轮 vs 上轮**对比）：
 
 ```text
-fingerprint_before = worktree_fingerprint()  # 每轮 provider_oneshot 前捕获
-fingerprint_after  = worktree_fingerprint()  # provider_oneshot 结束后捕获
-
-if tasks_checked_after == tasks_checked_before AND fingerprint_after == fingerprint_before:
-  stagnation_count += 1
+if tasks_checked_after == tasks_checked_before AND worktree_fingerprint_after == worktree_fingerprint_before:
+  stall_count += 1
 else:
-  stagnation_count = 0
+  stall_count = 0  # task 切换或有进展时归零
 
-if stagnation_count >= stagnation_limit:
-  exit `stagnated`
+if stall_count >= stall_limit:
+  exit `blocked_by_human` (auto-insert HUMAN)
 ```
 
-**Worktree fingerprint 定义**（方案 B，T6.1 决策）：
+**Worktree fingerprint 定义**：
 
 ```bash
 # git ls-files -s：每个 tracked 文件的 blob sha
@@ -493,12 +498,12 @@ if stagnation_count >= stagnation_limit:
 不写 `.git/refs/`、不创建 git 对象（保"不污染用户 git 状态"契约）。  
 过滤 `.ralph/` 路径由 `git ls-files` 自然区分（`.ralph/` 可以是 tracked，不影响判据）。
 
-**meta.json changed_files 字段**（T6.1 拆分）：
+**meta.json changed_files 字段**：
 
-- `changed_files_total`：cumulative，自 run `start_sha` 至今，用于诊断（原 `changed_files` 字段）。
-- `changed_files_iter`：本轮 vs 上轮，fingerprint 不变时为 `[]`，fingerprint 变化时取 `ralph_changed_files(before_iter_head)`。
+- `changed_files_total`：cumulative，自 run `start_sha` 至今，用于诊断。
+- `changed_files_round`：本轮 vs 上轮，fingerprint 不变时为 `[]`，fingerprint 变化时取 `ralph_changed_files(before_iter_head)`。
 
-默认 `stagnation_limit=5`（决策 #4）；可通过 `--stagnation-limit` / `RALPH_STAGNATION_LIMIT` 覆盖（T6.1 新增）。
+默认 `stall_limit=5`；可通过 `--stall-limit` / `RALPH_LOOP_STALL_LIMIT` 覆盖。
 
 ## Lock 机制
 
@@ -569,52 +574,37 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 ```text
 .ralph/status.json ───── ralph status ──→ stdout（一次性详细打印，exit 0）
                    │
-                   └──→ ralph watch ──→ TTY sticky bar / 非 TTY one-line bar
+                   └──→ ralph watch ──→ TTY sticky TUI / 非 TTY one-line bar
                           │
-                          └──→ ralph watch -v ──→ .ralph/runs/<run_id>/iterations/iter-NNN/provider.stdout.log
-                                                   ↑ 上方区域 tail 目标
+                          └──→ tail 当前活跃 round log ──→ 事件区
 ```
 
-- `status`：单次读取 status.json，渲染 15 字段 plain text（`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `iteration` / `iteration_name` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`），任务进度渲染为 `<checked> / <total> checked`。`--json` flag 字节透传 status.json 不做二次序列化。status.json 不存在时输出提示文案，exit 0（REQ-023 / SC-023-1/2/3）。
-- `watch`：每 2 秒重读 status.json，默认只渲染 sticky bar；`-v` 额外增量 tail iter log，渲染 TTY 双区域布局。非 TTY 环境输出一次 one-line watch bar，不打印 status 详情字段（REQ-024 / SC-024-4）。
+- `status`：单次读取 status.json，渲染 15 字段 plain text（`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `round` / `iteration_name` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`），任务进度渲染为 `<checked> / <total> checked`。status.json 不存在时输出提示文案，exit 0。
+- `watch`：每 200ms (sticky 渲染循环) 重读 status.json，默认渲染 sticky TUI；非 TTY 环境输出一次 one-line watch bar 后退出。
 
-### Watch 布局
+### Sticky TUI 布局 (I5)
 
 ```text
-┌─────────────────────────────────────────────────────┐
-│  ralph watch -v 上方区域（scroll region）             │
-│  tail 当前活跃 iter log 的增量输出                   │
-│  路径: .ralph/runs/<run_id>/iterations/iter-NNN/provider.stdout.log │
-│  iter 切换时自动切换 tail 目标，重置偏移量            │
-│  文件不存在时留空（无占位文案）                       │
-│  ...                                                │
-├─────────────────────────────────────────────────────┤
-│  下方 sticky bar（ANSI 保留底部 1 行）                │
-│  run:<truncated_id>  iter <N>  <c>/<t> tasks        │
-│  state:<state>  exit_reason:<reason>  provider:<p>  │
-└─────────────────────────────────────────────────────┘
+[HH:MM:SS] ralph 0.2 · tasks N/M · round 12 · provider claude · elapsed H:MM:SS
+─────────────────────────────────────────────────────────────────────────────────
+[ts] event 1
+[ts] event 2
+... (up to 6 lines of events)
+─────────────────────────────────────────────────────────────────────────────────
+● round 2/∞ · stall 1/5 · ⠹ HH:MM:SS · → DEV-1 任务名截断...
 ```
 
-默认 `ralph watch` 不启用上方区域，只刷新 sticky bar；`ralph watch -v` 才启用上方 tail 区域。
-
-Sticky bar 字段来源均为 status.json：
-
-| 字段 | 来源 key | 说明 |
-|------|---------|------|
-| `run:` | `run_id` | 截断前 12 位 + `...` |
-| `iter` | `iteration` | 当前迭代序号 |
-| `tasks` | `tasks_checked` / `tasks_total` | `<checked>/<total>` |
-| `state:` | `state` | `running` / `finished` |
-| `exit_reason:` | `exit_reason` | run 结束后显示，运行中隐藏 |
-| `provider:` | `provider` | provider 名称 |
+- **健康灯** (底栏首位)：🟢 (≤60s) / 🟡 (60~300s) / 🔴 (>300s) 监测 stdout 字节增长。退出时显示 ✓ / ✗ / ⏸。
+- **Per-task 状态**：底栏显示当前 task 的 round 数 and stall 数。
+- **事件区**：通过 tail `provider.stdout.log` 并过滤 marker 得到，滚动显示最近 6 条事件。
+- **退出行为**：`run -v` 结束后退出；`watch` 结束后不退出，最后一帧保留等 Ctrl-C。
 
 ### Watch 行为规则
 
-- **run_id 切换**：`-v` 模式下 status.json `run_id` 变化时，上方区域插入 separator 行 `─── new run: <new_run_id> ───`，tail 目标切换到新 run 的 iter log，偏移量重置（SC-024-2）。
-- **iter 切换**：`-v` 模式下同一 run 内 `iteration` 变化时，tail 目标自动切换到新 iter log，偏移量重置。
-- **run 结束**：`state=finished` 后 watch 不自动退出，最后一帧保留并继续刷新（SC-024-3）。
-- **退出**：仅 Ctrl-C（SIGINT），退出时 `tput clear` 清屏 + 恢复光标 + 重置 scroll region。
-- **非 TTY 退化**：`isatty(stdout)=false` 时输出一次 one-line watch bar 后 exit 0；不打印 `workspace:` / `run_dir:` 等 status 详情字段（SC-024-4）。
+- **run_id 切换**：status.json `run_id` 变化时，sticky 渲染器全量重置，tail 目标切换到新 run 的 round log。
+- **round 切换**：同一 run 内 `round` 变化时，tail 目标自动切换到新 round log，偏移量重置。
+- **run 结束**：`state=finished` 后 watch 不自动退出，最后一帧保留并继续刷新。
+- **退出**：仅 Ctrl-C（SIGINT），退出时还原 stty 状态并显示光标。
 
 ### Watch 彩色规则
 
@@ -623,10 +613,9 @@ Sticky bar 字段来源均为 status.json：
 | 状态 | 颜色 | 覆盖字段 |
 |------|------|---------|
 | `state=running` 或 `exit_reason=done` | 绿 | `state` / `exit_reason` |
-| `exit_reason` ∈ {`provider_failed`, `timeout`, `max_iterations`, `stagnated`} | 红 | `state` / `exit_reason` |
-| `exit_reason` ∈ {`blocked_by_human`, `locked`, `interrupted`} | 黄 | `state` / `exit_reason` |
-| 字段标签（`run:` / `iter` / `tasks` / `state:` / `exit_reason:` / `provider:`） | dim 灰 | 标签文本 |
-| 上方 tail 区域 | 不上色 | 透传 provider 输出原色 |
+| `exit_reason` ∈ {`provider_failed`, `timeout`, `blocked_by_human`} | 红 | `state` / `exit_reason` |
+| `exit_reason` ∈ {`interrupted`, `locked`} | 黄 | `state` / `exit_reason` |
+| 标签文本 | dim 灰 | `tasks` / `round` / `provider` 等标签 |
 
 `NO_COLOR=1` 或非 TTY 时全部不上色。
 
@@ -634,16 +623,10 @@ Sticky bar 字段来源均为 status.json：
 
 | 取舍 | 选择 | 原因 | 放弃方案的代价 |
 |---|---|---|---|
+| TUI 实现 | 纯 append + cursor_up | 最小化依赖，保留 shell scrollback；不设 scroll region 兼容性更好 | ANSI scroll region 或 alternate screen 会破坏之前的 shell 历史 |
+| 防死循环 | Per-task + 自动插 HUMAN | 避免全局限制导致的误杀，提供清晰的人类干预入口 | 若用全局 max_rounds，长任务中后期容易被误杀 |
+| 环境变量 | 分组重命名 (provider/loop/ui) | 明确配置归属，减少冲突；符合 I5 的重组逻辑 | 旧环境变量名容易混淆 loop 逻辑与 provider 逻辑 |
 | 任务协议 | TASKS.md checklist | 人类可读、可 diff、和 agent 自我更新天然对齐 | 若用 JSON/YAML，agent 更新更费 token，且 diff 噪音大 |
-| 事实源 | `.ralph/TASKS.md` 是任务完成唯一事实源；session 只是复盘证据 | 模型自述不可信；文件状态可验证 | 若以 session 为事实源，无法区分"agent 说完成了"和"agent 真完成了" |
-| Session 采集失败 | 降级为 warning，不中断 loop | provider session store 是 provider 内部实现，Ralph 不应绑死 | 若当作致命错误，一次 provider 版本升级就能导致所有 run 失败 |
-| 并发策略 | 单 workspace 单 run；`locked` 快速退出 | `.ralph/runs/` 和 TASKS.md 无锁并发会互相破坏 | 若允许并发，需要引入 run 级任务分区 |
-| cwd 策略 | 脚本路径决定 workspace；不接受 `--cwd` | 消除"coding agent 幻觉传错 cwd"风险；单真相 | 失去从外部动态指定 workspace 的灵活性，但用 `cd <workspace>` 能等价满足 |
-| 全局安装 | 不支持 | workspace 自治；工具升级 = 该 workspace 内更新 | 失去 `brew install` 一次到处用的便利 |
-| Init 模板 | 不提供 | 使用者自己写 PROMPT/TASKS 更贴需求；避免把模板占位当事实 | 新用户上手成本略高，未来由 skill 解决（REQ-016） |
-| Approval 策略 | 写死，不做开关 | 见 [`security.md`](./security.md)；三个 provider 各自策略已由 trantor 验证过 | 失去对接 CI 白名单 / policy file 的灵活性；未来按需加 `--approval=<mode>` |
-| Effort 抽象 | 统一 `low\|medium\|high\|none` | 使用者不必记三家原生参数 | 失去 Claude 的 token 精细控制；若需精细指定，直接改 adapter 映射 |
-| TUI | 仅 `watch` 最小 sticky bar；不引 TUI 框架 | shell-first 原则；避免依赖 | 观感不如专业 TUI，但复盘主要看 run 目录文件 |
 
 ## 与外部参考的关系
 
@@ -669,6 +652,7 @@ Sticky bar 字段来源均为 status.json：
 
 ## 待落实
 
-- `adapter-fake.sh` 由 `RALPH_FAKE_SCENARIO` 环境变量选场景（不依赖"第 N 轮"模式），核心场景：`happy`（勾第 1 条未勾选任务，`exit=0`）/ `stagnation`（不改 TASKS + 不改 git，`exit=0`）/ `crash`（`exit=非零`，无结构化错误，诊断为 `unknown`）/ `api-error`（`exit=非零` + stderr 含 api 错误关键字，诊断为 `api`）/ `slow`（`sleep` 远超 `--timeout`，用于 `timeout` 用例）/ `slow_child`（启动外部 child 并等待，用于 timeout/interrupted 进程树清理）/ `append_task_once`（运行中追加任务，用于任务总数刷新）。接受 `RALPH_FAKE_CLI` 覆盖 `RALPH_PROVIDER_CLI`、`RALPH_FAKE_SLEEP` 控制 sleep 时长。
+- `adapter-fake.sh` 由 `RALPH_FAKE_SCENARIO` 环境变量 select 场景（不依赖"第 N 轮"模式），核心场景：`happy`（勾第 1 条未勾选任务，`exit=0`）/ `stall`（不改 TASKS + 不改 git，`exit=0`）/ `crash`（`exit=非零`，无结构化错误，诊断为 `unknown`）/ `api-error`（`exit=非零` + stderr 含 api 错误关键字，诊断为 `api`）/ `slow`（`sleep` 远超 `--round-timeout`，用于 `timeout` 用例）/ `slow_child`（启动外部 child 并等待，用于 timeout/interrupted 进程树清理）/ `append_task_once`（运行中追加任务，用于任务总数刷新）。
+接受 `RALPH_FAKE_CLI` 覆盖 `RALPH_PROVIDER_CLI`、`RALPH_FAKE_SLEEP` 控制 sleep 时长。
 - Skill 封装（REQ-016）的具体接口在 v0.1 完成后单独设计。
 - `docs/architecture/testing.md` 在 T1 集成测试脚本成形后补齐。

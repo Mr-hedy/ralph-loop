@@ -156,11 +156,14 @@
   - 未验证：None.
   - 依赖：DEV-1, DEV-2, DEV-7
 
-- [ ] DEV-9: 同步 docs/architecture/ + docs/roadmap.md
+- [x] DEV-9: 同步 docs/architecture/ + docs/roadmap.md
   - 预期：`docs/architecture/overview.md` 同步三种调用形态 + sticky renderer 共用 + per-task round + iter→round 改名；`docs/architecture/integrations.md` 检查并改名所有旧字段引用；`docs/architecture/security.md` 同上；`docs/architecture/testing.md` 补 sticky 渲染测试策略 + plain 模式回归 + per-task 边界测试；`docs/roadmap.md` 加 I5 项的描述。
   - 输入：I5-design 全文；DEV-1 / DEV-2 / DEV-6 完成后；当前 `docs/architecture/*.md` / `docs/roadmap.md`。
   - 范围：`docs/architecture/{overview,integrations,security,testing}.md` / `docs/roadmap.md`；不改 requirements / README。
   - 验证计划：`grep -rnE "iteration|RALPH_MAX_ITER|RALPH_VERBOSE" docs/architecture/` 无残留旧名（说明文字保留历史除外）；overview.md 含三种调用形态描述；testing.md 含 sticky/plain 测试策略章节；`git diff --check` 通过。
+  - 完成：`overview.md` 同步子命令矩阵、改名 iter→round、同步 schema 与 pseudocode；`integrations.md` / `security.md` / `testing.md` 全量检查并同步；`roadmap.md` 更新 I5 状态为已完成。
+  - 验证：`grep -rnE "iteration|iter-|RALPH_MAX_ITER|RALPH_VERBOSE|RALPH_MODEL|RALPH_EFFORT|RALPH_TIMEOUT|RALPH_STAGNATION_LIMIT" docs/architecture/` 命中均属 roadmap Iteration 协议或历史记录；`git diff --check` 通过。
+  - 未验证：None.
   - 依赖：DEV-1, DEV-2, DEV-6
 
 - [ ] QA-1: TTY mock 测试三段式 sticky 渲染

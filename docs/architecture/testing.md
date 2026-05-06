@@ -80,16 +80,40 @@ tests/
 | T2.5 完成期 | +2（实际 30） | dep_missing_jq + claude+jq 双缺失非 fail-fast |
 | T2.6 完成期 | +4（实际 34） | --version + --help + run --help + status placeholder；真实 smoke 手动通过（2026-04-27，claude 2.1.119） |
 | T2 总目标 | ≥33（实际 34） | 上述累计；schema 修正：real Claude JSONL tool_result 在 type:"user" 而非 type:"tool" |
-| T6.1 完成期 | +2（实际 36） | partial_progress stagnation（stagnation_count 累加）+ happy stagnation_count=0（不误触发） |
+| T6.1 完成期 | +2（实际 36） | partial_progress stall（stall_count 累加）+ happy stall_count=0（不误触发） |
 | T6.2 完成期 | +4（实际 40） | SC-014-1：effort=low/medium/high/none 各触发一次；mock-claude `_received_effort` 回显 |
 | T6.6 完成期 | +1（实际 41） | ralph --version 含 0.1.0（从 0.1.0-dev 提升） |
 | T6 总目标 | ≥41（实际 41） | 上述累计；macOS 实测通过 |
 | I1 status/watch + dogfood prep | +16（实际 57） | SC-023 status、SC-024 watch 自动化部分、HUMAN-N、iteration_name、任务前缀、Provider 配置目录、exit-message |
 | M1 live tail regression | +2（实际 59） | `ralph run -v` happy/error stream-json filter marker 回归覆盖 |
 | I2 Codex adapter | +20（实际 79） | Codex happy path、CODEX_HOME 翻译/隔离、history 派生、诊断矩阵、effort/model 参数、动态任务总数、Codex `run -v` live tail |
-| I2 observability fix | +4（实际 83） | 长 provider oneshot 默认 heartbeat；timeout/interrupted 清理 provider 子进程树；`watch -v` 在 provider oneshot 运行中 tail 当前 iter；watch help 暴露 `-v` |
+| I2 observability fix | +4（实际 83） | 长 provider oneshot 默认 heartbeat；timeout/interrupted 清理 provider 子进程树；`watch` 运行中 tail 当前 round |
 | I3 watch surface fix | 0（实际 83） | `watch` 非 TTY fallback 改为 one-line watch bar，并断言不泄漏 `status` 详情字段 |
 | I4 Gemini mock tests | +17（实际 100） | Gemini happy path + run -v markers、GEMINI_CLI_HOME 翻译/隔离/空值鲁棒、session capture（精确/mtime fallback/missing）、错误诊断矩阵 7 类、model 参数、依赖缺失 |
+| I5 sticky/plain/round | +20（实际 120） | sticky 渲染（首帧/重绘/健康灯/事件区/退出还原）、plain 模式回归（heartbeat/marker）、per-task round/stall 触发、HUMAN 自动插入、iter→round 改名、env 分组重命名 |
+
+## I5 特色测试策略 (Sticky / Plain / Per-task)
+
+I5 引入了复杂的 TUI 渲染和 per-task 熔断逻辑，测试策略扩展如下：
+
+### 1. Sticky 渲染仿真 (QA-1)
+
+由于 `sticky.sh` 依赖 TTY 状态和 ANSI 控制码，集成测试通过以下方式仿真：
+- **TTY Mock**：使用 `script` 或 `expect` 环境模拟真实终端。
+- **布局断言**：断言 stdout 包含预期的 ANSI 向上移动序列（如 `\033[10A`）和行清理序列（`\033[K`）。
+- **健康灯时钟模拟**：通过 `touch -t` 修改 provider log 的 mtime，验证健康灯在静默 60s/300s 后的颜色切换。
+
+### 2. Plain 模式回归 (QA-2)
+
+验证 `ralph run` 在非 TTY 或无 `-v` 时保持 agent 友好性：
+- **无 ANSI 检查**：断言 stdout 不含任何 `\033[` 控制序列。
+- **Heartbeat 验证**：模拟长 round（60s+），验证 heartbeat 字符输出。
+
+### 3. Per-task 熔断与 HUMAN 插入 (QA-3)
+
+验证防死循环机制的侵入性修改：
+- **TASKS.md 监测**：在触发 `max_round` 或 `stall_limit` 后，验证 TASKS.md 确实被插入了 HUMAN-N 任务，且位置正确。
+- **Exit 状态**：验证退出码为 7 (`blocked_by_human`) 且 status.json 记录了正确的触发原因。
 
 未覆盖范围（已知，不计入失败）：
 

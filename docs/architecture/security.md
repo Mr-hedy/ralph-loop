@@ -82,8 +82,8 @@ Ralph 工具本身不对 session 文件做脱敏，因为 provider 的 transcrip
 ## 审计与可追溯
 
 - `context.json` 记录 `provider`、`provider_version`、`start_sha`、`env_source`，用于复盘时还原"哪一版工具、哪一个 provider 版本、对哪一个 commit、用了哪些配置来源"。
-- `result.json` 记录 `exit_reason`、`iterations`、`last_error`，作为 run 级审计条目。
-- `iter-xxx/meta.json` 记录单轮的 `session_id`、`session_source_path`、`session_copied_path`、`capture_status`、`capture_warning`、`error`、`changed_files`，用于追溯单轮行为。
+- `result.json` 记录 `exit_reason`、`rounds`、`last_error`，作为 run 级审计条目。
+- `round-NNN/meta.json` 记录单轮的 `session_id`、`session_source_path`、`session_copied_path`、`capture_status`、`capture_warning`、`error`、`changed_files`，用于追溯单轮行为。
 
 这些字段不是合规级审计，不用做不可篡改存储；Ralph v0.1 的定位是 harness，不是合规工具。
 
