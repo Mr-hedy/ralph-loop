@@ -109,6 +109,19 @@
   - 未验证：TTY 下 `ralph watch` 实际 sticky 视觉效果（需真实终端 + 后台 run，QA-5/QA-6 范围）；attach 已 finished run 的最终帧持续显示（需真实终端）；tmux/screen 兼容性（QA-5 范围）。
   - 依赖：DEV-1, DEV-3
 
+- [ ] DEV-10: provider 失败自动重试 + backoff
+  - 预期：当 `provider_oneshot` 退出非 0 且 `last_error.type ∈ {rate_limit, network}` 时，ralph 不立即 `_ralph_finish provider_failed`，而是按 backoff 表（默认 60s/120s/300s 三段，可配 `RALPH_LOOP_RETRY_SCHEDULE`）等待后**重试当前 round**；超过 `RALPH_LOOP_MAX_RETRY`（默认 3）次仍失败才真正 finish provider_failed；其他错误类型（auth_error / api_error / unknown）保持现有行为，不重试直接 finish；retry 期间 status.json 写明 `retry_count` / `next_retry_at`；plain 模式输出 marker 显示 `round N retry M/3 after Ts backoff (last_error: rate_limit)`；sticky 模式底栏 spinner 字符变 ⏳ 表示 backoff 中。本任务**优先于 DEV-6 实施**，因为 DEV-6 续跑要靠重试机制保护（2026-05-06 真实场景已证明 claude rate_limit 会让长任务死透）。
+  - 输入：当前 `.ralph/lib/run.sh:668-689` provider 失败处理段；adapter-claude.sh / codex.sh / gemini.sh 的 last_error.type 分类逻辑（rate_limit / network / auth_error / api_error / unknown）；2026-05-06 实测：iter 8 跑 41min 被 claude API 429 中断，ralph 直接 finish 导致 41min 工作丢失。
+  - 范围：`.ralph/lib/run.sh` 主循环（provider_oneshot 后 rc != 0 处理段）；新增 env `RALPH_LOOP_MAX_RETRY`（默认 3）+ `RALPH_LOOP_RETRY_SCHEDULE`（默认 "60 120 300"，空格分隔秒数列表）；CLI flag `--max-retry` / `--retry-schedule`；不改 adapter（last_error 分类已有）；不改 status.json schema 的核心字段，只新增 `retry_count` / `next_retry_at`。
+  - 验证计划:
+    - mock-claude 配置成连续 2 次 rate_limit 后第 3 次成功 → 跑 `ralph run` 应 exit_reason=done，stderr 看到 2 行 retry marker
+    - mock-claude 配置成连续 4 次 rate_limit → 应 exit_reason=provider_failed（超过 max_retry=3）
+    - mock-claude 配置成 auth_error → 应立即 finish provider_failed（不重试）
+    - retry 期间 `cat .ralph/status.json` 看到 retry_count 和 next_retry_at 字段
+    - `RALPH_LOOP_RETRY_SCHEDULE="2 4"` `RALPH_LOOP_MAX_RETRY=2` 测试更短 backoff 表
+    - `bash scripts/check.sh`；`bash scripts/integration-test.sh` 通过
+  - 依赖：DEV-1（last_error 字段已有），DEV-2（env 分组）
+
 - [ ] DEV-6: per-task round 防死循环 + HUMAN 自动插入
   - 预期：`RALPH_LOOP_MAX_ROUND > 0` 时，同一 task 试了 N 次 → 触发；`RALPH_LOOP_STALL_LIMIT`（默认 5）连续无进展（无勾任务 + worktree fingerprint 不变）→ 触发；任一触发 → ralph 在 `.ralph/TASKS.md` 当前 first_unchecked task **前面**插入一行 HUMAN-N（按 §7 模板，短 name + 缩进结构化字段）→ exit `blocked_by_human`；stall 改 per-task 判断（同一 task 连续 N 次无进展，task 切换时归零）；删除原全局 stall 逻辑；删除 `max_iterations` exit_reason（全局 max 取消）。
   - 输入：I5-design §6 §7；DEV-1 / DEV-4 完成后；当前 `.ralph/lib/run.sh` stall 判断。

@@ -313,6 +313,7 @@ status.json
 - **REQ-025**（`ralph run` 进度可见性）：plain 输出契约从"启动 banner + iter 启停 + 60s heartbeat + 退出总结"调整为"...+ round 启停 + ..."（iter→round 改名）；`-v` flag 行为变化为启动 sticky；非 TTY 自动降级 plain。
 - **REQ-026**（双层时间）：保留。
 - **新增 REQ：per-task 防死循环 + HUMAN 自动插入**：单 task max_round / stall 触发 → 自动插 HUMAN → exit blocked_by_human。
+- **新增 REQ-028：provider 失败自动重试 + backoff**（2026-05-06 实施期间发现，原 PLAN 漏项）：当 `last_error.type ∈ {rate_limit, network}` 时按 backoff 表重试当前 round（默认 60s/120s/300s 三段，`RALPH_LOOP_MAX_RETRY=3`），超限才 finish provider_failed；其他错误类型不重试直接 finish；status.json 加 `retry_count` / `next_retry_at` 字段；plain 模式输出 retry marker；sticky 模式 spinner 变 ⏳。详见 PLAN DEV-10 任务。背景：iter 8 跑 41min 被 claude API 429 中断，ralph 直接 finish 导致 41min agent 工作丢失，证明 long-running ralph 在 quota-limited 场景下没有重试机制无法用。
 - **`.ralph/README.md`** 重写：
   - 环境变量表（按 provider/loop/ui 分组 + 默认 + 说明 + 示例）
   - 《Ralph loop 与 round》：解释 round ≠ task，per-task round 计数
