@@ -123,38 +123,35 @@ Usage:
 
 Watch the current or last run with a sticky status bar.
 
-The display refreshes every 2 seconds. Press Ctrl-C to exit.
+The display refreshes periodically. Press Ctrl-C to exit watch.
+Ctrl-C only exits watch — it does not affect the running ralph process.
 
 Options:
-  --verbose, -v    Show the current round log above the sticky bar.
   --help           Show this help and exit.
 
 Output:
-  Default: sticky bar with run_id, round, task progress, state,
-           exit_reason, provider.
-  -v:      tail of current round provider.stdout.log above the sticky bar.
-  Non-TTY: one-line sticky bar snapshot, then exit 0. Use `ralph status`
-           when you need the detailed status fields.
+  TTY:    Three-section sticky display (top bar + event area + bottom bar),
+          sourced from status.json and provider stdout log.
+          When the run finishes, the final frame stays on screen until Ctrl-C.
+  Non-TTY: One-line status bar snapshot, then exit 0.
+          Use `ralph status` for detailed status fields.
 
-When no status.json exists, the bar shows "no active run".
+When no status.json exists, prints "no active run" and exits.
 
 Examples:
   ralph watch
-  ralph watch -v
 EOF
 }
 
 ralph_watch_cmd() {
-  local verbose=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --help | -h)         ralph_watch_help; exit 0 ;;
-      --verbose | -v)      verbose=1; shift ;;
+      --verbose | -v)      ralph_usage_error "unknown flag: $1 (watch uses sticky mode by default in TTY; no -v flag)" ;;
       --*)                 ralph_usage_error "unknown flag: $1" ;;
       *)                   ralph_usage_error "unexpected argument: $1" ;;
     esac
   done
-  export RALPH_WATCH_VERBOSE="$verbose"
 
   # Non-TTY fallback: print one-line watch bar once and exit (SC-024-4).
   if [[ ! -t 1 ]]; then

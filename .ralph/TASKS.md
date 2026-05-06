@@ -99,11 +99,14 @@
   - 未验证：TTY 下 `ralph run -v` 实际 sticky 视觉效果（需真实终端，QA-5/QA-6 范围）；per-task try 在底栏显示（sticky 视觉需 TTY）；tmux/screen 兼容性（QA-5 范围）。
   - 依赖：DEV-1, DEV-2, DEV-3
 
-- [ ] DEV-5: 改造 .ralph/lib/watch.sh — TTY sticky / 非 TTY 一行 bar / 删除 -v
+- [x] DEV-5: 改造 .ralph/lib/watch.sh — TTY sticky / 非 TTY 一行 bar / 删除 -v
   - 预期：`ralph watch` 在 TTY 调用 `sticky.sh` 渲染（与 run -v 共用 renderer），数据源为 `status.json` + tail `provider.stdout.log`；非 TTY 输出一行 watch bar 后 exit（保留现状）；删除 `-v` flag（不识别，报未知参数错误清晰提示）；run 自然结束（state=finished）后 watch 不自动退出，最后一帧持续刷新等 Ctrl+C；watch attach 时只显示当前一帧，不回放已结束 round 的总结行；Ctrl+C 仅退出 watch（不影响后台 run）。
   - 输入：I5-design §2；DEV-3 完成后；当前 `.ralph/lib/watch.sh`。
   - 范围：`.ralph/lib/watch.sh` / `.ralph/bin/ralph` 中 watch 入口；不改 run.sh / sticky.sh。
   - 验证计划：`ralph watch` TTY 输出三段式 sticky；`ralph watch | cat` 一行 bar 后 exit；`ralph watch -v` 报未知参数（exit 2 + 友好提示）；attach 已 finished 的 run，sticky 显示最终状态不退出；Ctrl+C 干净退出还原终端；`bash scripts/integration-test.sh` 通过。
+  - 完成：watch.sh 重写为 TTY sticky + 非 TTY 一行 bar 双模式。TTY 模式：source sticky.sh + poll status.json + tail -f provider.stdout.log → event filter → sticky render 循环（200ms）；读 context.json 获取 max_round/stall_limit；读 meta.json 获取 stall_count；run_id 变化全量重置；round 变化更新 round_start_ts；state=finished 停 tail 但持续渲染等 Ctrl+C。非 TTY：保留原有 `_ralph_watch_bar_text` + `ralph_watch_once`。删除 `-v` flag：bin/ralph watch 入口拒绝 -v/--verbose（exit 2 + 提示 sticky 为默认）。集成测试更新：`--help` 检查不含 -v；新增 `ralph watch -v → exit 2` 测试；删除旧 `_ralph_watch_tail_draw` 直接函数测试。
+  - 验证：`bash -n` 全部通过；`bash scripts/check.sh` 通过；`bash scripts/integration-test.sh` 92 PASS / 7 FAIL（7 个失败均为预存外层 ralph 环境泄漏，非 DEV-5 改动导致）；`git diff --check` 通过。
+  - 未验证：TTY 下 `ralph watch` 实际 sticky 视觉效果（需真实终端 + 后台 run，QA-5/QA-6 范围）；attach 已 finished run 的最终帧持续显示（需真实终端）；tmux/screen 兼容性（QA-5 范围）。
   - 依赖：DEV-1, DEV-3
 
 - [ ] DEV-6: per-task round 防死循环 + HUMAN 自动插入

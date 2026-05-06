@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# watch.sh — sticky bar rendering (DEV-3) + color support (DEV-7)
-# Requires: status.sh sourced before calling bar functions (for _ralph_status_json_val)
+# watch.sh — watch command: TTY sticky / non-TTY one-line bar (I5-design §2)
+#
+# TTY:   source sticky.sh → poll status.json + tail provider.stdout.log → sticky render
+# Non-TTY: one-line bar snapshot from status.json, then exit
+#
+# Ctrl+C exits watch only — does not affect the running ralph process.
 
 # ── Truncate run_id: first 12 chars + "..." ─────────────────────────────────
 _ralph_watch_truncate_id() {
@@ -14,7 +18,7 @@ _ralph_watch_truncate_id() {
   fi
 }
 
-# ── Color detection: TTY + no NO_COLOR ──────────────────────────────────────
+# ── Color detection ─────────────────────────────────────────────────────────
 _ralph_watch_color_supported() {
   [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]]
 }
@@ -33,7 +37,7 @@ _ralph_watch_status_color() {
   fi
 }
 
-# ── Bar content: one-line status string from status.json (with optional color) ─
+# ── Bar content: one-line status string from status.json (non-TTY only) ─────
 _ralph_watch_bar_text() {
   local f="$1"
 
@@ -63,8 +67,7 @@ _ralph_watch_bar_text() {
     yellow=$'\033[33m'
   fi
 
-  local status_color=""
-  local color_name
+  local status_color="" color_name
   color_name="$(_ralph_watch_status_color "$state" "${exit_reason:-}")"
   case "$color_name" in
     green)  status_color="$green"  ;;
@@ -89,118 +92,79 @@ _ralph_watch_bar_text() {
   printf '%s' "$bar"
 }
 
-# ── ANSI terminal: set scroll region to exclude bottom 1 line ───────────────
-_ralph_watch_scroll_set() {
-  local lines
-  lines="$(tput lines 2>/dev/null || echo 24)"
-  printf '\033[1;%dr' "$((lines - 1))"
+# ── Event filter (same logic as run.sh _ralph_filter_verbose) ──────────────
+_ralph_watch_filter_events() {
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^\{ ]] || continue
+    printf '%s\n' "$line" | jq -r '
+      def trunc($n): tostring | if length > $n then .[0:$n] else . end;
+      if .type == "system" and .subtype == "init" then
+        "  ⚙ session " + ((.session_id // "") | .[0:8])
+      elif .type == "assistant" then
+        ((.message.content // []) | if type == "array" then . else [] end | .[]
+          | if .type == "thinking" then "  💭 " + ((.thinking // "") | .[0:120])
+            elif .type == "text"   then "  💬 " + ((.text // "") | .[0:120])
+            elif .type == "tool_use" then "  🔧 " + (.name // "?") + " " + ((.input // {}) | tostring | .[0:80])
+            else empty end)
+      elif .type == "user" then
+        ((.message.content // []) | if type == "array" then . else [] end | .[]
+          | select(.type == "tool_result")
+          | "  ⏎ result " + ((.content // "") | tostring | .[0:80]))
+      elif .type == "result" and has("text") then
+        "  ✓ result " + ((.text // "") | trunc(120))
+      elif .type == "result" then
+        if .is_error then "  ❌ error: " + ((.result // "") | .[0:120])
+        else "  ✓ result " + ((.result // "") | .[0:120]) end
+      elif .type == "thread.started" then
+        "  ⚙ session " + ((.thread_id // "") | .[0:12])
+      elif .type == "item.completed" and (.item.type // "") == "agent_message" then
+        "  💬 " + ((.item.text // "") | trunc(120))
+      elif .type == "item.started" and (.item.type // "") == "command_execution" then
+        "  🔧 " + ((.item.command // "?") | trunc(80))
+      elif .type == "item.completed" and (.item.type // "") == "command_execution" then
+        "  ⏎ result " + ((.item.output // "") | trunc(80))
+      elif .type == "turn.completed" then
+        "  ✓ result"
+      elif .type == "turn.failed" then
+        "  ❌ error: " + ((.error.message // .message // "") | trunc(120))
+      elif .type == "init" then
+        "  ⚙ session " + ((.session_id // "") | .[0:12])
+      elif .type == "message" and (.role // "") == "assistant" then
+        "  💬 " + ((.text // "") | trunc(120))
+      elif .type == "tool_use" then
+        "  🔧 " + ((.name // "?") | trunc(40)) + " " + (((.input // {}) | tostring) | trunc(60))
+      elif .type == "tool_result" then
+        "  ⏎ result " + ((.content // "") | tostring | trunc(80))
+      elif .type == "text" then
+        "  💬 " + ((.text // "") | trunc(120))
+      elif .type == "complete" then
+        "  ✓ result " + ((.text // "") | trunc(120))
+      elif .type == "error" then
+        "  ❌ error: " + ((.error.message // .message // "") | trunc(120))
+      else empty end
+    ' 2>/dev/null
+  done
 }
 
-# ── ANSI terminal: reset scroll region ──────────────────────────────────────
-_ralph_watch_scroll_reset() {
-  printf '\033[r'
+# ── ISO timestamp → Unix epoch ─────────────────────────────────────────────
+_w_iso_to_epoch() {
+  local iso="$1" stripped epoch
+  stripped="${iso:0:19}"
+  epoch="$(date -j -f "%Y-%m-%dT%H:%M:%S" "$stripped" +%s 2>/dev/null)" \
+    || epoch="$(date -d "$stripped" +%s 2>/dev/null)" \
+    || epoch="$(date +%s)"
+  printf '%s' "$epoch"
 }
 
-# ── Draw sticky bar at terminal bottom ──────────────────────────────────────
-_ralph_watch_bar_draw() {
-  local status_file="$1"
-  local lines bar
-  lines="$(tput lines 2>/dev/null || echo 24)"
-  bar="$(_ralph_watch_bar_text "$status_file")"
-  printf '\033[%d;1H\033[2K%s' "$lines" "$bar"
-}
-
-# ── Build round log path from status.json run_id + round ──────────────────
-_ralph_watch_round_log_path() {
-  local workspace="$1" status_file="$2"
-  if [[ ! -f "$status_file" ]]; then
-    return 1
+# ── Read a value from JSON file ─────────────────────────────────────────────
+_w_json_val() {
+  local file="$1" key="$2"
+  if command -v jq >/dev/null 2>&1; then
+    jq -r ".$key // \"\"" "$file" 2>/dev/null || echo ""
+  else
+    grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$file" 2>/dev/null | head -1 \
+      | sed 's/.*: *"//' | sed 's/"$//' || echo ""
   fi
-  local run_id round
-  run_id="$(_ralph_status_json_val "$status_file" "run_id")"
-  round="$(_ralph_status_json_val "$status_file" "round")"
-  if [[ -z "$run_id" || -z "$round" || "$run_id" == "null" || "$round" == "null" ]]; then
-    return 1
-  fi
-  local zero_padded
-  printf -v zero_padded '%03d' "$round"
-  printf '%s/.ralph/runs/%s/rounds/round-%s/provider.stdout.log' "$workspace" "$run_id" "$zero_padded"
-}
-
-# ── Tail area: print new lines from current round log ─────────────────────────
-# Tracks last-read byte offset in _RALPH_TAIL_OFFSET (per log path).
-# When run_id changes: prints separator, resets tail state.
-# When round changes (same run): resets offset.
-_ralph_watch_tail_draw() {
-  local workspace="$1" status_file="$2"
-
-  # Detect run_id switch → separator + tail state reset
-  local current_run_id=""
-  if [[ -f "$status_file" ]]; then
-    current_run_id="$(_ralph_status_json_val "$status_file" "run_id")"
-  fi
-  if [[ -n "${_RALPH_WATCH_RUN_ID:-}" && -n "$current_run_id" && "$current_run_id" != "null" \
-        && "${_RALPH_WATCH_RUN_ID}" != "$current_run_id" ]]; then
-    printf '%s\n' "─── new run: $(_ralph_watch_truncate_id "$current_run_id") ───"
-    _RALPH_TAIL_PREV_PATH=""
-    _RALPH_TAIL_OFFSET=0
-  fi
-  if [[ -n "$current_run_id" && "$current_run_id" != "null" ]]; then
-    _RALPH_WATCH_RUN_ID="$current_run_id"
-  fi
-
-  local log_path
-  log_path="$(_ralph_watch_round_log_path "$workspace" "$status_file")" || return 0
-
-  if [[ ! -f "$log_path" ]]; then
-    return 0
-  fi
-
-  # Detect round switch: path changed → reset offset
-  if [[ "${_RALPH_TAIL_PREV_PATH:-}" != "$log_path" ]]; then
-    _RALPH_TAIL_PREV_PATH="$log_path"
-    _RALPH_TAIL_OFFSET=0
-  fi
-
-  local size
-  size="$(stat -f%z "$log_path" 2>/dev/null || stat -c%s "$log_path" 2>/dev/null)" || return 0
-
-  # Nothing new since last read
-  if [[ "$size" -le "${_RALPH_TAIL_OFFSET:-0}" ]]; then
-    return 0
-  fi
-
-  # Print new bytes
-  dd if="$log_path" bs=1 skip="${_RALPH_TAIL_OFFSET:-0}" count=$((size - _RALPH_TAIL_OFFSET)) 2>/dev/null
-  _RALPH_TAIL_OFFSET=$size
-}
-
-# ── Render one frame: tail area + sticky bar ─────────────────────────────────
-# RALPH_WATCH_VERBOSE=1 时上方区域 tail round log；默认 0 时只刷新 sticky bar
-ralph_watch_frame() {
-  local workspace="$1" status_file="$2"
-  if [[ "${RALPH_WATCH_VERBOSE:-0}" == "1" ]]; then
-    _ralph_watch_tail_draw "$workspace" "$status_file"
-  fi
-  _ralph_watch_bar_draw "$status_file"
-}
-
-# ── Watch state ─────────────────────────────────────────────────────────────
-_RALPH_WATCH_CLEANED=0
-_RALPH_SLEEP_PID=""
-
-_ralph_watch_cleanup() {
-  [[ "$_RALPH_WATCH_CLEANED" -eq 1 ]] && return 0
-  _RALPH_WATCH_CLEANED=1
-  _ralph_watch_scroll_reset
-  tput clear 2>/dev/null || true
-  printf '\033[?25h'
-}
-
-_ralph_watch_on_sigint() {
-  kill -INT "${_RALPH_SLEEP_PID:-}" 2>/dev/null || true
-  _ralph_watch_cleanup
-  exit 130
 }
 
 # ── Non-TTY snapshot entry point ────────────────────────────────────────────
@@ -216,7 +180,72 @@ ralph_watch_once() {
   printf '\n'
 }
 
-# ── Main watch entry point ──────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# TTY sticky watch (I5-design §2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Tail state
+_W_TAIL_PID=""
+_W_FILTER_PID=""
+_W_FIFO=""
+_W_EVENT_FILE=""
+_W_LAST_EV_POS=0
+_W_PREV_LOG_PATH=""
+_W_CLEANED=0
+
+_w_stop_tail() {
+  local p
+  for p in "${_W_TAIL_PID:-}" "${_W_FILTER_PID:-}"; do
+    [[ -n "$p" ]] && kill "$p" 2>/dev/null || true
+  done
+  for p in "${_W_TAIL_PID:-}" "${_W_FILTER_PID:-}"; do
+    [[ -n "$p" ]] && wait "$p" 2>/dev/null || true
+  done
+  [[ -n "${_W_FIFO:-}" ]] && rm -f "$_W_FIFO" 2>/dev/null || true
+  [[ -n "${_W_EVENT_FILE:-}" ]] && rm -f "$_W_EVENT_FILE" 2>/dev/null || true
+  _W_TAIL_PID=""
+  _W_FILTER_PID=""
+  _W_FIFO=""
+  _W_EVENT_FILE=""
+  _W_LAST_EV_POS=0
+}
+
+_w_start_tail() {
+  local log_path="$1"
+  _w_stop_tail
+  [[ ! -f "$log_path" ]] && return
+
+  _W_EVENT_FILE="$(mktemp -t ralph-watch-ev.XXXXXX)"
+  _W_LAST_EV_POS=0
+
+  _W_FIFO="$(mktemp -t ralph-watch-fifo.XXXXXX)"
+  rm -f "$_W_FIFO"
+  mkfifo "$_W_FIFO"
+
+  tail -n 0 -f "$log_path" > "$_W_FIFO" 2>/dev/null &
+  _W_TAIL_PID=$!
+  _ralph_watch_filter_events < "$_W_FIFO" >> "$_W_EVENT_FILE" 2>/dev/null &
+  _W_FILTER_PID=$!
+}
+
+# ── Trap handlers ──────────────────────────────────────────────────────────
+_w_cleanup() {
+  ((_W_CLEANED)) && return 0
+  _W_CLEANED=1
+  _w_stop_tail
+  ralph_sticky_cleanup
+}
+
+_w_on_int() {
+  _w_cleanup
+  exit 130
+}
+
+_w_on_exit() {
+  _w_cleanup
+}
+
+# ── TTY sticky watch main ─────────────────────────────────────────────────
 ralph_watch() {
   local workspace status_file
   workspace="$(ralph_workspace_root)"
@@ -224,27 +253,180 @@ ralph_watch() {
 
   # shellcheck source=status.sh
   source "$RALPH_ROOT/lib/status.sh"
+  # shellcheck source=sticky.sh
+  source "$RALPH_ROOT/lib/sticky.sh"
 
-  _RALPH_TAIL_OFFSET=0
-  _RALPH_TAIL_PREV_PATH=""
-  _RALPH_WATCH_RUN_ID=""
+  if [[ ! -f "$status_file" ]]; then
+    printf 'ralph watch: no active run (status.json not found)\n'
+    return 0
+  fi
 
-  # Hide cursor
-  printf '\033[?25l'
+  # Read initial state
+  local run_id run_dir_str provider started_at round state
+  run_id="$(_ralph_status_json_val "$status_file" "run_id")"
+  run_dir_str="$(_ralph_status_json_val "$status_file" "run_dir")"
+  provider="$(_ralph_status_json_val "$status_file" "provider")"
+  started_at="$(_ralph_status_json_val "$status_file" "started_at")"
+  round="$(_ralph_status_json_val "$status_file" "round")"
+  state="$(_ralph_status_json_val "$status_file" "state")"
 
-  trap '_ralph_watch_cleanup' EXIT
-  trap '_ralph_watch_on_sigint' INT
+  if [[ -z "$run_id" || "$run_id" == "null" ]]; then
+    printf 'ralph watch: no active run\n'
+    return 0
+  fi
 
-  tput clear 2>/dev/null || true
-  _ralph_watch_scroll_set
-  printf '\033[1;1H'
+  # Sticky renderer base variables
+  _RALPH_STICKY_PROVIDER="${provider:-unknown}"
+  if [[ -n "$started_at" && "$started_at" != "null" ]]; then
+    _RALPH_STICKY_RUN_START_TS="$(_w_iso_to_epoch "$started_at")"
+  else
+    _RALPH_STICKY_RUN_START_TS="$(date +%s)"
+  fi
 
-  ralph_watch_frame "$workspace" "$status_file"
+  # Read context.json for max_round and stall_limit
+  local full_run_dir="$workspace/${run_dir_str#./}"
+  _RALPH_STICKY_MAX_ROUND=0
+  _RALPH_STICKY_STALL_LIMIT=5
+  if [[ -f "$full_run_dir/context.json" ]]; then
+    local ctx_val
+    ctx_val="$(_w_json_val "$full_run_dir/context.json" "max_round")"
+    [[ -n "$ctx_val" && "$ctx_val" != "null" ]] && _RALPH_STICKY_MAX_ROUND="$ctx_val"
+    ctx_val="$(_w_json_val "$full_run_dir/context.json" "stall_limit")"
+    [[ -n "$ctx_val" && "$ctx_val" != "null" ]] && _RALPH_STICKY_STALL_LIMIT="$ctx_val"
+  fi
 
-  # sleep & wait: bash interruptible wait lets SIGINT handler fire immediately
+  # Enter sticky mode
+  ralph_sticky_enter
+
+  # Install traps (custom: also stop tail on cleanup)
+  trap '_w_on_int'  INT
+  trap '_w_on_exit' EXIT
+
+  # Tracking state
+  local _w_prev_round="${round:-0}"
+  local _w_prev_run_id="${run_id:-}"
+  local _w_round_start_ts
+  _w_round_start_ts="$(date +%s)"
+  local _w_finished=0
+  _W_PREV_LOG_PATH=""
+
+  # Main polling loop
   while true; do
-    sleep 2 & _RALPH_SLEEP_PID=$!
-    wait "$_RALPH_SLEEP_PID" 2>/dev/null || true
-    ralph_watch_frame "$workspace" "$status_file"
+    # Re-read status.json
+    if [[ ! -f "$status_file" ]]; then
+      sleep 0.5
+      continue
+    fi
+
+    run_id="$(_ralph_status_json_val "$status_file" "run_id")"
+    run_dir_str="$(_ralph_status_json_val "$status_file" "run_dir")"
+    provider="$(_ralph_status_json_val "$status_file" "provider")"
+    round="$(_ralph_status_json_val "$status_file" "round")"
+    state="$(_ralph_status_json_val "$status_file" "state")"
+    local tasks_checked tasks_total exit_reason
+    tasks_checked="$(_ralph_status_json_val "$status_file" "tasks_checked")"
+    tasks_total="$(_ralph_status_json_val "$status_file" "tasks_total")"
+    exit_reason="$(_ralph_status_json_val "$status_file" "exit_reason")"
+
+    # Detect run_id change → full reset
+    if [[ -n "$run_id" && "$run_id" != "null" && "$run_id" != "$_w_prev_run_id" ]]; then
+      _w_prev_run_id="$run_id"
+      _w_prev_round="$round"
+      _w_round_start_ts="$(date +%s)"
+      _w_finished=0
+      _SEV_TIMES=()
+      _SEV_MSGS=()
+      # Re-read context.json for new run
+      full_run_dir="$workspace/${run_dir_str#./}"
+      _RALPH_STICKY_MAX_ROUND=0
+      _RALPH_STICKY_STALL_LIMIT=5
+      if [[ -f "$full_run_dir/context.json" ]]; then
+        local ctx_val
+        ctx_val="$(_w_json_val "$full_run_dir/context.json" "max_round")"
+        [[ -n "$ctx_val" && "$ctx_val" != "null" ]] && _RALPH_STICKY_MAX_ROUND="$ctx_val"
+        ctx_val="$(_w_json_val "$full_run_dir/context.json" "stall_limit")"
+        [[ -n "$ctx_val" && "$ctx_val" != "null" ]] && _RALPH_STICKY_STALL_LIMIT="$ctx_val"
+      fi
+    fi
+
+    # Detect round change → update round_start_ts
+    if [[ -n "$round" && "$round" != "null" && "$round" != "$_w_prev_round" ]]; then
+      _w_round_start_ts="$(date +%s)"
+      _w_prev_round="$round"
+    fi
+
+    # Compute current log path
+    local log_path=""
+    if [[ -n "$run_id" && "$run_id" != "null" && -n "$round" && "$round" != "null" ]]; then
+      local zero_padded
+      printf -v zero_padded '%03d' "$round"
+      log_path="$workspace/.ralph/runs/$run_id/rounds/round-$zero_padded/provider.stdout.log"
+    fi
+
+    # Start/restart tail if log path changed and run is still active
+    if [[ "${state:-}" != "finished" && -n "$log_path" && -f "$log_path" ]]; then
+      if [[ "$log_path" != "$_W_PREV_LOG_PATH" ]]; then
+        _w_start_tail "$log_path"
+        _W_PREV_LOG_PATH="$log_path"
+      fi
+    fi
+
+    # Read new events from event file
+    if [[ -f "${_W_EVENT_FILE:-}" ]]; then
+      local ev_size
+      ev_size="$(wc -c < "$_W_EVENT_FILE" 2>/dev/null | tr -d '[:space:]')" || ev_size=0
+      if [[ "$ev_size" -gt "${_W_LAST_EV_POS:-0}" ]]; then
+        local new_events
+        new_events="$(tail -c "+$(( _W_LAST_EV_POS + 1 ))" "$_W_EVENT_FILE" 2>/dev/null)" || new_events=""
+        _W_LAST_EV_POS="$ev_size"
+        local ev_line
+        while IFS= read -r ev_line; do
+          [[ -n "$ev_line" ]] && ralph_sticky_append_event "$ev_line"
+        done <<< "$new_events"
+      fi
+    fi
+
+    # Get current task from TASKS.md
+    local current_task=""
+    local tasks_md="$workspace/.ralph/TASKS.md"
+    if [[ -f "$tasks_md" ]]; then
+      current_task="$(grep -m1 '^- \[ \]' "$tasks_md" 2>/dev/null | sed 's/^- \[ \] //' | cut -c1-80)" || current_task=""
+    fi
+
+    # Try to read stall_count from latest meta.json
+    local stall_count=0
+    if [[ -n "$log_path" ]]; then
+      local round_dir="${log_path%/*}"
+      if [[ -f "$round_dir/meta.json" ]]; then
+        local sc
+        sc="$(_w_json_val "$round_dir/meta.json" "stall_count")"
+        [[ -n "$sc" && "$sc" != "null" ]] && stall_count="$sc"
+      fi
+    fi
+
+    # Update sticky vars
+    _RALPH_STICKY_ROUND="${round:-0}"
+    _RALPH_STICKY_TASKS_DONE="${tasks_checked:-0}"
+    _RALPH_STICKY_TASKS_TOTAL="${tasks_total:-0}"
+    _RALPH_STICKY_CURRENT_TASK="$current_task"
+    _RALPH_STICKY_PROVIDER="${provider:-unknown}"
+    _RALPH_STICKY_ROUND_START_TS="$_w_round_start_ts"
+    _RALPH_STICKY_LOG_PATH="${log_path:-}"
+    _RALPH_STICKY_STALL_COUNT="$stall_count"
+
+    if [[ "${state:-}" == "finished" ]]; then
+      _RALPH_STICKY_EXIT_REASON="${exit_reason:-}"
+      if [[ "$_w_finished" -eq 0 ]]; then
+        _w_finished=1
+        _w_stop_tail
+      fi
+    else
+      _RALPH_STICKY_EXIT_REASON=""
+    fi
+
+    # Render frame
+    ralph_sticky_render_frame
+
+    sleep 0.2
   done
 }

@@ -1026,9 +1026,9 @@ echo ""
 echo "-- ralph watch --help"
 rc=0
 watch_help_out=$(bash "$REPO_ROOT/.ralph/bin/ralph" watch --help 2>/dev/null) || rc=$?
-if [[ "$rc" -eq 0 && "$watch_help_out" == *"--verbose"* && "$watch_help_out" == *"-v"* \
-  && "$watch_help_out" == *"provider.stdout.log"* ]]; then
-  _pass "ralph watch --help: exit 0, documents -v live log tail"
+if [[ "$rc" -eq 0 && "$watch_help_out" == *"sticky"* && "$watch_help_out" != *"-v"* \
+  && "$watch_help_out" != *"--verbose"* ]]; then
+  _pass "ralph watch --help: exit 0, documents sticky mode, no -v flag"
 else
   _fail "ralph watch --help: rc=$rc out=$watch_help_out"
 fi
@@ -1140,120 +1140,14 @@ cleanup_ws "$ws"
 # ────────────────────────────────
 
 echo ""
-echo "-- SC-024-2: watch run_id switch separator + tail target switch"
-ws=$(setup_workspace)
-cat > "$ws/.ralph/status.json" <<'SJEOF'
-{
-  "run_id": "20260501-120000-aaa1111",
-  "run_dir": ".ralph/runs/20260501-120000-aaa1111",
-  "workspace": "/tmp/test-ws",
-  "provider": "fake",
-  "model": "test",
-  "effort": "high",
-  "started_at": "2026-05-01T12:00:00Z",
-  "updated_at": "2026-05-01T12:01:00Z",
-  "round": 1,
-  "iteration_name": "I1",
-  "state": "running",
-  "tasks_total": 2,
-  "tasks_checked": 0,
-  "exit_reason": null,
-  "last_error": null
-}
-SJEOF
-run_a_dir="$ws/.ralph/runs/20260501-120000-aaa1111/rounds/round-001"
-mkdir -p "$run_a_dir"
-echo "log from run A" > "$run_a_dir/provider.stdout.log"
-# Source libs and init watch state (direct function test)
-# shellcheck source=/dev/null
-source "$REPO_ROOT/.ralph/lib/status.sh"
-# shellcheck source=/dev/null
-source "$REPO_ROOT/.ralph/lib/watch.sh"
-_RALPH_TAIL_OFFSET=0
-_RALPH_TAIL_PREV_PATH=""
-_RALPH_WATCH_RUN_ID=""
-tmpout=$(mktemp)
-# Frame 1: establish run A, tail its round log
-_ralph_watch_tail_draw "$ws" "$ws/.ralph/status.json" >> "$tmpout"
-# Switch to run B
-cat > "$ws/.ralph/status.json" <<'SJEOF'
-{
-  "run_id": "20260501-130000-bbb2222",
-  "run_dir": ".ralph/runs/20260501-130000-bbb2222",
-  "workspace": "/tmp/test-ws",
-  "provider": "fake",
-  "model": "test",
-  "effort": "high",
-  "started_at": "2026-05-01T13:00:00Z",
-  "updated_at": "2026-05-01T13:01:00Z",
-  "round": 1,
-  "iteration_name": "I1",
-  "state": "running",
-  "tasks_total": 3,
-  "tasks_checked": 1,
-  "exit_reason": null,
-  "last_error": null
-}
-SJEOF
-run_b_dir="$ws/.ralph/runs/20260501-130000-bbb2222/rounds/round-001"
-mkdir -p "$run_b_dir"
-echo "log from run B" > "$run_b_dir/provider.stdout.log"
-# Frame 2: run_id changed → separator + new tail target
-_ralph_watch_tail_draw "$ws" "$ws/.ralph/status.json" >> "$tmpout"
-separator_ok=0; log_a_ok=0; log_b_ok=0; trunc_ok=0
-grep -q "─── new run:" "$tmpout" && separator_ok=1
-grep -q "log from run A" "$tmpout" && log_a_ok=1
-grep -q "log from run B" "$tmpout" && log_b_ok=1
-grep -q "20260501-130\.\.\." "$tmpout" && trunc_ok=1
-if [[ "$separator_ok" -eq 1 && "$log_a_ok" -eq 1 && "$log_b_ok" -eq 1 && "$trunc_ok" -eq 1 ]]; then
-  _pass "SC-024-2: run_id switch → separator + truncated id + both round logs"
-else
-  _fail "SC-024-2: sep=$separator_ok logA=$log_a_ok logB=$log_b_ok trunc=$trunc_ok"
-fi
-rm -f "$tmpout"
-cleanup_ws "$ws"
-
-echo ""
-echo "-- SC-024-2: watch -v follows active round while provider oneshot is running"
-ws=$(setup_workspace)
-printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
-git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
-stderr_file="$(mktemp)"
+echo "-- SC-024-2: ralph watch -v → rejected with exit 2"
 rc=0
-RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=3 RALPH_PROGRESS_HEARTBEAT_SEC=0 \
-  bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 1 \
-  >/dev/null 2>"$stderr_file" &
-run_pid=$!
-status_round_ok=0
-for _ in 1 2 3 4 5; do
-  if [[ -f "$ws/.ralph/status.json" ]] \
-    && [[ "$(jq -r '.round // 0' "$ws/.ralph/status.json" 2>/dev/null)" == "1" ]]; then
-    run_id="$(jq -r '.run_id // empty' "$ws/.ralph/status.json" 2>/dev/null)"
-    if [[ -n "$run_id" && -f "$ws/.ralph/runs/$run_id/rounds/round-001/provider.stdout.log" ]]; then
-      status_round_ok=1
-      break
-    fi
-  fi
-  sleep 1
-done
-tmpout=$(mktemp)
-_RALPH_TAIL_OFFSET=0
-_RALPH_TAIL_PREV_PATH=""
-_RALPH_WATCH_RUN_ID=""
-if [[ "$status_round_ok" -eq 1 ]]; then
-  _ralph_watch_tail_draw "$ws" "$ws/.ralph/status.json" >> "$tmpout"
-fi
-wait "$run_pid" 2>/dev/null || rc=$?
-reason="$(get_exit_reason "$(latest_run_dir "$ws")" 2>/dev/null)"
-tail_ok=0
-grep -q "fake: slow scenario" "$tmpout" 2>/dev/null && tail_ok=1
-if [[ "$status_round_ok" -eq 1 && "$tail_ok" -eq 1 && "$rc" -eq 4 && "$reason" == "max_rounds" ]]; then
-  _pass "watch -v active round: status points to round-001 while provider is running and tail reads current log"
+bash "$REPO_ROOT/.ralph/bin/ralph" watch -v 2>/dev/null || rc=$?
+if [[ "$rc" -eq 2 ]]; then
+  _pass "SC-024-2: ralph watch -v → exit 2 (flag removed)"
 else
-  _fail "watch -v active round: status_round_ok=$status_round_ok tail_ok=$tail_ok rc=$rc reason=$reason"
+  _fail "SC-024-2: expected exit 2, got rc=$rc"
 fi
-rm -f "$tmpout" "$stderr_file"
-cleanup_ws "$ws"
 
 echo ""
 echo "-- SC-024-4: watch non-TTY fallback → one-line bar + exit 0"
