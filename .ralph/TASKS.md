@@ -226,9 +226,38 @@
   - 未验证：sticky 视觉保真度与 ralph-sticky-poc.sh 的精确对比（需真实终端人工观察）；健康灯黄/红态转换（需 >60s/>300s 长运行任务）；Ctrl+C 退出后 sticky 块保留（需交互终端）；异常退出 stty 还原（kill -9 不触发 trap，属已知限制）。这些项需人工在真实终端完成。
   - 依赖：DEV-1, DEV-2, DEV-3, DEV-4, DEV-5, DEV-6, DEV-7, DEV-8, DEV-9
 
-- [ ] REVIEW-1: I5 实施完成 adversarial review | adversarial-review
+- [x] REVIEW-1: I5 实施完成 adversarial review | adversarial-review
   - 预期：对 I5 的 lib 改造 / 文档同步 / 测试覆盖 做对抗式审查，重点检查：iter→round 改名是否有残留 / per-task round 边界条件（task 全部勾完 / TASKS.md 为空 / 第一个 task 是 HUMAN-）/ HUMAN 自动插入是否会重复触发 / sticky 模式异常退出（kill -9 / 终端关闭）下 stty 还原 / TTY 检测在边缘 CI / sticky 在窄终端的降级 / plain 模式 6 种 exit_reason 输出格式完整性 / `.ralph/.gitignore` 自包含 cp -r 后真的生效。
   - 输入：I5 全部 DEV / QA 完成；I5-design 关键风险段；`.spec/rules/adversarial-review.md`。
   - 范围：审阅代码 + 文档 + 测试 + 实际跑一次 ralph run；产出 findings 列表（在本任务子项追加）；如有 P0/P1 找 bug 新增 DEV 任务修复；不直接改代码。
   - 验证计划：findings 列表完整且每个 finding 有"严重度 / 复现步骤 / 建议修复"三字段；P0/P1 findings 全部转化为 DEV 任务并完成；本仓库 `bash scripts/check.sh` + `bash scripts/integration-test.sh` 通过；归档 review 结果到 checkpoint。
   - 依赖：QA-1, QA-2, QA-3, QA-4, QA-5, QA-6
+  - 完成：审阅全部 lib + bin + adapter + tasks.sh + sticky.sh + watch.sh + session.sh + common.sh + .gitignore。7 个审查维度全部覆盖。发现 1 个 P1（watch per-task try 不准确）+ 3 个 P2 + 4 个 P3。P1 已新增 DEV-11 任务修复。
+  - 验证：审阅基于实际代码阅读（非 grep）；边界条件（TASKS.md 空 / 全勾 / HUMAN 首位 / max_round 边界 / retry 后 stall 重置）逐条追踪代码路径；`git diff --check` 通过。
+  - 未验证：完整 `bash scripts/integration-test.sh` 跑到底（受预存 Codex/Gemini 挂住阻塞，非 REVIEW-1 引入）。
+  - Findings:
+    - [P1] watch.sh sticky 底栏 per-task try 永远显示 1（status.json 不含 task_try 字段，watch 无法获取真实值）
+      - 严重度：P1（高概率误导用户——watch 是长任务监控的主界面）
+      - 复现：`ralph run -v` + 另一终端 `ralph watch`，观察底栏 "round N/M" 始终 N=1
+      - 建议修复：run.sh `_ralph_write_status` / `_ralph_update_status` 新增 `task_try` 字段写入 status.json；watch.sh 轮询时读取并设置 `_RALPH_STICKY_TASK_TRY` → DEV-11
+    - [P2] watch.sh 不 trap SIGTERM（只 trap INT）
+      - 严重度：P2（进程管理器杀 watch 时终端还原依赖 EXIT trap，bash 行为不确定）
+      - 复现：`ralph watch` + `kill -TERM <pid>`，观察 stty 是否还原
+      - 建议修复：`trap '_w_on_int' INT TERM`
+    - [P2] 事件过滤逻辑重复（run.sh `_ralph_filter_verbose` 与 watch.sh `_ralph_watch_filter_events` 近 100 行相同 jq 逻辑）
+      - 严重度：P2（provider 事件格式变化时需双处更新）
+      - 建议修复：抽取到 `lib/events.sh` 共享
+    - [P2] `ralph_sticky_install_traps` 是死代码（文档标记 public API 但 run/watch 均用自己的 trap 链）
+      - 严重度：P2（误导维护者以为 trap 被安装）
+      - 建议修复：删除或标注 "standalone use only"
+    - [P3] kill -9 不还原 stty（不可 trap 信号，已知限制）
+    - [P3] adapter-fake.sh `partial-progress-iter1` 场景名含旧 iter 术语
+    - [P3] `_struncate_bytes` 事件区字节截断 vs `_struncate_cols` 任务名列宽截断不一致
+    - [已确认无问题] iter→round 改名无代码残留（`iteration_name` / `parse_current_iteration` 保留正确）；per-task round 边界（TASKS.md 空→done / 全勾→done / HUMAN 首位→exit 7 / max_round 与 stall 互不干扰）；HUMAN 自动插入不重复触发（`_still_first` 守卫 + `next_human_number` 递增）；TTY 检测在 CI 走 plain 降级正确；`.ralph/.gitignore` cp -r 自包含正确；plain 模式 6 种 exit_reason 全覆盖（startup_failed 在 finish 前直接 exit）
+
+- [ ] DEV-11: 修复 watch sticky 底栏 per-task try 显示
+  - 预期：`ralph watch` sticky 底栏 "round N/M" 的 N 准确反映当前 task 的 per-task try 次数（而非永远显示 1）。
+  - 输入：REVIEW-1 P1 finding；run.sh `_ralph_current_task_try` / `_ralph_write_status` / `_ralph_update_status`；watch.sh `_RALPH_STICKY_TASK_TRY`。
+  - 范围：run.sh（status.json 新增 `task_try` 字段）；watch.sh（读取 `task_try` 并设置 `_RALPH_STICKY_TASK_TRY`）；不改 sticky.sh。
+  - 验证计划：跑 `ralph run -v --provider fake`（stagnation 场景，3 轮后手动 Ctrl+C），另一终端 `ralph watch` 底栏显示 round ≥ 2；status.json 含 `task_try` 字段；`bash scripts/check.sh` 通过。
+  - 依赖：REVIEW-1
