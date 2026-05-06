@@ -79,11 +79,14 @@
   - 未验证：README.md / docs/ 中仍含旧 env 名（DEV-8 / DEV-9 范围）；`RALPH_UI_*` 新 env 的 sticky 渲染集成（DEV-3 范围）。
   - 依赖：DEV-1
 
-- [ ] DEV-3: 新增 .ralph/lib/sticky.sh — 三段式 sticky renderer
+- [x] DEV-3: 新增 .ralph/lib/sticky.sh — 三段式 sticky renderer
   - 预期：新增 `.ralph/lib/sticky.sh`（或类似命名），实现 §1 / §4 / §5 / §13 描述的纯 append + cursor_up 重绘 sticky renderer；提供 `ralph_sticky_enter` / `ralph_sticky_render_frame` / `ralph_sticky_cleanup` 公共函数；事件区高度由 `RALPH_UI_STICKY_EVENT_LINES`（默认 6）控制；健康灯按 `RALPH_UI_HEALTH_GREEN_SEC`（默认 60）/ `RALPH_UI_HEALTH_RED_SEC`（默认 300）三态；`stty -echo -icanon` + trap INT/TERM/EXIT 严格还原；与 `ralph-sticky-poc.sh` 视觉一致。
   - 输入：I5-design §1 / §4 / §5 / §13；`ralph-sticky-poc.sh` 视觉契约。
   - 范围：新增 `.ralph/lib/sticky.sh`；不改 run.sh / watch.sh（接入是后续任务）；可被 `bash -n` 通过。
   - 验证计划：`bash -n .ralph/lib/sticky.sh`；mock 一个 status.json + 简单 log 文件，独立 source sticky.sh + 调用 enter/render/cleanup，视觉与 `ralph-sticky-poc.sh` 一致；trap INT/TERM/EXIT 测试 stty 还原（用 stty -g 对比）；`bash scripts/check.sh` 通过。
+  - 完成：新增 `.ralph/lib/sticky.sh`，实现完整三段式 sticky renderer。公共 API：`ralph_sticky_enter` / `ralph_sticky_render_frame` / `ralph_sticky_cleanup` / `ralph_sticky_append_event` / `ralph_sticky_install_traps`。布局：顶栏（时间/版本/tasks/round/provider/elapsed）+ 横线 + N 行事件区 + 横线 + 底栏（健康灯/round N/∞/stall N/M/spinner+时间/任务名截断）。健康灯三态：绿（≤60s）/黄（60~300s）/红（>300s）检查 provider.stdout.log 字节增长；退出态 ✓/✗/⏸ 按 exit_reason 显示。stty -echo -icanon 保存还原 + INT/TERM/EXIT trap 覆盖。CJK 字宽感知截断。纯 append + cursor_up 重绘，不设 scroll region 不清屏。
+  - 验证：`bash -n .ralph/lib/sticky.sh` 通过；`bash scripts/check.sh` 通过。
+  - 未验证：独立 mock 测试（source + enter/render/cleanup 视觉对比 `ralph-sticky-poc.sh`）；trap INT/TERM 下 stty 还原测试；tmux/screen 嵌套测试（QA-5 范围）。
   - 依赖：DEV-1, DEV-2
 
 - [ ] DEV-4: 改造 .ralph/lib/run.sh — plain 默认 + -v 启动 sticky + per-task round 计数
