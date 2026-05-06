@@ -53,7 +53,7 @@ provider_oneshot() {
   # --output-format stream-json: events 逐行流式输出到 stdout（不再单独写 stdout.json）
   # --verbose: stream-json 模式下需要（claude CLI 要求 stream-json 与 verbose 配对）
   # --effort 直通（none/空 → 不拼 flag；用数组避免空参数注入，SC-014-1）
-  local effort="${RALPH_EFFORT:-}"
+  local effort="${RALPH_PROVIDER_EFFORT:-}"
   local -a claude_cmd
   claude_cmd=(
     claude -p "$(cat "$prompt_file")"

@@ -51,14 +51,14 @@ until a stop condition is reached.
 Options:
   --provider <name>        Provider to use (env: RALPH_PROVIDER)
                            Required. Choices: claude, codex, gemini, fake.
-  --model <name>           Model name passed to provider (env: RALPH_MODEL)
-  --effort <level>         Effort level: low|medium|high|none (env: RALPH_EFFORT)
-  --max-round <n>          Max rounds; 0 = unlimited (env: RALPH_MAX_ROUND)
-                           Default: 0
+  --model <name>           Model name passed to provider (env: RALPH_PROVIDER_MODEL)
+  --effort <level>         Effort level: low|medium|high|none (env: RALPH_PROVIDER_EFFORT)
+  --max-round <n>          Max rounds per task; 0 = unlimited
+                           (env: RALPH_LOOP_MAX_ROUND). Default: 0
   --round-timeout <sec>    Per-round timeout in seconds; 0 = unlimited
-                           (env: RALPH_TIMEOUT). Default: 0
-  --stagnation-limit <n>   Consecutive no-progress rounds before stagnated
-                           (env: RALPH_STAGNATION_LIMIT). Default: 5
+                           (env: RALPH_LOOP_ROUND_TIMEOUT). Default: 0
+  --stall-limit <n>        Consecutive no-progress rounds per task before stall
+                           (env: RALPH_LOOP_STALL_LIMIT). Default: 5
   --verbose, -v            Live-tail provider events to stderr (env: RALPH_VERBOSE=1)
   --help                   Show this help and exit.
 
@@ -73,7 +73,7 @@ Exit reasons:
   provider_failed Provider CLI returned error or is_error=true.
   timeout         Round exceeded --round-timeout.
   max_rounds      --max-round limit reached.
-  stagnated       No task progress after consecutive rounds.
+  stagnated       No task progress after consecutive rounds (stall).
   locked          Another ralph run is already active in this workspace.
   blocked_by_human First unchecked task is HUMAN-*.
   interrupted     SIGTERM/SIGINT received.
@@ -204,11 +204,11 @@ ralph_run_cmd() {
       --help | -h)         ralph_run_help; exit 0 ;;
       --verbose | -v)      export RALPH_VERBOSE=1; shift ;;
       --provider)          export RALPH_PROVIDER="$2"; shift 2 ;;
-      --model)             export RALPH_MODEL="$2";    shift 2 ;;
-      --effort)            export RALPH_EFFORT="$2";   shift 2 ;;
-      --max-round)         export RALPH_MAX_ROUND="$2"; shift 2 ;;
-      --round-timeout)     export RALPH_TIMEOUT="$2";          shift 2 ;;
-      --stagnation-limit)  export RALPH_STAGNATION_LIMIT="$2"; shift 2 ;;
+      --model)             export RALPH_PROVIDER_MODEL="$2";  shift 2 ;;
+      --effort)            export RALPH_PROVIDER_EFFORT="$2"; shift 2 ;;
+      --max-round)         export RALPH_LOOP_MAX_ROUND="$2";       shift 2 ;;
+      --round-timeout)     export RALPH_LOOP_ROUND_TIMEOUT="$2";  shift 2 ;;
+      --stall-limit)       export RALPH_LOOP_STALL_LIMIT="$2";    shift 2 ;;
       --*)                 ralph_usage_error "unknown flag: $1" ;;
       *)                   ralph_usage_error "unexpected argument: $1" ;;
     esac

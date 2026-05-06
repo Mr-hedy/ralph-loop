@@ -51,7 +51,7 @@ provider_oneshot() {
   # 不传 --thinking-budget（不是 CLI flag；thinkingBudget 仅在 settings.json 的 modelConfigs 内）
   # 不传 --resume（ralph 默认 fresh oneshot）
   # effort 不传递（Gemini CLI 无 CLI 入口，见 integrations.md §Gemini Effort 映射）
-  local model="${RALPH_MODEL:-}"
+  local model="${RALPH_PROVIDER_MODEL:-}"
   local -a gemini_cmd
   gemini_cmd=(
     gemini -p "$(cat "$prompt_file")"

@@ -37,7 +37,7 @@ init_meta() {
   "changed_files_round": [],
   "tasks_before": null,
   "tasks_after": null,
-  "stagnation_count": 0
+  "stall_count": 0
 }
 EOF
 }

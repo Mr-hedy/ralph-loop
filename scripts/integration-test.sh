@@ -250,7 +250,7 @@ ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
 RALPH_FAKE_SCENARIO=partial_progress bash "$ws/.ralph/bin/ralph" run \
-  --provider fake --stagnation-limit 2 2>/dev/null || rc=$?
+  --provider fake --stall-limit 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 if [[ "$reason" == "stagnated" && "$rc" -eq 5 ]]; then
@@ -259,20 +259,20 @@ else
   _fail "partial_progress stagnation: expected stagnated/rc=5, got $reason/$rc"
 fi
 if command -v jq >/dev/null 2>&1; then
-  sc1="$(jq '.stagnation_count // 0' "$run_dir/rounds/round-001/meta.json" 2>/dev/null)" || sc1=0
-  sc2="$(jq '.stagnation_count // 0' "$run_dir/rounds/round-002/meta.json" 2>/dev/null)" || sc2=0
-  sc3="$(jq '.stagnation_count // 0' "$run_dir/rounds/round-003/meta.json" 2>/dev/null)" || sc3=0
+  sc1="$(jq '.stall_count // 0' "$run_dir/rounds/round-001/meta.json" 2>/dev/null)" || sc1=0
+  sc2="$(jq '.stall_count // 0' "$run_dir/rounds/round-002/meta.json" 2>/dev/null)" || sc2=0
+  sc3="$(jq '.stall_count // 0' "$run_dir/rounds/round-003/meta.json" 2>/dev/null)" || sc3=0
   if [[ "$sc1" -eq 0 && "$sc2" -eq 1 && "$sc3" -eq 2 ]]; then
-    _pass "partial_progress stagnation_count: round1=0 round2=1 round3=2"
+    _pass "partial_progress stall_count: round1=0 round2=1 round3=2"
   else
-    _fail "partial_progress stagnation_count: expected 0/1/2, got $sc1/$sc2/$sc3"
+    _fail "partial_progress stall_count: expected 0/1/2, got $sc1/$sc2/$sc3"
   fi
 fi
 cleanup_ws "$ws"
 
 # ────────────────────────────────
 echo ""
-echo "-- Stagnation: full happy run has stagnation_count=0"
+echo "-- Stagnation: full happy run has stall_count=0"
 ws=$(setup_workspace)
 printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
@@ -281,17 +281,17 @@ RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev
 run_dir="$(latest_run_dir "$ws")"
 if [[ "$(get_exit_reason "$run_dir")" == "done" ]]; then
   if command -v jq >/dev/null 2>&1; then
-    sc1="$(jq '.stagnation_count // 0' "$run_dir/rounds/round-001/meta.json" 2>/dev/null)" || sc1=0
+    sc1="$(jq '.stall_count // 0' "$run_dir/rounds/round-001/meta.json" 2>/dev/null)" || sc1=0
     if [[ "$sc1" -eq 0 ]]; then
-      _pass "happy stagnation_count: exit_reason=done, stagnation_count=0"
+      _pass "happy stall_count: exit_reason=done, stall_count=0"
     else
-      _fail "happy stagnation_count: expected sc=0, got $sc1"
+      _fail "happy stall_count: expected sc=0, got $sc1"
     fi
   else
-    _pass "happy stagnation_count: exit_reason=done (no jq, skipping sc check)"
+    _pass "happy stall_count: exit_reason=done (no jq, skipping sc check)"
   fi
 else
-  _fail "happy stagnation_count: expected exit_reason=done"
+  _fail "happy stall_count: expected exit_reason=done"
 fi
 cleanup_ws "$ws"
 
@@ -874,12 +874,12 @@ get_received_effort() {
 }
 
 echo ""
-echo "-- SC-014-1: RALPH_EFFORT=low → --effort low"
+echo "-- SC-014-1: RALPH_PROVIDER_EFFORT=low → --effort low"
 setup_claude_workspace
 printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
 git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=low \
+RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_PROVIDER_EFFORT=low \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
@@ -892,12 +892,12 @@ fi
 cleanup_claude_ws
 
 echo ""
-echo "-- SC-014-1: RALPH_EFFORT=medium → --effort medium"
+echo "-- SC-014-1: RALPH_PROVIDER_EFFORT=medium → --effort medium"
 setup_claude_workspace
 printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
 git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=medium \
+RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_PROVIDER_EFFORT=medium \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
@@ -910,12 +910,12 @@ fi
 cleanup_claude_ws
 
 echo ""
-echo "-- SC-014-1: RALPH_EFFORT=high → --effort high"
+echo "-- SC-014-1: RALPH_PROVIDER_EFFORT=high → --effort high"
 setup_claude_workspace
 printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
 git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=high \
+RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_PROVIDER_EFFORT=high \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
@@ -928,12 +928,12 @@ fi
 cleanup_claude_ws
 
 echo ""
-echo "-- SC-014-1: RALPH_EFFORT=none → --effort not passed"
+echo "-- SC-014-1: RALPH_PROVIDER_EFFORT=none → --effort not passed"
 setup_claude_workspace
 printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
 git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=none \
+RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_PROVIDER_EFFORT=none \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
@@ -1719,12 +1719,12 @@ echo "-- Codex diagnose: crash (no stdout)"
 _run_codex_diagnose_case crash unknown "codex diagnose crash"
 
 echo ""
-echo "-- SC-014-1: RALPH_EFFORT=low → codex receives -c model_reasoning_effort=low"
+echo "-- SC-014-1: RALPH_PROVIDER_EFFORT=low → codex receives -c model_reasoning_effort=low"
 setup_codex_workspace
 printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
 git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_MOCK_CODEX_SCENARIO=happy RALPH_EFFORT=low \
+RALPH_MOCK_CODEX_SCENARIO=happy RALPH_PROVIDER_EFFORT=low \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
   bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
@@ -1740,12 +1740,12 @@ fi
 cleanup_codex_ws
 
 echo ""
-echo "-- SC-014-1: RALPH_EFFORT=none → codex effort flag not passed"
+echo "-- SC-014-1: RALPH_PROVIDER_EFFORT=none → codex effort flag not passed"
 setup_codex_workspace
 printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
 git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_MOCK_CODEX_SCENARIO=happy RALPH_EFFORT=none \
+RALPH_MOCK_CODEX_SCENARIO=happy RALPH_PROVIDER_EFFORT=none \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
   bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
@@ -1761,12 +1761,12 @@ fi
 cleanup_codex_ws
 
 echo ""
-echo "-- SC-014-1: RALPH_MODEL empty → codex model flag not passed"
+echo "-- SC-014-1: RALPH_PROVIDER_MODEL empty → codex model flag not passed"
 setup_codex_workspace
 printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
 git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_MOCK_CODEX_SCENARIO=happy RALPH_MODEL="" \
+RALPH_MOCK_CODEX_SCENARIO=happy RALPH_PROVIDER_MODEL="" \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
   bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
@@ -2051,12 +2051,12 @@ cleanup_codex_ws
 	_run_gemini_diagnose_case crash unknown "gemini diagnose crash"
 
 	echo ""
-	echo "-- SC-014-1: RALPH_MODEL empty → gemini model flag not passed"
+	echo "-- SC-014-1: RALPH_PROVIDER_MODEL empty → gemini model flag not passed"
 	setup_gemini_workspace
 	printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
 	git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "single task" 2>/dev/null || true
 	rc=0
-	RALPH_MOCK_GEMINI_SCENARIO=happy RALPH_MODEL="" \
+	RALPH_MOCK_GEMINI_SCENARIO=happy RALPH_PROVIDER_MODEL="" \
 	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
 	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
@@ -2072,12 +2072,12 @@ cleanup_codex_ws
 	cleanup_gemini_ws
 
 	echo ""
-	echo "-- SC-014-1: RALPH_MODEL set → gemini receives --model"
+	echo "-- SC-014-1: RALPH_PROVIDER_MODEL set → gemini receives --model"
 	setup_gemini_workspace
 	printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
 	git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "single task" 2>/dev/null || true
 	rc=0
-	RALPH_MOCK_GEMINI_SCENARIO=happy RALPH_MODEL="gemini-2.5-pro" \
+	RALPH_MOCK_GEMINI_SCENARIO=happy RALPH_PROVIDER_MODEL="gemini-2.5-pro" \
 	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
 	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"

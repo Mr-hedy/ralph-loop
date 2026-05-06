@@ -69,11 +69,14 @@
   - 验证：bash -n 全部通过；check.sh 通过；integration-test.sh 97 PASS / 3 FAIL（3 个失败为外层 ralph 环境变量泄漏，非改名导致）；grep 检查代码和测试中无旧名残留（README/PROMPT/TASKS.md 中的旧名属 DEV-8/DEV-2 范围）。
   - 未验证：README.md / PROMPT.md / docs/ 中仍含旧 iter/iteration/RALPH_MAX_ITER 描述（DEV-8 / DEV-9 范围）。
 
-- [ ] DEV-2: env 分组重命名（provider_ / loop_ / ui_）
+- [x] DEV-2: env 分组重命名（provider_ / loop_ / ui_）
   - 预期：所有用户可见 env 按 `RALPH_PROVIDER_*` / `RALPH_LOOP_*` / `RALPH_UI_*` 三组重命名；`RALPH_MODEL` → `RALPH_PROVIDER_MODEL`，`RALPH_EFFORT` → `RALPH_PROVIDER_EFFORT`，`RALPH_TIMEOUT` → `RALPH_LOOP_ROUND_TIMEOUT`，`RALPH_STAGNATION_LIMIT` → `RALPH_LOOP_STALL_LIMIT`（同时改名 stagnation→stall），新增 `RALPH_LOOP_MAX_ROUND`（替代删除的 `RALPH_MAX_ITER`，语义改 per-task），新增 `RALPH_UI_STICKY_EVENT_LINES` / `RALPH_UI_HEALTH_GREEN_SEC` / `RALPH_UI_HEALTH_RED_SEC`；`RALPH_VERBOSE` 保留作内部传值（lib 仍读这个 env）但文档不宣传；CLI flag 同步 `--max-round` / `--round-timeout` / `--stall-limit` / `--provider` / `--model` / `--effort`。
   - 输入：I5-design §9；DEV-1 完成后；当前 `.ralph/bin/ralph` flag 解析、`.ralph/lib/run.sh` / `.ralph/lib/common.sh` env 读取。
   - 范围：`.ralph/bin/ralph` / `.ralph/lib/*.sh` / `scripts/integration-test.sh` / `tests/fixtures/`；不改 docs（独立任务）；不留 alias。
   - 验证计划：`grep -rnE "RALPH_MODEL[^_]|RALPH_EFFORT[^_]|RALPH_TIMEOUT[^_]|RALPH_STAGNATION_LIMIT|RALPH_MAX_ITER" .ralph/ scripts/ tests/` 无残留；`ralph run --help` 输出新 flag 名；`bash scripts/check.sh`；`bash scripts/integration-test.sh` 通过。
+  - 完成：env 分组全量重命名。`RALPH_MODEL` → `RALPH_PROVIDER_MODEL`，`RALPH_EFFORT` → `RALPH_PROVIDER_EFFORT`，`RALPH_MAX_ROUND` → `RALPH_LOOP_MAX_ROUND`，`RALPH_TIMEOUT` → `RALPH_LOOP_ROUND_TIMEOUT`，`RALPH_STAGNATION_LIMIT` → `RALPH_LOOP_STALL_LIMIT`。CLI `--stagnation-limit` → `--stall-limit`。内部 `stagnation_count` → `stall_count`（变量 + meta.json 字段），`stagnation_limit` → `stall_limit`（context.json 字段）。涉及 bin/ralph + lib/*.sh（run/session/adapter-claude/codex/gemini）+ integration-test.sh。`RALPH_VERBOSE` 保留内部传值。新增 UI env（`RALPH_UI_*`）声明在 help 但实现留 DEV-3 sticky renderer。
+  - 验证：`bash -n` 全部通过；check.sh 通过；integration-test.sh 97 PASS / 3 FAIL（同 DEV-1 的 3 个外层 ralph 环境变量泄漏，非改名导致）；`ralph run --help` 输出所有新 flag/env 名正确；grep 无残留旧名（README/TASKS.md 中旧名属 DEV-8/DEV-9 范围）。
+  - 未验证：README.md / docs/ 中仍含旧 env 名（DEV-8 / DEV-9 范围）；`RALPH_UI_*` 新 env 的 sticky 渲染集成（DEV-3 范围）。
   - 依赖：DEV-1
 
 - [ ] DEV-3: 新增 .ralph/lib/sticky.sh — 三段式 sticky renderer

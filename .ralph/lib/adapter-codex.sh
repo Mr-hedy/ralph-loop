@@ -50,8 +50,8 @@ provider_oneshot() {
   # --sandbox workspace-write: sandbox mode（替代已废弃的 --full_auto）
   # -c model_reasoning_effort=<value>: effort（none/空 → 不拼 flag）
   # --model <value>: model selection（空 → 不拼 flag）
-  local effort="${RALPH_EFFORT:-}"
-  local model="${RALPH_MODEL:-}"
+  local effort="${RALPH_PROVIDER_EFFORT:-}"
+  local model="${RALPH_PROVIDER_MODEL:-}"
   local -a codex_cmd
   codex_cmd=(
     codex exec --json

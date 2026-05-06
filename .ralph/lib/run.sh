@@ -375,11 +375,11 @@ _ralph_startup_checks() {
 # ── 主函数 ───────────────────────────────────────────────────────────────────
 ralph_run() {
   local provider="${RALPH_PROVIDER:-}"
-  local model="${RALPH_MODEL:-}"
-  local effort="${RALPH_EFFORT:-}"
-  local max_round="${RALPH_MAX_ROUND:-0}"
-  local timeout_sec="${RALPH_TIMEOUT:-0}"
-  local stagnation_limit="${RALPH_STAGNATION_LIMIT:-5}"
+  local model="${RALPH_PROVIDER_MODEL:-}"
+  local effort="${RALPH_PROVIDER_EFFORT:-}"
+  local max_round="${RALPH_LOOP_MAX_ROUND:-0}"
+  local timeout_sec="${RALPH_LOOP_ROUND_TIMEOUT:-0}"
+  local stall_limit="${RALPH_LOOP_STALL_LIMIT:-5}"
 
   # workspace 定位
   local workspace
@@ -392,10 +392,10 @@ ralph_run() {
 
   # 重新读取（.env 可能补充了值）
   provider="${RALPH_PROVIDER:-$provider}"
-  model="${RALPH_MODEL:-$model}"
-  effort="${RALPH_EFFORT:-$effort}"
-  max_round="${RALPH_MAX_ROUND:-$max_round}"
-  timeout_sec="${RALPH_TIMEOUT:-$timeout_sec}"
+  model="${RALPH_PROVIDER_MODEL:-$model}"
+  effort="${RALPH_PROVIDER_EFFORT:-$effort}"
+  max_round="${RALPH_LOOP_MAX_ROUND:-$max_round}"
+  timeout_sec="${RALPH_LOOP_ROUND_TIMEOUT:-$timeout_sec}"
 
   # 载入 adapter（设置 RALPH_PROVIDER_CLI）
   local adapter_file="$workspace/.ralph/lib/adapter-${provider:-fake}.sh"
@@ -454,7 +454,7 @@ ralph_run() {
   "effort": $(ralph_json_str "$effort"),
   "max_round": ${max_round},
   "timeout": ${timeout_sec},
-  "stagnation_limit": ${stagnation_limit},
+  "stall_limit": ${stall_limit},
   "start_sha": $(ralph_json_str "$start_sha"),
   "started_at": "$(ralph_json_escape "$started_at")",
   "env_source": ".ralph/.env + process env + CLI flags"
@@ -503,7 +503,7 @@ EOF
       "$tasks_checked_start" "$tasks_checked_start" "$started_at" "null"
   fi
 
-  local stagnation_count=0
+  local stall_count=0
   local round=0
   local last_error_json="null"
 
@@ -692,7 +692,7 @@ EOF
     provider_collect_session "$round_dir" || true
     provider_diagnose "$round_dir" || true
 
-    # changed_files + stagnation 判定（方案 B：本轮 vs 上轮 fingerprint 对比）
+    # changed_files + stall 判定（方案 B：本轮 vs 上轮 fingerprint 对比）
     local checked_after
     checked_after="$(count_checked "$tasks_md")"
     _RALPH_TASKS_CHECKED_END="$checked_after"
@@ -705,9 +705,9 @@ EOF
     fingerprint_after="$(ralph_worktree_fingerprint)"
 
     if [[ "$checked_after" -eq "$checked_before" && "$fingerprint_after" == "$fingerprint_before" ]]; then
-      stagnation_count=$(( stagnation_count + 1 ))
+      stall_count=$(( stall_count + 1 ))
     else
-      stagnation_count=0
+      stall_count=0
     fi
 
     # changed_files_total（cumulative since start_sha，诊断用）
@@ -726,7 +726,7 @@ EOF
     sed -i.bak \
       -e "s|\"tasks_before\": null|\"tasks_before\": ${tasks_before_json}|" \
       -e "s|\"tasks_after\": null|\"tasks_after\": ${tasks_after_json}|" \
-      -e "s|\"stagnation_count\": 0|\"stagnation_count\": ${stagnation_count}|" \
+      -e "s|\"stall_count\": 0|\"stall_count\": ${stall_count}|" \
       "$round_dir/meta.json" 2>/dev/null || true
     rm -f "$round_dir/meta.json.bak"
 
@@ -765,8 +765,8 @@ EOF
       "$(ralph_format_duration "$_round_dur_sec")" \
       "$(ralph_format_duration "$_run_dur_sec")" >&2
 
-    # stagnation 退出
-    if [[ "$stagnation_count" -ge "$stagnation_limit" ]]; then
+    # stall 退出
+    if [[ "$stall_count" -ge "$stall_limit" ]]; then
       _ralph_finish "stagnated" 5 "$round" "$tasks_total" \
         "$tasks_checked_start" "$checked_after" "$started_at" "null"
     fi
