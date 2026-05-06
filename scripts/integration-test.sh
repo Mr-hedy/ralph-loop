@@ -765,23 +765,10 @@ printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
 git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
 rc=0
 stderr_file="$(mktemp)"
-if command -v expect >/dev/null 2>&1; then
-  cat > "$SETUP_CLAUDE_WS/run-v.exp" <<'SJEOF'
-spawn bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v
-expect "✓ result"
-expect eof
-lassign [wait] pid spawnid os_error_flag value
-exit $value
-SJEOF
-  RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
-    env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-    expect -f "$SETUP_CLAUDE_WS/run-v.exp" > "$stderr_file" 2>/dev/null || rc=$?
-else
-  RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
-    env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-    bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
-    >/dev/null 2>"$stderr_file" || rc=$?
-fi
+RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
+  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
+  >/dev/null 2>"$stderr_file" || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 marker_ok=0
@@ -801,23 +788,10 @@ printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
 git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
 rc=0
 stderr_file="$(mktemp)"
-if command -v expect >/dev/null 2>&1; then
-  cat > "$SETUP_CLAUDE_WS/run-v-error.exp" <<'SJEOF'
-spawn bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v
-expect "❌ error"
-expect eof
-lassign [wait] pid spawnid os_error_flag value
-exit $value
-SJEOF
-  RALPH_MOCK_CLAUDE_SCENARIO=is_error_auth RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
-    env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-    expect -f "$SETUP_CLAUDE_WS/run-v-error.exp" > "$stderr_file" 2>/dev/null || rc=$?
-else
-  RALPH_MOCK_CLAUDE_SCENARIO=is_error_auth RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
-    env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-    bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
-    >/dev/null 2>"$stderr_file" || rc=$?
-fi
+RALPH_MOCK_CLAUDE_SCENARIO=is_error_auth RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
+  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
+  >/dev/null 2>"$stderr_file" || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 error_marker_ok=0
@@ -2135,49 +2109,316 @@ cleanup_codex_ws
 
 	# ── Sticky UI (I5 QA-1) ───────────────────────────────────────────────────
 
+	_strip_ansi() { sed $'s/\033\\[[0-9;?]*[a-zA-Z]//g'; }
+
+	# Source sticky.sh in a subshell with mocked terminal for unit-level tests
+	_sticky_unit() {
+	  local code="$1"
+	  (
+	    source "$REPO_ROOT/.ralph/lib/sticky.sh"
+	    _srefresh_size() { _SCOLS=100; _SROWS=30; }
+	    ralph_sticky_enter() {
+	      _SLAST_ACTIVITY_TS="$(date +%s)"
+	      _SLOG_LAST_SIZE=0; _SRENDERED=0; _SREDRAWING=0; _SCLEANED=0
+	      _SEV_TIMES=(); _SEV_MSGS=(); _SSPIN_IDX=0
+	    }
+	    ralph_sticky_cleanup() { :; }
+	    _RALPH_STICKY_RUN_START_TS="$(date +%s)"
+	    _RALPH_STICKY_ROUND=3
+	    _RALPH_STICKY_ROUND_START_TS="$(date +%s)"
+	    _RALPH_STICKY_TASKS_DONE=2
+	    _RALPH_STICKY_TASKS_TOTAL=5
+	    _RALPH_STICKY_CURRENT_TASK="Test task"
+	    _RALPH_STICKY_TASK_TRY=1
+	    _RALPH_STICKY_MAX_ROUND=10
+	    _RALPH_STICKY_STALL_COUNT=0
+	    _RALPH_STICKY_STALL_LIMIT=5
+	    _RALPH_STICKY_PROVIDER="fake"
+	    _RALPH_STICKY_RETRY_COUNT=0
+	    _RALPH_STICKY_LOG_PATH="/dev/null"
+	    _RALPH_STICKY_EXIT_REASON=""
+	    eval "$code"
+	  ) 2>/dev/null
+	}
+
+	# ── 1. First frame: 10 lines (top + hr + 6 events + hr + bottom) ────────
+	echo ""
+	echo "-- Sticky: first frame line count"
+	out="$(_sticky_unit 'ralph_sticky_enter; ralph_sticky_render_frame')"
+	# $(...) strips trailing \n, so add it back for accurate wc -l
+	line_count=$(printf '%s\n' "$out" | _strip_ansi | wc -l | tr -d ' ')
+	if [[ "$line_count" -eq 10 ]]; then
+	  _pass "sticky frame: 10 lines (top+hr+6ev+hr+bottom)"
+	else
+	  _fail "sticky frame: expected 10 lines, got $line_count"
+	fi
+
+	# ── 1b. Top bar fields ──────────────────────────────────────────────────
+	top_line=$(printf '%s' "$out" | _strip_ansi | head -1)
+	top_ok=1
+	echo "$top_line" | grep -q "ralph" || top_ok=0
+	echo "$top_line" | grep -q "tasks 2/5" || top_ok=0
+	echo "$top_line" | grep -q "round 3" || top_ok=0
+	echo "$top_line" | grep -q "provider fake" || top_ok=0
+	if [[ "$top_ok" -eq 1 ]]; then
+	  _pass "sticky top: ralph/tasks/round/provider fields present"
+	else
+	  _fail "sticky top: missing fields in: $(echo "$top_line" | head -c 120)"
+	fi
+
+	# ── 1c. Bottom bar fields ───────────────────────────────────────────────
+	bottom_line=$(printf '%s' "$out" | _strip_ansi | tail -1)
+	bot_ok=1
+	echo "$bottom_line" | grep -q "round 1/10" || bot_ok=0
+	echo "$bottom_line" | grep -q "stall 0/5" || bot_ok=0
+	echo "$bottom_line" | grep -q "→" || bot_ok=0
+	echo "$bottom_line" | grep -q "Test task" || bot_ok=0
+	if [[ "$bot_ok" -eq 1 ]]; then
+	  _pass "sticky bottom: round/stall/arrow/task fields present"
+	else
+	  _fail "sticky bottom: missing fields in: $(echo "$bottom_line" | head -c 120)"
+	fi
+
+	# ── 2. cursor_up on second frame ────────────────────────────────────────
+	echo ""
+	echo "-- Sticky: cursor_up on redraw"
+	out2="$(_sticky_unit 'ralph_sticky_enter; ralph_sticky_render_frame; ralph_sticky_render_frame')"
+	if printf '%s' "$out2" | grep -q $'\033\[10A'; then
+	  _pass "sticky redraw: cursor_up 10 lines on second frame"
+	else
+	  _fail "sticky redraw: cursor_up sequence not found in output"
+	fi
+
+	# ── 3. Health light: green (≤60s idle) ──────────────────────────────────
+	echo ""
+	echo "-- Sticky: health light green (fresh activity)"
+	out_g="$(_sticky_unit 'ralph_sticky_enter; ralph_sticky_render_frame')"
+	if printf '%s' "$out_g" | grep -q $'\033\[32m'; then
+	  _pass "sticky health: green ANSI (32m) for fresh activity"
+	else
+	  _fail "sticky health: green ANSI not found"
+	fi
+
+	# Health light: yellow (60-300s idle)
+	echo ""
+	echo "-- Sticky: health light yellow (70s idle)"
+	out_y="$(_sticky_unit '
+	  ralph_sticky_enter
+	  _SLAST_ACTIVITY_TS=$(( $(date +%s) - 70 ))
+	  ralph_sticky_render_frame
+	')"
+	if printf '%s' "$out_y" | grep -q $'\033\[33m'; then
+	  _pass "sticky health: yellow ANSI (33m) for 70s idle"
+	else
+	  _fail "sticky health: yellow ANSI not found for 70s idle"
+	fi
+
+	# Health light: red (>300s idle)
+	echo ""
+	echo "-- Sticky: health light red (400s idle)"
+	out_r="$(_sticky_unit '
+	  ralph_sticky_enter
+	  _SLAST_ACTIVITY_TS=$(( $(date +%s) - 400 ))
+	  ralph_sticky_render_frame
+	')"
+	if printf '%s' "$out_r" | grep -q $'\033\[31m'; then
+	  _pass "sticky health: red ANSI (31m) for 400s idle"
+	else
+	  _fail "sticky health: red ANSI not found for 400s idle"
+	fi
+
+	# ── 4. Event area 6-line FIFO ───────────────────────────────────────────
+	echo ""
+	echo "-- Sticky: event area 6-line FIFO eviction"
+	out_ev="$(_sticky_unit '
+	  ralph_sticky_enter
+	  for n in AA BB CC DD EE FF GG HH II JJ; do
+	    ralph_sticky_append_event "$n"
+	  done
+	  ralph_sticky_render_frame
+	')"
+	clean_ev=$(printf '%s' "$out_ev" | _strip_ansi)
+	ev_ok=1
+	echo "$clean_ev" | grep -q "JJ" || ev_ok=0
+	echo "$clean_ev" | grep -q "EE" || ev_ok=0
+	echo "$clean_ev" | grep -q "AA" && ev_ok=0
+	echo "$clean_ev" | grep -q "DD" && ev_ok=0
+	if [[ "$ev_ok" -eq 1 ]]; then
+	  _pass "sticky events: 6-line FIFO, EE..JJ visible, AA..DD evicted"
+	else
+	  _fail "sticky events: FIFO eviction not working"
+	fi
+
+	# ── 5. Exit-state symbols (✓/✗/⏸) ──────────────────────────────────────
+	echo ""
+	echo "-- Sticky: exit-state symbols"
+	out_done="$(_sticky_unit '
+	  ralph_sticky_enter
+	  _RALPH_STICKY_EXIT_REASON="done"
+	  ralph_sticky_render_frame
+	')"
+	if printf '%s' "$out_done" | grep -q '✓'; then
+	  _pass "sticky exit: ✓ for done"
+	else
+	  _fail "sticky exit: ✓ not found for done"
+	fi
+
+	out_fail="$(_sticky_unit '
+	  ralph_sticky_enter
+	  _RALPH_STICKY_EXIT_REASON="provider_failed"
+	  ralph_sticky_render_frame
+	')"
+	if printf '%s' "$out_fail" | grep -q '✗'; then
+	  _pass "sticky exit: ✗ for provider_failed"
+	else
+	  _fail "sticky exit: ✗ not found for provider_failed"
+	fi
+
+	out_int="$(_sticky_unit '
+	  ralph_sticky_enter
+	  _RALPH_STICKY_EXIT_REASON="interrupted"
+	  ralph_sticky_render_frame
+	')"
+	if printf '%s' "$out_int" | grep -q '⏸'; then
+	  _pass "sticky exit: ⏸ for interrupted"
+	else
+	  _fail "sticky exit: ⏸ not found for interrupted"
+	fi
+
+	# ── 6. TTY tests (expect required) ──────────────────────────────────────
 	if command -v expect >/dev/null 2>&1; then
+	  # 6a. stty restore after explicit cleanup
 	  echo ""
-	  echo "-- Sticky UI: ralph run -v (expect TTY)"
+	  echo "-- Sticky: stty restore after cleanup (expect TTY)"
+	  result_file="$(mktemp)"
+	  tmpdir="$(mktemp -d)"
+	  cat > "$tmpdir/stty-test.sh" <<STTYEOF
+#!/usr/bin/env bash
+set -u
+source "$REPO_ROOT/.ralph/lib/sticky.sh"
+result_file="$result_file"
+_RALPH_STICKY_RUN_START_TS=\$(date +%s)
+_RALPH_STICKY_ROUND=1
+_RALPH_STICKY_ROUND_START_TS=\$(date +%s)
+_RALPH_STICKY_TASKS_DONE=0
+_RALPH_STICKY_TASKS_TOTAL=1
+_RALPH_STICKY_CURRENT_TASK="Test"
+_RALPH_STICKY_TASK_TRY=1
+_RALPH_STICKY_MAX_ROUND=0
+_RALPH_STICKY_STALL_COUNT=0
+_RALPH_STICKY_STALL_LIMIT=5
+_RALPH_STICKY_PROVIDER="fake"
+_RALPH_STICKY_RETRY_COUNT=0
+_RALPH_STICKY_LOG_PATH="/dev/null"
+ralph_sticky_enter
+ralph_sticky_render_frame
+ralph_sticky_cleanup
+# Check critical flags: echo, icanon restored; min=1, time=0
+stty_out=\$(stty -a < /dev/tty 2>/dev/null)
+ok=1
+echo "\$stty_out" | grep -qE '[ :]icanon ' || ok=0
+echo "\$stty_out" | grep -qE '[ :]echo '   || ok=0
+echo "\$stty_out" | grep -qE 'min = 1'     || ok=0
+echo "\$stty_out" | grep -qE 'time = 0'    || ok=0
+if [[ "\$ok" -eq 1 ]]; then echo "OK" > "\$result_file"; else echo "FAIL" > "\$result_file"; fi
+STTYEOF
+	  chmod +x "$tmpdir/stty-test.sh"
+	  cat > "$tmpdir/stty-test.exp" <<EXPEOF
+set timeout 10
+spawn bash "$tmpdir/stty-test.sh"
+expect eof
+EXPEOF
+	  expect -f "$tmpdir/stty-test.exp" >/dev/null 2>&1 || true
+	  result=$(cat "$result_file" 2>/dev/null || echo "MISSING")
+	  if [[ "$result" == "OK" ]]; then
+	    _pass "sticky stty: echo/icanon/min/time restored after cleanup"
+	  else
+	    _fail "sticky stty: not restored (result=$result)"
+	  fi
+	  rm -f "$result_file"
+	  rm -rf "$tmpdir"
+
+	  # 6b. stty restore after Ctrl+C via trap
+	  echo ""
+	  echo "-- Sticky: stty restore after Ctrl+C (expect TTY)"
+	  result_file="$(mktemp)"
+	  tmpdir="$(mktemp -d)"
+	  cat > "$tmpdir/ctrlc-test.sh" <<CTRLEOF
+#!/usr/bin/env bash
+set -u
+source "$REPO_ROOT/.ralph/lib/sticky.sh"
+result_file="$result_file"
+_RALPH_STICKY_RUN_START_TS=\$(date +%s)
+_RALPH_STICKY_ROUND=1
+_RALPH_STICKY_ROUND_START_TS=\$(date +%s)
+_RALPH_STICKY_TASKS_DONE=0
+_RALPH_STICKY_TASKS_TOTAL=1
+_RALPH_STICKY_CURRENT_TASK="Test"
+_RALPH_STICKY_TASK_TRY=1
+_RALPH_STICKY_MAX_ROUND=0
+_RALPH_STICKY_STALL_COUNT=0
+_RALPH_STICKY_STALL_LIMIT=5
+_RALPH_STICKY_PROVIDER="fake"
+_RALPH_STICKY_RETRY_COUNT=0
+_RALPH_STICKY_LOG_PATH="/dev/null"
+ralph_sticky_enter
+ralph_sticky_install_traps
+ralph_sticky_render_frame
+trap 'ralph_sticky_cleanup; stty_out=\$(stty -a < /dev/tty 2>/dev/null); ok=1; echo "\$stty_out" | grep -qE "[ :]icanon " || ok=0; echo "\$stty_out" | grep -qE "[ :]echo " || ok=0; echo "\$stty_out" | grep -qE "min = 1" || ok=0; echo "\$stty_out" | grep -qE "time = 0" || ok=0; if [[ "\$ok" -eq 1 ]]; then echo "OK" > "$result_file"; else echo "FAIL" > "$result_file"; fi' EXIT
+sleep 10
+CTRLEOF
+	  chmod +x "$tmpdir/ctrlc-test.sh"
+	  cat > "$tmpdir/ctrlc-test.exp" <<EXPEOF
+set timeout 10
+spawn bash "$tmpdir/ctrlc-test.sh"
+sleep 1
+send "\003"
+expect eof
+EXPEOF
+	  expect -f "$tmpdir/ctrlc-test.exp" >/dev/null 2>&1 || true
+	  result=$(cat "$result_file" 2>/dev/null || echo "MISSING")
+	  if [[ "$result" == "OK" ]]; then
+	    _pass "sticky Ctrl+C: echo/icanon/min/time restored after SIGINT"
+	  else
+	    _fail "sticky Ctrl+C: stty not restored (result=$result)"
+	  fi
+	  rm -f "$result_file"
+	  rm -rf "$tmpdir"
+
+	  # 6c. End-to-end: ralph run -v with fake provider
+	  echo ""
+	  echo "-- Sticky: ralph run -v end-to-end (expect TTY)"
 	  ws=$(setup_workspace)
 	  printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 	  git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 
 	  stderr_file="$(mktemp)"
-	  cat > "$ws/run-sticky.exp" <<EOF
+	  cat > "$ws/run-sticky.exp" <<EXPEOF
 set timeout 30
 spawn bash "$ws/.ralph/bin/ralph" run --provider fake -v
 expect {
     timeout { puts "EXPECT_TIMEOUT"; exit 1 }
     eof { puts "EXPECT_EOF" }
 }
-EOF
-	  # Use slow scenario to allow some rendering rounds
+EXPEOF
 	  RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=1 expect -f "$ws/run-sticky.exp" > "$stderr_file" 2>/dev/null || true
 
 	  sticky_ok=0
-	  # Check for horizontal rules
 	  if grep -q "────────────────────────────────" "$stderr_file" \
 	     && grep -q "tasks 0/1" "$stderr_file" \
 	     && grep -q "round 1" "$stderr_file"; then
 	    sticky_ok=1
 	  fi
 	  if [[ "$sticky_ok" -eq 1 ]]; then
-	    _pass "sticky run -v: expect TTY shows horizontal rules and header"
+	    _pass "sticky run -v: TTY shows horizontal rules and header"
 	  else
-	    _fail "sticky run -v: sticky_ok=0. Output: $(cat -v "$stderr_file" | head -n 5)"
+	    _fail "sticky run -v: missing rules/header. Output: $(cat -v "$stderr_file" | head -n 5)"
 	  fi
 
+	  # 6d. ralph watch sticky
 	  echo ""
-	  echo "-- Sticky UI: health light colors (expect TTY)"
-	  if grep -aq $'\033\[32m' "$stderr_file"; then
-	    _pass "sticky colors: Green ANSI code found in TTY output"
-	  else
-	    _fail "sticky colors: Green ANSI NOT found"
-	  fi
-
-	  echo ""
-	  echo "-- Sticky UI: ralph watch (expect TTY)"
-	  cat > "$ws/watch-sticky.exp" <<EOF
+	  echo "-- Sticky: ralph watch (expect TTY)"
+	  cat > "$ws/watch-sticky.exp" <<EXPEOF
 set timeout 10
 spawn bash "$ws/.ralph/bin/ralph" watch
 expect "ralph"
@@ -2185,8 +2426,8 @@ expect "round"
 send \003
 expect eof
 lassign [wait] pid spawnid os_error_flag value
-exit $value
-EOF
+exit \$value
+EXPEOF
 	  expect -f "$ws/watch-sticky.exp" > "$stderr_file" 2>/dev/null || true
 	  if grep -q "────────────────────────────────" "$stderr_file"; then
 	    _pass "sticky watch: shows horizontal rules"

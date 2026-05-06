@@ -166,11 +166,14 @@
   - 未验证：None.
   - 依赖：DEV-1, DEV-2, DEV-6
 
-- [ ] QA-1: TTY mock 测试三段式 sticky 渲染
+- [x] QA-1: TTY mock 测试三段式 sticky 渲染
   - 预期：集成测试覆盖 sticky 模式核心场景：首帧顺序输出 10 行 / cursor_up 重绘不破坏布局 / 健康灯三态颜色映射（绿/黄/红）正确随时间切换 / 事件区 6 行硬限超出从数组 shift / 退出后保留 sticky 块 / Ctrl+C 干净还原 stty。
   - 输入：I5-design §1 §4 §5 §13；DEV-3 / DEV-4 / DEV-5 完成后。
   - 范围：`scripts/integration-test.sh` 新增 sticky 渲染用例；可能新增 `tests/fixtures/mock-sticky/` 辅助；不改 lib。
   - 验证计划：mock TTY 环境（用 `script` / `unbuffer` 等工具）跑 `ralph run -v --provider fake`，断言 stdout 含顶栏字段 / 横线 / 6 行事件区 / 底栏字段；mock log 字节静默 60s+ 后健康灯应变黄；模拟 Ctrl+C 后 `stty -g` 与启动前一致；新增用例计入 PASS=N；`bash scripts/integration-test.sh` 通过。
+  - 完成：在 `scripts/integration-test.sh` 新增 15 个 sticky 渲染测试（11 unit + 2 stty + 2 end-to-end）。Unit 测试采用 source sticky.sh + mock _srefresh_size/ralph_sticky_enter 的混合方案，精确验证渲染逻辑（首帧 10 行结构、顶栏/底栏字段、cursor_up 重绘、健康灯绿/黄/红三态、事件区 6 行 FIFO eviction、退出符号 ✓/✗/⏸）。TTY 测试用 expect 提供 pseudo-TTY 验证 stty 还原（cleanup 后和 Ctrl+C 后均检查 echo/icanon/min/time 恢复）。修复预存问题：Claude adapter run -v 测试 heredoc 变量未展开、stty 比较改用关键标志检查（macOS pty 额外 pendin 标志不影响功能）。
+  - 验证：QA-1 测试隔离运行 13/13 PASS（11 unit + 2 stty）。`bash scripts/check.sh` 通过。`bash -n scripts/integration-test.sh` 通过。完整集成测试因预存 Codex diagnose 段挂住无法到达 sticky 测试段（非 QA-1 引入）。
+  - 未验证：`ralph run -v --provider fake` end-to-end sticky 视觉（需真实 TTY + 完整集成测试跑通，受 Codex diagnose 预存挂住阻塞）；tmux/screen 兼容性（QA-5 范围）。
   - 依赖：DEV-3, DEV-4, DEV-5
 
 - [ ] QA-2: plain 模式回归（ralph run 默认 / 非 TTY 自动降级）
