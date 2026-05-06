@@ -32,7 +32,7 @@ Commands:
 
 Examples:
   ralph run --provider claude
-  ralph run --provider claude --max-iter 5 --timeout 120
+  ralph run --provider claude --max-round 5 --round-timeout 120
   ralph run --help
 
 Run `ralph help <command>` or `ralph <command> --help` for subcommand details.
@@ -45,7 +45,7 @@ Usage:
   ralph run [options]
 
 Start the agent run loop: reads .ralph/PROMPT.md and .ralph/TASKS.md,
-calls the provider CLI once per iteration (fresh oneshot), and loops
+calls the provider CLI once per round (fresh oneshot), and loops
 until a stop condition is reached.
 
 Options:
@@ -53,11 +53,11 @@ Options:
                            Required. Choices: claude, codex, gemini, fake.
   --model <name>           Model name passed to provider (env: RALPH_MODEL)
   --effort <level>         Effort level: low|medium|high|none (env: RALPH_EFFORT)
-  --max-iter <n>           Max iterations; 0 = unlimited (env: RALPH_MAX_ITER)
+  --max-round <n>          Max rounds; 0 = unlimited (env: RALPH_MAX_ROUND)
                            Default: 0
-  --timeout <sec>          Per-iteration timeout in seconds; 0 = unlimited
+  --round-timeout <sec>    Per-round timeout in seconds; 0 = unlimited
                            (env: RALPH_TIMEOUT). Default: 0
-  --stagnation-limit <n>   Consecutive no-progress iterations before stagnated
+  --stagnation-limit <n>   Consecutive no-progress rounds before stagnated
                            (env: RALPH_STAGNATION_LIMIT). Default: 5
   --verbose, -v            Live-tail provider events to stderr (env: RALPH_VERBOSE=1)
   --help                   Show this help and exit.
@@ -71,9 +71,9 @@ Option priority (highest to lowest): CLI flag > process env > .ralph/.env > defa
 Exit reasons:
   done            All tasks completed successfully.
   provider_failed Provider CLI returned error or is_error=true.
-  timeout         Iteration exceeded --timeout.
-  max_iterations  --max-iter limit reached.
-  stagnated       No task progress after consecutive iterations.
+  timeout         Round exceeded --round-timeout.
+  max_rounds      --max-round limit reached.
+  stagnated       No task progress after consecutive rounds.
   locked          Another ralph run is already active in this workspace.
   blocked_by_human First unchecked task is HUMAN-*.
   interrupted     SIGTERM/SIGINT received.
@@ -81,8 +81,8 @@ Exit reasons:
 Run directory layout (.ralph/runs/<run-id>/):
   result.json                Run summary (exit_reason, timestamps, last_error).
   context.json               Startup context snapshot.
-  iterations/iter-NNN/       Per-iteration artifacts:
-    meta.json                Iteration metadata (session_id, exit_code, timing).
+  rounds/round-NNN/          Per-round artifacts:
+    meta.json                Round metadata (session_id, exit_code, timing).
     provider.stdout.log     Provider stdout + stderr raw stream.
     session.<prov>.jsonl    Native session transcript (when captured).
     session.history.log     Human-readable cross-provider view.
@@ -90,8 +90,8 @@ Run directory layout (.ralph/runs/<run-id>/):
 Examples:
   ralph run --provider claude
   ralph run --provider codex
-  ralph run --provider claude --max-iter 3
-  ralph run --provider fake --timeout 60 --max-iter 10
+  ralph run --provider claude --max-round 3
+  ralph run --provider fake --round-timeout 60 --max-round 10
 EOF
 }
 
@@ -126,13 +126,13 @@ Watch the current or last run with a sticky status bar.
 The display refreshes every 2 seconds. Press Ctrl-C to exit.
 
 Options:
-  --verbose, -v    Show the current iteration log above the sticky bar.
+  --verbose, -v    Show the current round log above the sticky bar.
   --help           Show this help and exit.
 
 Output:
-  Default: sticky bar with run_id, iteration, task progress, state,
+  Default: sticky bar with run_id, round, task progress, state,
            exit_reason, provider.
-  -v:      tail of current iter provider.stdout.log above the sticky bar.
+  -v:      tail of current round provider.stdout.log above the sticky bar.
   Non-TTY: one-line sticky bar snapshot, then exit 0. Use `ralph status`
            when you need the detailed status fields.
 
@@ -206,8 +206,8 @@ ralph_run_cmd() {
       --provider)          export RALPH_PROVIDER="$2"; shift 2 ;;
       --model)             export RALPH_MODEL="$2";    shift 2 ;;
       --effort)            export RALPH_EFFORT="$2";   shift 2 ;;
-      --max-iter)          export RALPH_MAX_ITER="$2"; shift 2 ;;
-      --timeout)           export RALPH_TIMEOUT="$2";          shift 2 ;;
+      --max-round)         export RALPH_MAX_ROUND="$2"; shift 2 ;;
+      --round-timeout)     export RALPH_TIMEOUT="$2";          shift 2 ;;
       --stagnation-limit)  export RALPH_STAGNATION_LIMIT="$2"; shift 2 ;;
       --*)                 ralph_usage_error "unknown flag: $1" ;;
       *)                   ralph_usage_error "unexpected argument: $1" ;;

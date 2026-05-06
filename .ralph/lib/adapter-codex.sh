@@ -22,16 +22,16 @@ provider_check_deps() {
 }
 
 # ── provider_oneshot ─────────────────────────────────────────────────────────
-# <prompt_file> <log_path> <iter_dir>
-# log_path 即 iter_dir/provider.stdout.log，--json JSONL events 逐行写入
+# <prompt_file> <log_path> <round_dir>
+# log_path 即 round_dir/provider.stdout.log，--json JSONL events 逐行写入
 provider_oneshot() {
   local prompt_file="$1"
   local log_path="$2"
-  local iter_dir="$3"
+  local round_dir="$3"
 
   local provider_started_at
   provider_started_at="$(ralph_timestamp)"
-  update_meta_jq "$iter_dir" '.provider_started_at = $ts' --arg ts "$provider_started_at"
+  update_meta_jq "$round_dir" '.provider_started_at = $ts' --arg ts "$provider_started_at"
 
   touch "$log_path"
 
@@ -78,7 +78,7 @@ provider_oneshot() {
       | head -1)" || thread_id=""
   fi
   if [[ -n "$thread_id" ]]; then
-    update_meta_jq "$iter_dir" '.session_id = $sid' --arg sid "$thread_id"
+    update_meta_jq "$round_dir" '.session_id = $sid' --arg sid "$thread_id"
   fi
 
   # Codex turn.failed 事件检测（相当于 Claude 的 result.is_error）
@@ -100,23 +100,23 @@ provider_oneshot() {
 # 2. mtime + cwd 退化：若无 thread_id 或精确匹配失败，按 mtime + 首行 cwd 筛选
 # 3. 派生 session.history.log（从 provider.stdout.log --json 事件流）
 provider_collect_session() {
-  local iter_dir="$1"
-  local meta="$iter_dir/meta.json"
+  local round_dir="$1"
+  local meta="$round_dir/meta.json"
 
   # 读取 session_id（thread_id，由 provider_oneshot 写入 meta.json）
   local session_id
   session_id="$(jq -r '.session_id // empty' "$meta" 2>/dev/null)"
   if [[ -z "$session_id" || "$session_id" == "null" ]]; then
-    update_meta_jq "$iter_dir" \
+    update_meta_jq "$round_dir" \
       '.capture_status = "warning" | .capture_warning = "session_id missing in meta.json"'
-    _codex_derive_history "$iter_dir/session.codex.jsonl" "$iter_dir/session.history.log"
-    touch "$iter_dir/session.history.log"
+    _codex_derive_history "$round_dir/session.codex.jsonl" "$round_dir/session.history.log"
+    touch "$round_dir/session.history.log"
     return 0
   fi
 
   # Session root（SC-022-5：使用 CODEX_HOME 隔离路径，不读真实 HOME）
   local codex_session_root="${CODEX_HOME:-$HOME/.codex}/sessions"
-  local dst="$iter_dir/session.codex.jsonl"
+  local dst="$round_dir/session.codex.jsonl"
 
   # ── Strategy 1: 按 thread_id 精确匹配文件名 ────────────────────────────────
   local found_file=""
@@ -126,7 +126,7 @@ provider_collect_session() {
 
   if [[ -n "$found_file" && -f "$found_file" ]]; then
     cp "$found_file" "$dst"
-    update_meta_jq "$iter_dir" \
+    update_meta_jq "$round_dir" \
       '.capture_status = "ok" | .session_source_path = $src | .session_copied_path = $dst' \
       --arg src "$found_file" --arg dst "$dst"
   else
@@ -168,18 +168,18 @@ provider_collect_session() {
 
     if [[ -n "$fallback_file" && -f "$fallback_file" ]]; then
       cp "$fallback_file" "$dst"
-      update_meta_jq "$iter_dir" \
+      update_meta_jq "$round_dir" \
         '.capture_status = "ok" | .capture_warning = "fallback by mtime" | .session_source_path = $src | .session_copied_path = $dst' \
         --arg src "$fallback_file" --arg dst "$dst"
     else
-      update_meta_jq "$iter_dir" \
+      update_meta_jq "$round_dir" \
         '.capture_status = "warning" | .capture_warning = "Codex session file not found"'
     fi
   fi
 
   # 派生 session.history.log（从 provider.stdout.log 事件流，不依赖 session 文件）
-  _codex_derive_history "$dst" "$iter_dir/session.history.log"
-  touch "$iter_dir/session.history.log"
+  _codex_derive_history "$dst" "$round_dir/session.history.log"
+  touch "$round_dir/session.history.log"
   return 0
 }
 
@@ -189,8 +189,8 @@ provider_collect_session() {
 # 输出：[assistant] / [tool-use name=Bash] / [tool-result name=Bash] 摘要
 _codex_derive_history() {
   local jsonl="$1" out="$2"
-  local iter_dir="${jsonl%/*}"
-  local stdout_log="$iter_dir/provider.stdout.log"
+  local round_dir="${jsonl%/*}"
+  local stdout_log="$round_dir/provider.stdout.log"
   [[ -f "$stdout_log" ]] || return 0
 
   # 过滤 JSON 行（provider.stdout.log 含 stdout + stderr 合流）
@@ -241,9 +241,9 @@ _codex_classify_error() {
 # ── provider_diagnose ────────────────────────────────────────────────────────
 # Codex 错误分类（turn.failed 权威 / error 事件回退 / stderr 回退）
 provider_diagnose() {
-  local iter_dir="$1"
-  local meta="$iter_dir/meta.json"
-  local log_path="$iter_dir/provider.stdout.log"
+  local round_dir="$1"
+  local meta="$round_dir/meta.json"
+  local log_path="$round_dir/provider.stdout.log"
 
   [[ -f "$meta" ]] || return 0
 
@@ -257,7 +257,7 @@ provider_diagnose() {
 
   # log 文件不存在（CLI crash 无输出）→ unknown
   if [[ ! -f "$log_path" ]]; then
-    update_meta_jq "$iter_dir" \
+    update_meta_jq "$round_dir" \
       '.error = {"type": "unknown", "message": "no stdout log file", "raw": ""}'
     return 0
   fi
@@ -295,7 +295,7 @@ provider_diagnose() {
   local error_type
   error_type="$(_codex_classify_error "${error_msg:-}")"
 
-  update_meta_jq "$iter_dir" \
+  update_meta_jq "$round_dir" \
     '.error = {"type": $t, "message": $m, "raw": $r}' \
     --arg t "$error_type" \
     --arg m "${error_msg:0:200}" \

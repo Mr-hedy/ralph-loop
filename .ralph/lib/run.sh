@@ -91,8 +91,8 @@ _ralph_stop_active_provider() {
 
 _ralph_start_provider_heartbeat() {
   local log_path="$1"
-  local iteration="$2"
-  local max_iter_disp="$3"
+  local round="$2"
+  local max_round_disp="$3"
 
   local interval="${RALPH_PROGRESS_HEARTBEAT_SEC:-60}"
   if ! [[ "$interval" =~ ^[0-9]+$ ]] || [[ "$interval" -le 0 ]]; then
@@ -110,8 +110,8 @@ _ralph_start_provider_heartbeat() {
         lines="$(wc -l < "$log_path" 2>/dev/null)" || lines=0
       fi
       now_local="$(date +"%H:%M:%S")"
-      printf '[%s] iter %s/%s still running | elapsed %ss | provider log %s bytes/%s lines | tail -f %s\n' \
-        "$now_local" "$iteration" "$max_iter_disp" "$elapsed" "$bytes" "$lines" "$log_path" >&2
+      printf '[%s] round %s/%s still running | elapsed %ss | provider log %s bytes/%s lines | tail -f %s\n' \
+        "$now_local" "$round" "$max_round_disp" "$elapsed" "$bytes" "$lines" "$log_path" >&2
     done
   ) &
   _RALPH_HEARTBEAT_PID=$!
@@ -119,7 +119,7 @@ _ralph_start_provider_heartbeat() {
 
 _ralph_write_result() {
   local exit_reason="$1"
-  local iterations="$2"
+  local rounds="$2"
   local tasks_total="$3"
   local tasks_checked_start="$4"
   local tasks_checked_end="$5"
@@ -136,7 +136,7 @@ _ralph_write_result() {
   "run_id": "$(ralph_json_escape "${_RALPH_RUN_DIR##*/}")",
   "exit_reason": "$(ralph_json_escape "$exit_reason")",
   "iteration_name": $(ralph_json_str "$_RALPH_CURRENT_ITERATION"),
-  "iterations": ${iterations},
+  "rounds": ${rounds},
   "tasks_total": ${tasks_total},
   "tasks_checked_start": ${tasks_checked_start},
   "tasks_checked_end": ${tasks_checked_end},
@@ -151,7 +151,7 @@ EOF
 # 退出时人类可读总结打印（终端 + .ralph/runs/<run_id>/exit-message.txt）
 _ralph_print_summary() {
   local exit_reason="$1"
-  local iterations="$2"
+  local rounds="$2"
   local tasks_total="$3"
   local tasks_checked_end="$4"
 
@@ -179,7 +179,7 @@ _ralph_print_summary() {
   lines+=("Run ID:        $run_id")
   lines+=("Iteration:     $iter_label")
   lines+=("Exit Reason:   $exit_reason")
-  lines+=("Iterations:    $iterations")
+  lines+=("Rounds:        $rounds")
   lines+=("Tasks:         $tasks_checked_end / $tasks_total")
   [[ -n "$started_local" ]] && lines+=("Started:       $started_local")
   [[ -n "$total_dur" ]]     && lines+=("Duration:      $total_dur")
@@ -213,13 +213,13 @@ _ralph_print_summary() {
       lines+=("")
       lines+=("单轮 oneshot 超时。")
       lines+=("Next step:")
-      lines+=("  考虑拆分任务或排查 provider 性能；调整 --timeout。")
+      lines+=("  考虑拆分任务或排查 provider 性能；调整 --round-timeout。")
       ;;
-    max_iterations)
+    max_rounds)
       lines+=("")
-      lines+=("已达 --max-iter 上限。")
+      lines+=("已达 --max-round 上限。")
       lines+=("Next step:")
-      lines+=("  评估剩余任务复杂度，必要时拆分；或提高 --max-iter 重跑。")
+      lines+=("  评估剩余任务复杂度，必要时拆分；或提高 --max-round 重跑。")
       ;;
     provider_failed)
       lines+=("")
@@ -249,7 +249,7 @@ _ralph_print_summary() {
 _ralph_finish() {
   local exit_reason="$1"
   local exit_code="$2"
-  local iterations="${3:-0}"
+  local rounds="${3:-0}"
   local tasks_total="${4:-0}"
   local tasks_checked_start="${5:-0}"
   local tasks_checked_end="${6:-0}"
@@ -260,15 +260,15 @@ _ralph_finish() {
   _ralph_stop_provider_heartbeat
 
   if [[ "$_RALPH_LOCK_ACQUIRED" -eq 1 && -n "$_RALPH_RUN_DIR" ]]; then
-    _ralph_write_result "$exit_reason" "$iterations" "$tasks_total" \
+    _ralph_write_result "$exit_reason" "$rounds" "$tasks_total" \
       "$tasks_checked_start" "$tasks_checked_end" "$started_at" "$last_error"
     # TASKS.md 快照
     local tasks_md="$_RALPH_WORKSPACE/.ralph/TASKS.md"
     [[ -f "$tasks_md" ]] && cp "$tasks_md" "$_RALPH_RUN_DIR/TASKS.md"
     # status.json 更新为 finished
-    _ralph_update_status "finished" "$exit_reason" "$iterations" "$tasks_total" "$tasks_checked_end"
+    _ralph_update_status "finished" "$exit_reason" "$rounds" "$tasks_total" "$tasks_checked_end"
     # 终端格式化总结（接力提示）
-    _ralph_print_summary "$exit_reason" "$iterations" "$tasks_total" "$tasks_checked_end"
+    _ralph_print_summary "$exit_reason" "$rounds" "$tasks_total" "$tasks_checked_end"
     ralph_lock_release "$_RALPH_LOCK_FILE"
   fi
   exit "$exit_code"
@@ -283,7 +283,7 @@ _ralph_trap_interrupted() {
   else
     _ralph_stop_active_provider
     _ralph_finish "interrupted" 130 \
-      "${_RALPH_ITER:-0}" "${_RALPH_TASKS_TOTAL:-0}" \
+      "${_RALPH_ROUND:-0}" "${_RALPH_TASKS_TOTAL:-0}" \
       "${_RALPH_TASKS_CHECKED_START:-0}" "${_RALPH_TASKS_CHECKED_END:-0}" \
       "${_RALPH_STARTED_AT:-}" "null"
   fi
@@ -298,7 +298,7 @@ _ralph_write_status() {
   local model="$4"
   local effort="$5"
   local started_at="$6"
-  local iteration="$7"
+  local round="$7"
   local tasks_total="$8"
   local tasks_checked="$9"
   local exit_reason="${10:-}"
@@ -313,7 +313,7 @@ _ralph_write_status() {
   "effort": $(ralph_json_str "$effort"),
   "started_at": "$(ralph_json_escape "$started_at")",
   "updated_at": "$(ralph_json_escape "$(ralph_timestamp)")",
-  "iteration": ${iteration},
+  "round": ${round},
   "iteration_name": $(ralph_json_str "$_RALPH_CURRENT_ITERATION"),
   "state": "$(ralph_json_escape "$state")",
   "tasks_total": ${tasks_total},
@@ -327,12 +327,12 @@ EOF
 _ralph_update_status() {
   local state="$1"
   local exit_reason="${2:-}"
-  local iteration="${3:-0}"
+  local round="${3:-0}"
   local tasks_total="${4:-0}"
   local tasks_checked="${5:-0}"
   _ralph_write_status "$state" "$_RALPH_RUN_ID" "$_RALPH_PROVIDER" \
     "$_RALPH_MODEL" "$_RALPH_EFFORT" "$_RALPH_STARTED_AT" \
-    "$iteration" "$tasks_total" "$tasks_checked" "$exit_reason"
+    "$round" "$tasks_total" "$tasks_checked" "$exit_reason"
 }
 
 # ── 启动校验 ─────────────────────────────────────────────────────────────────
@@ -377,7 +377,7 @@ ralph_run() {
   local provider="${RALPH_PROVIDER:-}"
   local model="${RALPH_MODEL:-}"
   local effort="${RALPH_EFFORT:-}"
-  local max_iter="${RALPH_MAX_ITER:-0}"
+  local max_round="${RALPH_MAX_ROUND:-0}"
   local timeout_sec="${RALPH_TIMEOUT:-0}"
   local stagnation_limit="${RALPH_STAGNATION_LIMIT:-5}"
 
@@ -394,7 +394,7 @@ ralph_run() {
   provider="${RALPH_PROVIDER:-$provider}"
   model="${RALPH_MODEL:-$model}"
   effort="${RALPH_EFFORT:-$effort}"
-  max_iter="${RALPH_MAX_ITER:-$max_iter}"
+  max_round="${RALPH_MAX_ROUND:-$max_round}"
   timeout_sec="${RALPH_TIMEOUT:-$timeout_sec}"
 
   # 载入 adapter（设置 RALPH_PROVIDER_CLI）
@@ -439,7 +439,7 @@ ralph_run() {
 
   local run_dir="$workspace/.ralph/runs/$run_id"
   _RALPH_RUN_DIR="$run_dir"
-  mkdir -p "$run_dir/iterations"
+  mkdir -p "$run_dir/rounds"
 
   # context.json
   local provider_version
@@ -452,7 +452,7 @@ ralph_run() {
   "provider_version": $(ralph_json_str "$provider_version"),
   "model": $(ralph_json_str "$model"),
   "effort": $(ralph_json_str "$effort"),
-  "max_iter": ${max_iter},
+  "max_round": ${max_round},
   "timeout": ${timeout_sec},
   "stagnation_limit": ${stagnation_limit},
   "start_sha": $(ralph_json_str "$start_sha"),
@@ -492,7 +492,7 @@ EOF
   _ralph_write_status "running" "$run_id" "$provider" "$model" "$effort" \
     "$started_at" 0 "$tasks_total" "$tasks_checked_start"
 
-  # TASKS.md 空或全部已勾选 → 直接 done，不产生 iteration
+  # TASKS.md 空或全部已勾选 → 直接 done，不产生 round
   if [[ "$tasks_total" -eq 0 || "$tasks_checked_start" -ge "$tasks_total" ]]; then
     _ralph_finish "done" 0 0 "$tasks_total" "$tasks_checked_start" "$tasks_checked_start" "$started_at" "null"
   fi
@@ -504,15 +504,15 @@ EOF
   fi
 
   local stagnation_count=0
-  local iteration=0
+  local round=0
   local last_error_json="null"
 
   # ── 主循环 ──────────────────────────────────────────────────────────────
   while true; do
-    iteration=$(( iteration + 1 ))
-    _RALPH_ITER="$iteration"
+    round=$(( round + 1 ))
+    _RALPH_ROUND="$round"
 
-    # 全部完成判定（在 max_iter 检查前）
+    # 全部完成判定（在 max_round 检查前）
     local checked_before
     checked_before="$(count_checked "$tasks_md")"
     local total_now
@@ -522,72 +522,72 @@ EOF
 
     if [[ "$checked_before" -ge "$total_now" && "$total_now" -gt 0 ]]; then
       _RALPH_TASKS_CHECKED_END="$checked_before"
-      _ralph_finish "done" 0 "$(( iteration - 1 ))" "$tasks_total" \
+      _ralph_finish "done" 0 "$(( round - 1 ))" "$tasks_total" \
         "$tasks_checked_start" "$checked_before" "$started_at" "null"
     fi
 
-    # blocked_by_human 检查（done 之后，max_iter 之前）：第一个未勾选任务前缀是 HUMAN- → 不调 provider，exit 7
+    # blocked_by_human 检查（done 之后，max_round 之前）：第一个未勾选任务前缀是 HUMAN- → 不调 provider，exit 7
     if is_blocked_by_human "$tasks_md"; then
       _RALPH_TASKS_CHECKED_END="$checked_before"
-      _ralph_finish "blocked_by_human" 7 "$(( iteration - 1 ))" "$tasks_total" \
+      _ralph_finish "blocked_by_human" 7 "$(( round - 1 ))" "$tasks_total" \
         "$tasks_checked_start" "$checked_before" "$started_at" "null"
     fi
 
-    # max_iter 检查
-    if [[ "$max_iter" -gt 0 && "$iteration" -gt "$max_iter" ]]; then
+    # max_round 检查
+    if [[ "$max_round" -gt 0 && "$round" -gt "$max_round" ]]; then
       _RALPH_TASKS_CHECKED_END="$checked_before"
-      _ralph_finish "max_iterations" 4 "$(( iteration - 1 ))" "$tasks_total" \
+      _ralph_finish "max_rounds" 4 "$(( round - 1 ))" "$tasks_total" \
         "$tasks_checked_start" "$checked_before" "$started_at" "null"
     fi
 
-    # 准备 iter 目录
-    local iter_label
-    iter_label="$(printf 'iter-%03d' "$iteration")"
-    local iter_dir="$run_dir/iterations/$iter_label"
-    mkdir -p "$iter_dir"
-    local log_path="$iter_dir/provider.stdout.log"
+    # 准备 round 目录
+    local round_label
+    round_label="$(printf 'round-%03d' "$round")"
+    local round_dir="$run_dir/rounds/$round_label"
+    mkdir -p "$round_dir"
+    local log_path="$round_dir/provider.stdout.log"
     touch "$log_path"
-    local iter_start_ts
-    iter_start_ts=$(( $(date -u +%s) * 1000 ))
+    local round_start_ts
+    round_start_ts=$(( $(date -u +%s) * 1000 ))
     _RALPH_TASKS_CHECKED_END="$checked_before"
 
     # 捕获本轮开始时的 worktree 状态（方案 B：in-memory hash，不写 .git/refs）
-    local fingerprint_before before_iter_head
+    local fingerprint_before before_round_head
     fingerprint_before="$(ralph_worktree_fingerprint)"
-    before_iter_head="$(git rev-parse HEAD 2>/dev/null)" || before_iter_head=""
+    before_round_head="$(git rev-parse HEAD 2>/dev/null)" || before_round_head=""
 
-    # 准备 prompt（PROMPT.md 全文 + runtime 块）—— 写到 iter 外的临时文件，
+    # 准备 prompt（PROMPT.md 全文 + runtime 块）—— 写到 round 外的临时文件，
     # 不留 prompt.md 副本（动态部分见 meta.json.runtime_block，静态部分通过
     # start_sha 还原 git show $start_sha:.ralph/PROMPT.md）
     local prompt_file
-    prompt_file="$(mktemp -t "ralph-prompt-${iter_label}.XXXXXX")"
+    prompt_file="$(mktemp -t "ralph-prompt-${round_label}.XXXXXX")"
     local runtime_block
-    printf -v runtime_block 'run_id: %s\niteration: %d\nstart_sha: %s\nworkspace: %s' \
-      "$run_id" "$iteration" "$start_sha" "$workspace"
+    printf -v runtime_block 'run_id: %s\nround: %d\nstart_sha: %s\nworkspace: %s' \
+      "$run_id" "$round" "$start_sha" "$workspace"
     {
       cat "$workspace/.ralph/PROMPT.md"
       printf '\n\n<ralph-runtime>\n%s\n</ralph-runtime>\n' "$runtime_block"
     } > "$prompt_file"
 
     # meta.json 骨架（在 provider_oneshot 之前，让 adapter 可写入 session_id 等字段）
-    init_meta "$iter_dir" "$iteration" "$provider" 0 0
-    update_meta_jq "$iter_dir" '.runtime_block = $rb' --arg rb "$runtime_block"
+    init_meta "$round_dir" "$round" "$provider" 0 0
+    update_meta_jq "$round_dir" '.runtime_block = $rb' --arg rb "$runtime_block"
 
-    # status 必须在 provider_oneshot 前指向当前 iter；watch -v 依赖它定位
+    # status 必须在 provider_oneshot 前指向当前 round；watch -v 依赖它定位
     # 当前正在写入的 provider.stdout.log。
-    _ralph_update_status "running" "" "$iteration" "$tasks_total" "$checked_before"
+    _ralph_update_status "running" "" "$round" "$tasks_total" "$checked_before"
 
-    # 进度 marker：iter 启动（D-2 默认）
-    # max_iter=0 显示为 ∞；first task 描述截前 60 字符做提示
-    local _max_iter_disp="∞"
-    [[ "$max_iter" -gt 0 ]] && _max_iter_disp="$max_iter"
+    # 进度 marker：round 启动（D-2 默认）
+    # max_round=0 显示为 ∞；first task 描述截前 60 字符做提示
+    local _max_round_disp="∞"
+    [[ "$max_round" -gt 0 ]] && _max_round_disp="$max_round"
     local _first_task=""
     if declare -f first_unchecked_task >/dev/null 2>&1; then
       _first_task="$(first_unchecked_task "$tasks_md" 2>/dev/null)" || _first_task=""
     fi
     local _now_local
     _now_local="$(date +"%H:%M:%S")"
-    local _start_marker="[$_now_local] iter $iteration/$_max_iter_disp"
+    local _start_marker="[$_now_local] round $round/$_max_round_disp"
     if [[ -n "$_first_task" ]]; then
       _start_marker+=" → ${_first_task:0:80}"
     fi
@@ -608,12 +608,12 @@ EOF
       _ralph_filter_verbose < "$_RALPH_TAIL_FIFO" >&2 2>/dev/null &
       _RALPH_TAIL_FILTER_PID=$!
     else
-      _ralph_start_provider_heartbeat "$log_path" "$iteration" "$_max_iter_disp"
+      _ralph_start_provider_heartbeat "$log_path" "$round" "$_max_round_disp"
     fi
 
     # provider_oneshot（带 timeout / interrupt 清理支持）
     local rc=0
-    RALPH_WORKSPACE="$workspace" provider_oneshot "$prompt_file" "$log_path" "$iter_dir" &
+    RALPH_WORKSPACE="$workspace" provider_oneshot "$prompt_file" "$log_path" "$round_dir" &
     local pid=$!
     _RALPH_PROVIDER_PID="$pid"
     if [[ "$timeout_sec" -gt 0 ]]; then
@@ -628,18 +628,18 @@ EOF
           wait "$pid" 2>/dev/null || timeout_pid_rc=$?
           local timeout_end_ts timeout_dur_ms
           timeout_end_ts=$(( $(date -u +%s) * 1000 ))
-          timeout_dur_ms=$(( timeout_end_ts - iter_start_ts ))
-          update_meta_field "$iter_dir" exit_code "$timeout_pid_rc"
-          update_meta_field "$iter_dir" duration_ms "$timeout_dur_ms"
-          provider_collect_session "$iter_dir" || true
-          provider_diagnose "$iter_dir" || true
+          timeout_dur_ms=$(( timeout_end_ts - round_start_ts ))
+          update_meta_field "$round_dir" exit_code "$timeout_pid_rc"
+          update_meta_field "$round_dir" duration_ms "$timeout_dur_ms"
+          provider_collect_session "$round_dir" || true
+          provider_diagnose "$round_dir" || true
           local total_after_timeout checked_after_timeout
           total_after_timeout="$(count_total "$tasks_md")"
           checked_after_timeout="$(count_checked "$tasks_md")"
           tasks_total="$total_after_timeout"
           _RALPH_TASKS_TOTAL="$tasks_total"
           _RALPH_TASKS_CHECKED_END="$checked_after_timeout"
-          _ralph_finish "timeout" 3 "$iteration" "$tasks_total" \
+          _ralph_finish "timeout" 3 "$round" "$tasks_total" \
             "$tasks_checked_start" "$checked_after_timeout" "$started_at" "null"
         fi
       done
@@ -656,22 +656,22 @@ EOF
     # 清理 prompt 临时文件（provider 已经读完）
     rm -f "$prompt_file"
 
-    local iter_end_ts duration_ms
-    iter_end_ts=$(( $(date -u +%s) * 1000 ))
-    duration_ms=$(( iter_end_ts - iter_start_ts ))
+    local round_end_ts duration_ms
+    round_end_ts=$(( $(date -u +%s) * 1000 ))
+    duration_ms=$(( round_end_ts - round_start_ts ))
 
     # exit_code / duration_ms 事后回填（保留 adapter 已写入的其他字段，如 session_id）
-    update_meta_field "$iter_dir" exit_code "$rc"
-    update_meta_field "$iter_dir" duration_ms "$duration_ms"
+    update_meta_field "$round_dir" exit_code "$rc"
+    update_meta_field "$round_dir" duration_ms "$duration_ms"
 
     # provider 失败判定
     if [[ "$rc" -ne 0 ]]; then
-      provider_collect_session "$iter_dir" || true
-      provider_diagnose "$iter_dir" || true
+      provider_collect_session "$round_dir" || true
+      provider_diagnose "$round_dir" || true
       # 优先从 meta.json 读取 provider_diagnose 写入的 error 对象（jq 可用时）
       local error_obj=""
-      if command -v jq >/dev/null 2>&1 && [[ -f "$iter_dir/meta.json" ]]; then
-        error_obj="$(jq -c '.error // empty' "$iter_dir/meta.json" 2>/dev/null)" || error_obj=""
+      if command -v jq >/dev/null 2>&1 && [[ -f "$round_dir/meta.json" ]]; then
+        error_obj="$(jq -c '.error // empty' "$round_dir/meta.json" 2>/dev/null)" || error_obj=""
       fi
       if [[ -n "$error_obj" && "$error_obj" != "null" ]]; then
         last_error_json="$error_obj"
@@ -684,13 +684,13 @@ EOF
       tasks_total="$total_after_failure"
       _RALPH_TASKS_TOTAL="$tasks_total"
       _RALPH_TASKS_CHECKED_END="$checked_after_failure"
-      _ralph_finish "provider_failed" 2 "$iteration" "$tasks_total" \
+      _ralph_finish "provider_failed" 2 "$round" "$tasks_total" \
         "$tasks_checked_start" "$checked_after_failure" "$started_at" "$last_error_json"
     fi
 
     # session 采集 + 诊断
-    provider_collect_session "$iter_dir" || true
-    provider_diagnose "$iter_dir" || true
+    provider_collect_session "$round_dir" || true
+    provider_diagnose "$round_dir" || true
 
     # changed_files + stagnation 判定（方案 B：本轮 vs 上轮 fingerprint 对比）
     local checked_after
@@ -714,10 +714,10 @@ EOF
     local changed_files_total_list
     changed_files_total_list="$(ralph_changed_files "$start_sha")"
 
-    # changed_files_iter（本轮 vs 上轮；fingerprint 相同则为空）
-    local changed_files_iter_list=""
+    # changed_files_round（本轮 vs 上轮；fingerprint 相同则为空）
+    local changed_files_round_list=""
     if [[ "$fingerprint_after" != "$fingerprint_before" ]]; then
-      changed_files_iter_list="$(ralph_changed_files "$before_iter_head")"
+      changed_files_round_list="$(ralph_changed_files "$before_round_head")"
     fi
 
     # 更新 meta.json
@@ -727,47 +727,47 @@ EOF
       -e "s|\"tasks_before\": null|\"tasks_before\": ${tasks_before_json}|" \
       -e "s|\"tasks_after\": null|\"tasks_after\": ${tasks_after_json}|" \
       -e "s|\"stagnation_count\": 0|\"stagnation_count\": ${stagnation_count}|" \
-      "$iter_dir/meta.json" 2>/dev/null || true
-    rm -f "$iter_dir/meta.json.bak"
+      "$round_dir/meta.json" 2>/dev/null || true
+    rm -f "$round_dir/meta.json.bak"
 
-    # changed_files_total + changed_files_iter 写入 meta.json（需要 jq）
+    # changed_files_total + changed_files_round 写入 meta.json（需要 jq）
     if command -v jq >/dev/null 2>&1; then
-      local cf_total_json cf_iter_json
+      local cf_total_json cf_round_json
       if [[ -n "$changed_files_total_list" ]]; then
         cf_total_json="$(printf '%s\n' "$changed_files_total_list" | jq -R . | jq -s . 2>/dev/null)" || cf_total_json="[]"
       else
         cf_total_json="[]"
       fi
-      if [[ -n "$changed_files_iter_list" ]]; then
-        cf_iter_json="$(printf '%s\n' "$changed_files_iter_list" | jq -R . | jq -s . 2>/dev/null)" || cf_iter_json="[]"
+      if [[ -n "$changed_files_round_list" ]]; then
+        cf_round_json="$(printf '%s\n' "$changed_files_round_list" | jq -R . | jq -s . 2>/dev/null)" || cf_round_json="[]"
       else
-        cf_iter_json="[]"
+        cf_round_json="[]"
       fi
-      update_meta_jq "$iter_dir" \
-        '.changed_files_total = $cf_total | .changed_files_iter = $cf_iter' \
-        --argjson cf_total "$cf_total_json" --argjson cf_iter "$cf_iter_json" || true
+      update_meta_jq "$round_dir" \
+        '.changed_files_total = $cf_total | .changed_files_round = $cf_round' \
+        --argjson cf_total "$cf_total_json" --argjson cf_round "$cf_round_json" || true
     fi
 
     # status.json 刷新
-    _ralph_update_status "running" "" "$iteration" "$tasks_total" "$checked_after"
+    _ralph_update_status "running" "" "$round" "$tasks_total" "$checked_after"
 
-    # 进度 marker：iter 完成（D-2 默认）
-    local _iter_dur_sec=$(( duration_ms / 1000 ))
+    # 进度 marker：round 完成（D-2 默认）
+    local _round_dur_sec=$(( duration_ms / 1000 ))
     local _run_dur_sec=$(( $(date -u +%s) - _RALPH_START_TIME ))
     local _delta_tasks=$(( checked_after - checked_before ))
     local _now_local
     _now_local="$(date +"%H:%M:%S")"
     local _end_status="✓ done"
     [[ "$_delta_tasks" -eq 0 ]] && _end_status="◷ no progress"
-    printf '[%s] iter %d/%s %s | tasks %d/%d | iter %s | run %s\n' \
-      "$_now_local" "$iteration" "$_max_iter_disp" "$_end_status" \
+    printf '[%s] round %d/%s %s | tasks %d/%d | round %s | run %s\n' \
+      "$_now_local" "$round" "$_max_round_disp" "$_end_status" \
       "$checked_after" "$tasks_total" \
-      "$(ralph_format_duration "$_iter_dur_sec")" \
+      "$(ralph_format_duration "$_round_dur_sec")" \
       "$(ralph_format_duration "$_run_dur_sec")" >&2
 
     # stagnation 退出
     if [[ "$stagnation_count" -ge "$stagnation_limit" ]]; then
-      _ralph_finish "stagnated" 5 "$iteration" "$tasks_total" \
+      _ralph_finish "stagnated" 5 "$round" "$tasks_total" \
         "$tasks_checked_start" "$checked_after" "$started_at" "null"
     fi
   done

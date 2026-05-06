@@ -2,7 +2,7 @@
 # adapter-gemini.sh — Gemini CLI provider adapter
 # source 本文件后即设置 RALPH_PROVIDER_CLI；三函数契约
 # stream-json 模式：stdout 是 JSONL events 流，逐行写入 provider.stdout.log
-# session 文件命名遵循 docs/architecture/integrations.md §iter 目录文件结构
+# session 文件命名遵循 docs/architecture/integrations.md §round 目录文件结构
 
 RALPH_PROVIDER_CLI="gemini"
 
@@ -22,16 +22,16 @@ provider_check_deps() {
 }
 
 # ── provider_oneshot ─────────────────────────────────────────────────────────
-# <prompt_file> <log_path> <iter_dir>
-# log_path 即 iter_dir/provider.stdout.log，stream-json events 逐行写入
+# <prompt_file> <log_path> <round_dir>
+# log_path 即 round_dir/provider.stdout.log，stream-json events 逐行写入
 provider_oneshot() {
   local prompt_file="$1"
   local log_path="$2"
-  local iter_dir="$3"
+  local round_dir="$3"
 
   local provider_started_at
   provider_started_at="$(ralph_timestamp)"
-  update_meta_jq "$iter_dir" '.provider_started_at = $ts' --arg ts "$provider_started_at"
+  update_meta_jq "$round_dir" '.provider_started_at = $ts' --arg ts "$provider_started_at"
 
   touch "$log_path"
 
@@ -74,7 +74,7 @@ provider_oneshot() {
       | jq -r 'select(.type == "init") | (.session_id // .sessionId // empty)' 2>/dev/null \
       | head -1)" || _gemini_sid=""
     if [[ -n "$_gemini_sid" ]]; then
-      update_meta_jq "$iter_dir" '.session_id = $sid' --arg sid "$_gemini_sid"
+      update_meta_jq "$round_dir" '.session_id = $sid' --arg sid "$_gemini_sid"
     fi
   fi
 
@@ -87,8 +87,8 @@ provider_oneshot() {
 # 输出：[assistant] 文本摘要
 _gemini_derive_history() {
   local session_file="$1" out="$2"
-  local iter_dir="${session_file%/*}"
-  local stdout_log="$iter_dir/provider.stdout.log"
+  local round_dir="${session_file%/*}"
+  local stdout_log="$round_dir/provider.stdout.log"
   [[ -f "$stdout_log" ]] || return 0
 
   # 过滤 JSON 行：只匹配列首 {（真实 stream-json 事件）
@@ -124,10 +124,10 @@ _gemini_derive_history() {
 # 2. mtime 退化：按 provider_started_at 时间戳筛选，取 mtime 最新
 # 3. 派生 session.history.log（从 provider.stdout.log stream-json 事件流）
 provider_collect_session() {
-  local iter_dir="$1"
-  local meta="$iter_dir/meta.json"
+  local round_dir="$1"
+  local meta="$round_dir/meta.json"
   local gemini_root="${GEMINI_CLI_HOME:-$HOME}/.gemini"
-  local dst="$iter_dir/session.gemini.json"
+  local dst="$round_dir/session.gemini.json"
 
   # 读取 session_id（从 init 事件，由 provider_oneshot 写入 meta.json）
   local session_id
@@ -150,7 +150,7 @@ provider_collect_session() {
 
   if [[ -n "$found_file" && -f "$found_file" ]]; then
     cp "$found_file" "$dst"
-    update_meta_jq "$iter_dir" \
+    update_meta_jq "$round_dir" \
       '.capture_status = "ok" | .session_source_path = $src | .session_copied_path = $dst' \
       --arg src "$found_file" --arg dst "$dst"
   else
@@ -178,7 +178,7 @@ provider_collect_session() {
 
     if [[ -n "$fallback_file" && -f "$fallback_file" ]]; then
       cp "$fallback_file" "$dst"
-      update_meta_jq "$iter_dir" \
+      update_meta_jq "$round_dir" \
         '.capture_status = "ok" | .capture_warning = "fallback by mtime" | .session_source_path = $src | .session_copied_path = $dst' \
         --arg src "$fallback_file" --arg dst "$dst"
     else
@@ -186,15 +186,15 @@ provider_collect_session() {
       if [[ -z "$session_id" || "$session_id" == "null" ]]; then
         warning_msg="session_id missing in meta.json"
       fi
-      update_meta_jq "$iter_dir" \
+      update_meta_jq "$round_dir" \
         '.capture_status = "warning" | .capture_warning = $msg' \
         --arg msg "$warning_msg"
     fi
   fi
 
   # 派生 session.history.log（从 provider.stdout.log 事件流，不依赖 session 文件）
-  _gemini_derive_history "$dst" "$iter_dir/session.history.log"
-  touch "$iter_dir/session.history.log"
+  _gemini_derive_history "$dst" "$round_dir/session.history.log"
+  touch "$round_dir/session.history.log"
   return 0
 }
 
@@ -223,9 +223,9 @@ _gemini_classify_error() {
 # ── provider_diagnose ────────────────────────────────────────────────────────
 # Gemini 错误分类（error 事件 / stderr 关键字回退）
 provider_diagnose() {
-  local iter_dir="$1"
-  local meta="$iter_dir/meta.json"
-  local log_path="$iter_dir/provider.stdout.log"
+  local round_dir="$1"
+  local meta="$round_dir/meta.json"
+  local log_path="$round_dir/provider.stdout.log"
 
   [[ -f "$meta" ]] || return 0
 
@@ -239,7 +239,7 @@ provider_diagnose() {
 
   # log 文件不存在（CLI crash 无输出）→ unknown
   if [[ ! -f "$log_path" ]]; then
-    update_meta_jq "$iter_dir" \
+    update_meta_jq "$round_dir" \
       '.error = {"type": "unknown", "message": "no stdout log file", "raw": ""}'
     return 0
   fi
@@ -264,7 +264,7 @@ provider_diagnose() {
   local error_type
   error_type="$(_gemini_classify_error "${error_msg:-}")"
 
-  update_meta_jq "$iter_dir" \
+  update_meta_jq "$round_dir" \
     '.error = {"type": $t, "message": $m, "raw": $r}' \
     --arg t "$error_type" \
     --arg m "${error_msg:0:200}" \

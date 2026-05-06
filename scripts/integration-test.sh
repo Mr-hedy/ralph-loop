@@ -114,8 +114,8 @@ stdout_silent=0
 [[ ! -s "$stdout_file" ]] && stdout_silent=1
 progress_ok=0
 if grep -Eq 'ralph [^ ]+ \| run ' "$stderr_file" \
-  && grep -Eq 'iter 1/.*→' "$stderr_file" \
-  && grep -Eq 'iter 1/.*✓ done' "$stderr_file"; then
+  && grep -Eq 'round 1/.*→' "$stderr_file" \
+  && grep -Eq 'round 1/.*✓ done' "$stderr_file"; then
   progress_ok=1
 fi
 rm -f "$stdout_file" "$stderr_file"
@@ -166,16 +166,16 @@ echo "-- Exit reason: timeout"
 ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=30 bash "$ws/.ralph/bin/ralph" run --provider fake --timeout 2 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=30 bash "$ws/.ralph/bin/ralph" run --provider fake --round-timeout 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
-iter_dir="${run_dir}/iterations/iter-001"
+round_dir="${run_dir}/rounds/round-001"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 meta_exit_ok=0
 meta_dur_ok=0
-iter_exit="$(grep '"exit_code"' "$iter_dir/meta.json" 2>/dev/null | sed 's/.*"exit_code":[[:space:]]*\([^,}]*\).*/\1/' | tr -d ' ')" || iter_exit=""
-iter_dur="$(grep '"duration_ms"' "$iter_dir/meta.json" 2>/dev/null | sed 's/.*"duration_ms":[[:space:]]*\([^,}]*\).*/\1/' | tr -d ' ')" || iter_dur=""
-[[ "$iter_exit" != "0" && -n "$iter_exit" ]] && meta_exit_ok=1
-[[ "$iter_dur" -gt 0 ]] 2>/dev/null && meta_dur_ok=1
+round_exit="$(grep '"exit_code"' "$round_dir/meta.json" 2>/dev/null | sed 's/.*"exit_code":[[:space:]]*\([^,}]*\).*/\1/' | tr -d ' ')" || round_exit=""
+round_dur="$(grep '"duration_ms"' "$round_dir/meta.json" 2>/dev/null | sed 's/.*"duration_ms":[[:space:]]*\([^,}]*\).*/\1/' | tr -d ' ')" || round_dur=""
+[[ "$round_exit" != "0" && -n "$round_exit" ]] && meta_exit_ok=1
+[[ "$round_dur" -gt 0 ]] 2>/dev/null && meta_dur_ok=1
 if [[ "$reason" == "timeout" && "$rc" -eq 3 && "$meta_exit_ok" -eq 1 && "$meta_dur_ok" -eq 1 ]]; then
   _pass "timeout: exit_reason=timeout, rc=3, meta exit_code≠0, duration_ms>0"
 else
@@ -190,11 +190,11 @@ ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
 RALPH_FAKE_SCENARIO=slow_child RALPH_FAKE_SLEEP=30 \
-  bash "$ws/.ralph/bin/ralph" run --provider fake --timeout 2 2>/dev/null || rc=$?
+  bash "$ws/.ralph/bin/ralph" run --provider fake --round-timeout 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
-iter_dir="${run_dir}/iterations/iter-001"
+round_dir="${run_dir}/rounds/round-001"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
-child_pid="$(cat "$iter_dir/slow-child.pid" 2>/dev/null || true)"
+child_pid="$(cat "$round_dir/slow-child.pid" 2>/dev/null || true)"
 child_dead=0
 if [[ -n "$child_pid" ]] && ! kill -0 "$child_pid" 2>/dev/null; then
   child_dead=1
@@ -211,19 +211,19 @@ cleanup_ws "$ws"
 
 # ────────────────────────────────
 echo ""
-echo "-- Exit reason: max_iterations"
+echo "-- Exit reason: max_rounds"
 ws=$(setup_workspace)
-# 两条任务，max-iter=1，happy 只勾一条
+# 两条任务，max-round=1，happy 只勾一条
 printf '%s\n' "- [ ] Task A" "- [ ] Task B" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "two tasks" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake --max-iter 1 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
-if [[ "$reason" == "max_iterations" && "$rc" -eq 4 ]]; then
-  _pass "max_iterations: exit_reason=max_iterations, rc=4"
+if [[ "$reason" == "max_rounds" && "$rc" -eq 4 ]]; then
+  _pass "max_rounds: exit_reason=max_rounds, rc=4"
 else
-  _fail "max_iterations: expected max_iterations/rc=4, got $reason/$rc"
+  _fail "max_rounds: expected max_rounds/rc=4, got $reason/$rc"
 fi
 cleanup_ws "$ws"
 
@@ -259,11 +259,11 @@ else
   _fail "partial_progress stagnation: expected stagnated/rc=5, got $reason/$rc"
 fi
 if command -v jq >/dev/null 2>&1; then
-  sc1="$(jq '.stagnation_count // 0' "$run_dir/iterations/iter-001/meta.json" 2>/dev/null)" || sc1=0
-  sc2="$(jq '.stagnation_count // 0' "$run_dir/iterations/iter-002/meta.json" 2>/dev/null)" || sc2=0
-  sc3="$(jq '.stagnation_count // 0' "$run_dir/iterations/iter-003/meta.json" 2>/dev/null)" || sc3=0
+  sc1="$(jq '.stagnation_count // 0' "$run_dir/rounds/round-001/meta.json" 2>/dev/null)" || sc1=0
+  sc2="$(jq '.stagnation_count // 0' "$run_dir/rounds/round-002/meta.json" 2>/dev/null)" || sc2=0
+  sc3="$(jq '.stagnation_count // 0' "$run_dir/rounds/round-003/meta.json" 2>/dev/null)" || sc3=0
   if [[ "$sc1" -eq 0 && "$sc2" -eq 1 && "$sc3" -eq 2 ]]; then
-    _pass "partial_progress stagnation_count: iter1=0 iter2=1 iter3=2"
+    _pass "partial_progress stagnation_count: round1=0 round2=1 round3=2"
   else
     _fail "partial_progress stagnation_count: expected 0/1/2, got $sc1/$sc2/$sc3"
   fi
@@ -281,7 +281,7 @@ RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev
 run_dir="$(latest_run_dir "$ws")"
 if [[ "$(get_exit_reason "$run_dir")" == "done" ]]; then
   if command -v jq >/dev/null 2>&1; then
-    sc1="$(jq '.stagnation_count // 0' "$run_dir/iterations/iter-001/meta.json" 2>/dev/null)" || sc1=0
+    sc1="$(jq '.stagnation_count // 0' "$run_dir/rounds/round-001/meta.json" 2>/dev/null)" || sc1=0
     if [[ "$sc1" -eq 0 ]]; then
       _pass "happy stagnation_count: exit_reason=done, stagnation_count=0"
     else
@@ -304,16 +304,16 @@ git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || tru
 rc=0
 stderr_file="$(mktemp)"
 RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=2 RALPH_PROGRESS_HEARTBEAT_SEC=1 \
-  bash "$ws/.ralph/bin/ralph" run --provider fake --max-iter 1 \
+  bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 1 \
   >/dev/null 2>"$stderr_file" || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 heartbeat_ok=0
 grep -Eq 'still running .*provider log .*tail -f .*/provider.stdout.log' "$stderr_file" 2>/dev/null && heartbeat_ok=1
-if [[ "$rc" -eq 4 && "$reason" == "max_iterations" && "$heartbeat_ok" -eq 1 ]]; then
+if [[ "$rc" -eq 4 && "$reason" == "max_rounds" && "$heartbeat_ok" -eq 1 ]]; then
   _pass "provider heartbeat: default run prints still-running marker for long oneshot"
 else
-  _fail "provider heartbeat: expected rc=4 max_iterations + heartbeat, got rc=$rc reason=$reason heartbeat_ok=$heartbeat_ok"
+  _fail "provider heartbeat: expected rc=4 max_rounds + heartbeat, got rc=$rc reason=$reason heartbeat_ok=$heartbeat_ok"
 fi
 rm -f "$stderr_file"
 cleanup_ws "$ws"
@@ -332,18 +332,18 @@ result_total="$(jq '.tasks_total // 0' "$run_dir/result.json" 2>/dev/null)" || r
 result_checked="$(jq '.tasks_checked_end // 0' "$run_dir/result.json" 2>/dev/null)" || result_checked=0
 status_total="$(jq '.tasks_total // 0' "$ws/.ralph/status.json" 2>/dev/null)" || status_total=0
 status_checked="$(jq '.tasks_checked // 0' "$ws/.ralph/status.json" 2>/dev/null)" || status_checked=0
-iter1_after_total="$(jq '.tasks_after.total // 0' "$run_dir/iterations/iter-001/meta.json" 2>/dev/null)" || iter1_after_total=0
-iter1_after_checked="$(jq '.tasks_after.checked // 0' "$run_dir/iterations/iter-001/meta.json" 2>/dev/null)" || iter1_after_checked=0
+round1_after_total="$(jq '.tasks_after.total // 0' "$run_dir/rounds/round-001/meta.json" 2>/dev/null)" || round1_after_total=0
+round1_after_checked="$(jq '.tasks_after.checked // 0' "$run_dir/rounds/round-001/meta.json" 2>/dev/null)" || round1_after_checked=0
 summary_ok=0
 grep -q 'Tasks:         2 / 2' "$run_dir/exit-message.txt" 2>/dev/null && summary_ok=1
 if [[ "$rc" -eq 0 && "$reason" == "done" \
   && "$result_total" -eq 2 && "$result_checked" -eq 2 \
   && "$status_total" -eq 2 && "$status_checked" -eq 2 \
-  && "$iter1_after_total" -eq 2 && "$iter1_after_checked" -eq 1 \
+  && "$round1_after_total" -eq 2 && "$round1_after_checked" -eq 1 \
   && "$summary_ok" -eq 1 ]]; then
   _pass "dynamic task totals: result/status/meta/summary show 2/2 after appended task"
 else
-  _fail "dynamic task totals: rc=$rc reason=$reason result=$result_checked/$result_total status=$status_checked/$status_total iter1_after=$iter1_after_checked/$iter1_after_total summary_ok=$summary_ok"
+  _fail "dynamic task totals: rc=$rc reason=$reason result=$result_checked/$result_total status=$status_checked/$status_total iter1_after=$round1_after_checked/$round1_after_total summary_ok=$summary_ok"
 fi
 cleanup_ws "$ws"
 
@@ -626,26 +626,26 @@ RALPH_MOCK_CLAUDE_SCENARIO=happy \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
-iter_dir="${run_dir}/iterations/iter-001"
+round_dir="${run_dir}/rounds/round-001"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 stdout_ok=0
 # stream-json 模式：provider.stdout.log 含 result 事件，is_error=false
-[[ -f "$iter_dir/provider.stdout.log" ]] && \
-  grep -E '^\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+[[ -f "$round_dir/provider.stdout.log" ]] && \
+  grep -E '^\{' "$round_dir/provider.stdout.log" 2>/dev/null \
   | jq -r 'select(.type == "result") | .is_error' 2>/dev/null \
   | grep -q '^false$' && stdout_ok=1
 session_ok=0
-grep -qE '"session_id":[[:space:]]*"[0-9a-f-]{36}"' "$iter_dir/meta.json" 2>/dev/null && session_ok=1
+grep -qE '"session_id":[[:space:]]*"[0-9a-f-]{36}"' "$round_dir/meta.json" 2>/dev/null && session_ok=1
 history_ok=0
 # session.history.log 取代 chat.log + tools.log，含 user / assistant / thinking / tool-use / tool-result
-[[ -f "$iter_dir/session.history.log" ]] && \
-  grep -q '\[user\]' "$iter_dir/session.history.log" && \
-  grep -q '\[assistant\]' "$iter_dir/session.history.log" && \
-  grep -q '\[thinking\]' "$iter_dir/session.history.log" && \
-  grep -q '\[tool-use name=' "$iter_dir/session.history.log" && \
-  grep -q 'tool input truncated; see session.claude.jsonl' "$iter_dir/session.history.log" && \
-  grep -q '"content":"xxxxxxxx' "$iter_dir/session.claude.jsonl" && \
-  grep -q '\[tool-result name=' "$iter_dir/session.history.log" && history_ok=1
+[[ -f "$round_dir/session.history.log" ]] && \
+  grep -q '\[user\]' "$round_dir/session.history.log" && \
+  grep -q '\[assistant\]' "$round_dir/session.history.log" && \
+  grep -q '\[thinking\]' "$round_dir/session.history.log" && \
+  grep -q '\[tool-use name=' "$round_dir/session.history.log" && \
+  grep -q 'tool input truncated; see session.claude.jsonl' "$round_dir/session.history.log" && \
+  grep -q '"content":"xxxxxxxx' "$round_dir/session.claude.jsonl" && \
+  grep -q '\[tool-result name=' "$round_dir/session.history.log" && history_ok=1
 if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_ok" -eq 1 \
    && "$history_ok" -eq 1 ]]; then
   _pass "claude happy: exit 0, done, stream-json result event, session_id UUID, session.history.log derived"
@@ -718,18 +718,18 @@ RALPH_MOCK_CLAUDE_SCENARIO=happy \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
-iter_dir="${run_dir}/iterations/iter-001"
+round_dir="${run_dir}/rounds/round-001"
 jsonl_ok=0; capture_ok=0; history_ok=0
-[[ -f "$iter_dir/session.claude.jsonl" ]] && jsonl_ok=1
-grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
+[[ -f "$round_dir/session.claude.jsonl" ]] && jsonl_ok=1
+grep -q '"capture_status": "ok"' "$round_dir/meta.json" 2>/dev/null && capture_ok=1
 # session.history.log 含 thinking + tool_use 摘要 + tool_result；完整 input 保留在 session.claude.jsonl
-[[ -f "$iter_dir/session.history.log" ]] && \
-  grep -q '\[user\]' "$iter_dir/session.history.log" \
-  && grep -q '\[thinking\]' "$iter_dir/session.history.log" \
-  && grep -q '\[tool-use name=Bash\]' "$iter_dir/session.history.log" \
-  && grep -q 'tool input truncated; see session.claude.jsonl' "$iter_dir/session.history.log" \
-  && grep -q '"content":"xxxxxxxx' "$iter_dir/session.claude.jsonl" \
-  && grep -q '\[tool-result name=Bash\]' "$iter_dir/session.history.log" && history_ok=1
+[[ -f "$round_dir/session.history.log" ]] && \
+  grep -q '\[user\]' "$round_dir/session.history.log" \
+  && grep -q '\[thinking\]' "$round_dir/session.history.log" \
+  && grep -q '\[tool-use name=Bash\]' "$round_dir/session.history.log" \
+  && grep -q 'tool input truncated; see session.claude.jsonl' "$round_dir/session.history.log" \
+  && grep -q '"content":"xxxxxxxx' "$round_dir/session.claude.jsonl" \
+  && grep -q '\[tool-result name=Bash\]' "$round_dir/session.history.log" && history_ok=1
 if [[ "$jsonl_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
   _pass "session collect happy: jsonl ok, capture_status=ok, session.history.log derived"
 else
@@ -752,12 +752,12 @@ RALPH_MOCK_CLAUDE_SCENARIO=happy \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
-iter_dir="${run_dir}/iterations/iter-001"
+round_dir="${run_dir}/rounds/round-001"
 jsonl_ok=0; capture_ok=0; src_ok=0; home_clean=1
-[[ -f "$iter_dir/session.claude.jsonl" ]] && jsonl_ok=1
-grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
+[[ -f "$round_dir/session.claude.jsonl" ]] && jsonl_ok=1
+grep -q '"capture_status": "ok"' "$round_dir/meta.json" 2>/dev/null && capture_ok=1
 # session_source_path 应在 custom_cfg/projects/ 下
-src_path="$(jq -r '.session_source_path // ""' "$iter_dir/meta.json" 2>/dev/null)"
+src_path="$(jq -r '.session_source_path // ""' "$round_dir/meta.json" 2>/dev/null)"
 [[ "$src_path" == "$custom_cfg/projects/"* ]] && src_ok=1
 # 反向断言：$HOME/.claude/projects/ 下不应有任何 jsonl（mock-claude 必须写到 CLAUDE_CONFIG_DIR）
 if find "$SETUP_CLAUDE_HOME/.claude/projects" -name "*.jsonl" -type f 2>/dev/null | grep -q .; then
@@ -777,12 +777,12 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "init"
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=mtime_fallback \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-iter 1 2>/dev/null || rc=$?
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
-iter_dir="${run_dir}/iterations/iter-001"
+round_dir="${run_dir}/rounds/round-001"
 jsonl_ok=0; warn_ok=0
-[[ -f "$iter_dir/session.claude.jsonl" ]] && jsonl_ok=1
-grep -q '"fallback by mtime"' "$iter_dir/meta.json" 2>/dev/null && warn_ok=1
+[[ -f "$round_dir/session.claude.jsonl" ]] && jsonl_ok=1
+grep -q '"fallback by mtime"' "$round_dir/meta.json" 2>/dev/null && warn_ok=1
 if [[ "$jsonl_ok" -eq 1 && "$warn_ok" -eq 1 ]]; then
   _pass "session mtime fallback: session.claude.jsonl exists, capture_warning=fallback by mtime"
 else
@@ -797,14 +797,14 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "init"
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=missing_session \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-iter 1 2>/dev/null || rc=$?
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
-iter_dir="${run_dir}/iterations/iter-001"
+round_dir="${run_dir}/rounds/round-001"
 no_jsonl=0; warn_ok=0; empty_history_ok=0
-[[ ! -f "$iter_dir/session.claude.jsonl" ]] && no_jsonl=1
-grep -q '"capture_status": "warning"' "$iter_dir/meta.json" 2>/dev/null && warn_ok=1
+[[ ! -f "$round_dir/session.claude.jsonl" ]] && no_jsonl=1
+grep -q '"capture_status": "warning"' "$round_dir/meta.json" 2>/dev/null && warn_ok=1
 # 派生视图文件存在但内容为空（warning 时不派生）
-[[ -f "$iter_dir/session.history.log" && ! -s "$iter_dir/session.history.log" ]] && empty_history_ok=1
+[[ -f "$round_dir/session.history.log" && ! -s "$round_dir/session.history.log" ]] && empty_history_ok=1
 if [[ "$no_jsonl" -eq 1 && "$warn_ok" -eq 1 && "$empty_history_ok" -eq 1 ]]; then
   _pass "session missing: no session.claude.jsonl, capture_status=warning, empty session.history.log"
 else
@@ -866,9 +866,9 @@ _run_diagnose_case crash unknown "diagnose unknown (crash)"
 # ────────────────────────────────
 
 get_received_effort() {
-  local iter_dir="$1"
+  local round_dir="$1"
   # stream-json 模式：从 provider.stdout.log 末尾的 result 事件取 _received_effort
-  grep -E '^\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+  grep -E '^\{' "$round_dir/provider.stdout.log" 2>/dev/null \
     | jq -r 'select(.type == "result") | ._received_effort // ""' 2>/dev/null \
     | tail -1
 }
@@ -882,8 +882,8 @@ rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=low \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
-run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; iter_dir="${run_dir}/iterations/iter-001"
-rcv="$(get_received_effort "$iter_dir")"
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
+rcv="$(get_received_effort "$round_dir")"
 if [[ "$rc" -eq 0 && "$rcv" == "low" ]]; then
   _pass "SC-014-1 effort=low: --effort low received by mock-claude"
 else
@@ -900,8 +900,8 @@ rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=medium \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
-run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; iter_dir="${run_dir}/iterations/iter-001"
-rcv="$(get_received_effort "$iter_dir")"
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
+rcv="$(get_received_effort "$round_dir")"
 if [[ "$rc" -eq 0 && "$rcv" == "medium" ]]; then
   _pass "SC-014-1 effort=medium: --effort medium received by mock-claude"
 else
@@ -918,8 +918,8 @@ rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=high \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
-run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; iter_dir="${run_dir}/iterations/iter-001"
-rcv="$(get_received_effort "$iter_dir")"
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
+rcv="$(get_received_effort "$round_dir")"
 if [[ "$rc" -eq 0 && "$rcv" == "high" ]]; then
   _pass "SC-014-1 effort=high: --effort high received by mock-claude"
 else
@@ -936,8 +936,8 @@ rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_EFFORT=none \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
   bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
-run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; iter_dir="${run_dir}/iterations/iter-001"
-rcv="$(get_received_effort "$iter_dir")"
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
+rcv="$(get_received_effort "$round_dir")"
 if [[ "$rc" -eq 0 && -z "$rcv" ]]; then
   _pass "SC-014-1 effort=none: --effort not passed to mock-claude"
 else
@@ -1016,7 +1016,7 @@ echo ""
 echo "-- ralph run --help"
 rc=0
 run_help_out=$(bash "$REPO_ROOT/.ralph/bin/ralph" run --help 2>/dev/null) || rc=$?
-if [[ "$rc" -eq 0 && "$run_help_out" == *"--provider"* && "$run_help_out" == *"--max-iter"* ]]; then
+if [[ "$rc" -eq 0 && "$run_help_out" == *"--provider"* && "$run_help_out" == *"--max-round"* ]]; then
   _pass "ralph run --help: exit 0, contains flag names"
 else
   _fail "ralph run --help: rc=$rc out=$run_help_out"
@@ -1050,7 +1050,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
   "effort": "high",
   "started_at": "2026-05-01T12:00:00Z",
   "updated_at": "2026-05-01T12:01:00Z",
-  "iteration": 3,
+  "round": 3,
   "iteration_name": "I1",
   "state": "running",
   "tasks_total": 5,
@@ -1062,7 +1062,7 @@ SJEOF
 rc=0
 status_out=$(bash "$ws/.ralph/bin/ralph" status 2>/dev/null) || rc=$?
 fields_ok=1
-for f in run_id: run_dir: workspace: provider: model: effort: started_at: updated_at: iteration: iteration_name: state: tasks: exit_reason: last_error:; do
+for f in run_id: run_dir: workspace: provider: model: effort: started_at: updated_at: round: iteration_name: state: tasks: exit_reason: last_error:; do
   if [[ "$status_out" != *"$f"* ]]; then
     fields_ok=0
     break
@@ -1094,7 +1094,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
   "effort": "high",
   "started_at": "2026-05-01T12:00:00Z",
   "updated_at": "2026-05-01T12:01:00Z",
-  "iteration": 3,
+  "round": 3,
   "iteration_name": "I1",
   "state": "running",
   "tasks_total": 5,
@@ -1152,7 +1152,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
   "effort": "high",
   "started_at": "2026-05-01T12:00:00Z",
   "updated_at": "2026-05-01T12:01:00Z",
-  "iteration": 1,
+  "round": 1,
   "iteration_name": "I1",
   "state": "running",
   "tasks_total": 2,
@@ -1161,7 +1161,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
   "last_error": null
 }
 SJEOF
-run_a_dir="$ws/.ralph/runs/20260501-120000-aaa1111/iterations/iter-001"
+run_a_dir="$ws/.ralph/runs/20260501-120000-aaa1111/rounds/round-001"
 mkdir -p "$run_a_dir"
 echo "log from run A" > "$run_a_dir/provider.stdout.log"
 # Source libs and init watch state (direct function test)
@@ -1173,7 +1173,7 @@ _RALPH_TAIL_OFFSET=0
 _RALPH_TAIL_PREV_PATH=""
 _RALPH_WATCH_RUN_ID=""
 tmpout=$(mktemp)
-# Frame 1: establish run A, tail its iter log
+# Frame 1: establish run A, tail its round log
 _ralph_watch_tail_draw "$ws" "$ws/.ralph/status.json" >> "$tmpout"
 # Switch to run B
 cat > "$ws/.ralph/status.json" <<'SJEOF'
@@ -1186,7 +1186,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
   "effort": "high",
   "started_at": "2026-05-01T13:00:00Z",
   "updated_at": "2026-05-01T13:01:00Z",
-  "iteration": 1,
+  "round": 1,
   "iteration_name": "I1",
   "state": "running",
   "tasks_total": 3,
@@ -1195,7 +1195,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
   "last_error": null
 }
 SJEOF
-run_b_dir="$ws/.ralph/runs/20260501-130000-bbb2222/iterations/iter-001"
+run_b_dir="$ws/.ralph/runs/20260501-130000-bbb2222/rounds/round-001"
 mkdir -p "$run_b_dir"
 echo "log from run B" > "$run_b_dir/provider.stdout.log"
 # Frame 2: run_id changed → separator + new tail target
@@ -1206,7 +1206,7 @@ grep -q "log from run A" "$tmpout" && log_a_ok=1
 grep -q "log from run B" "$tmpout" && log_b_ok=1
 grep -q "20260501-130\.\.\." "$tmpout" && trunc_ok=1
 if [[ "$separator_ok" -eq 1 && "$log_a_ok" -eq 1 && "$log_b_ok" -eq 1 && "$trunc_ok" -eq 1 ]]; then
-  _pass "SC-024-2: run_id switch → separator + truncated id + both iter logs"
+  _pass "SC-024-2: run_id switch → separator + truncated id + both round logs"
 else
   _fail "SC-024-2: sep=$separator_ok logA=$log_a_ok logB=$log_b_ok trunc=$trunc_ok"
 fi
@@ -1214,23 +1214,23 @@ rm -f "$tmpout"
 cleanup_ws "$ws"
 
 echo ""
-echo "-- SC-024-2: watch -v follows active iter while provider oneshot is running"
+echo "-- SC-024-2: watch -v follows active round while provider oneshot is running"
 ws=$(setup_workspace)
 printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 stderr_file="$(mktemp)"
 rc=0
 RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=3 RALPH_PROGRESS_HEARTBEAT_SEC=0 \
-  bash "$ws/.ralph/bin/ralph" run --provider fake --max-iter 1 \
+  bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 1 \
   >/dev/null 2>"$stderr_file" &
 run_pid=$!
-status_iter_ok=0
+status_round_ok=0
 for _ in 1 2 3 4 5; do
   if [[ -f "$ws/.ralph/status.json" ]] \
-    && [[ "$(jq -r '.iteration // 0' "$ws/.ralph/status.json" 2>/dev/null)" == "1" ]]; then
+    && [[ "$(jq -r '.round // 0' "$ws/.ralph/status.json" 2>/dev/null)" == "1" ]]; then
     run_id="$(jq -r '.run_id // empty' "$ws/.ralph/status.json" 2>/dev/null)"
-    if [[ -n "$run_id" && -f "$ws/.ralph/runs/$run_id/iterations/iter-001/provider.stdout.log" ]]; then
-      status_iter_ok=1
+    if [[ -n "$run_id" && -f "$ws/.ralph/runs/$run_id/rounds/round-001/provider.stdout.log" ]]; then
+      status_round_ok=1
       break
     fi
   fi
@@ -1240,17 +1240,17 @@ tmpout=$(mktemp)
 _RALPH_TAIL_OFFSET=0
 _RALPH_TAIL_PREV_PATH=""
 _RALPH_WATCH_RUN_ID=""
-if [[ "$status_iter_ok" -eq 1 ]]; then
+if [[ "$status_round_ok" -eq 1 ]]; then
   _ralph_watch_tail_draw "$ws" "$ws/.ralph/status.json" >> "$tmpout"
 fi
 wait "$run_pid" 2>/dev/null || rc=$?
 reason="$(get_exit_reason "$(latest_run_dir "$ws")" 2>/dev/null)"
 tail_ok=0
 grep -q "fake: slow scenario" "$tmpout" 2>/dev/null && tail_ok=1
-if [[ "$status_iter_ok" -eq 1 && "$tail_ok" -eq 1 && "$rc" -eq 4 && "$reason" == "max_iterations" ]]; then
-  _pass "watch -v active iter: status points to iter-001 while provider is running and tail reads current log"
+if [[ "$status_round_ok" -eq 1 && "$tail_ok" -eq 1 && "$rc" -eq 4 && "$reason" == "max_rounds" ]]; then
+  _pass "watch -v active round: status points to round-001 while provider is running and tail reads current log"
 else
-  _fail "watch -v active iter: status_iter_ok=$status_iter_ok tail_ok=$tail_ok rc=$rc reason=$reason"
+  _fail "watch -v active round: status_round_ok=$status_round_ok tail_ok=$tail_ok rc=$rc reason=$reason"
 fi
 rm -f "$tmpout" "$stderr_file"
 cleanup_ws "$ws"
@@ -1268,7 +1268,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
   "effort": "high",
   "started_at": "2026-05-01T12:00:00Z",
   "updated_at": "2026-05-01T12:01:00Z",
-  "iteration": 3,
+  "round": 3,
   "iteration_name": "I1",
   "state": "running",
   "tasks_total": 5,
@@ -1285,7 +1285,7 @@ line_count="$(printf '%s\n' "$watch_out" | wc -l | tr -d ' ')"
 has_bar=0
 if printf '%s\n' "$watch_out" | grep -q "run: 20260501-120..." \
   && printf '%s\n' "$watch_out" | grep -q "iter_name: I1" \
-  && printf '%s\n' "$watch_out" | grep -q "iter 3" \
+  && printf '%s\n' "$watch_out" | grep -q "round 3" \
   && printf '%s\n' "$watch_out" | grep -q "2/5 tasks" \
   && printf '%s\n' "$watch_out" | grep -q "state: running" \
   && printf '%s\n' "$watch_out" | grep -q "provider: fake"; then
@@ -1323,11 +1323,11 @@ if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
 else
   _fail "blocked_by_human: expected blocked_by_human/rc=7, got $reason/$rc"
 fi
-# 验证未调用 provider（无 iter-001 目录或 iter 目录中无 log）
-if [[ ! -d "$run_dir/iterations/iter-001" ]]; then
-  _pass "blocked_by_human: no iteration directory created (provider not called)"
+# 验证未调用 provider（无 round-001 目录或 round 目录中无 log）
+if [[ ! -d "$run_dir/rounds/round-001" ]]; then
+  _pass "blocked_by_human: no round directory created (provider not called)"
 else
-  _fail "blocked_by_human: iteration directory created (should not call provider)"
+  _fail "blocked_by_human: round directory created (should not call provider)"
 fi
 
 echo ""
@@ -1525,24 +1525,24 @@ RALPH_MOCK_CODEX_SCENARIO=happy \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
   bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
-iter_dir="${run_dir}/iterations/iter-001"
+round_dir="${run_dir}/rounds/round-001"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 stdout_ok=0
 # provider.stdout.log 含 thread.started 事件
-[[ -f "$iter_dir/provider.stdout.log" ]] && \
-  grep -q '"thread.started"' "$iter_dir/provider.stdout.log" 2>/dev/null && stdout_ok=1
+[[ -f "$round_dir/provider.stdout.log" ]] && \
+  grep -q '"thread.started"' "$round_dir/provider.stdout.log" 2>/dev/null && stdout_ok=1
 session_id_ok=0
-grep -qE '"session_id":[[:space:]]*"[^"]+"' "$iter_dir/meta.json" 2>/dev/null && session_id_ok=1
+grep -qE '"session_id":[[:space:]]*"[^"]+"' "$round_dir/meta.json" 2>/dev/null && session_id_ok=1
 session_ok=0
-[[ -f "$iter_dir/session.codex.jsonl" ]] && session_ok=1
+[[ -f "$round_dir/session.codex.jsonl" ]] && session_ok=1
 capture_ok=0
-grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
+grep -q '"capture_status": "ok"' "$round_dir/meta.json" 2>/dev/null && capture_ok=1
 history_ok=0
 # session.history.log 含 assistant / tool-use / tool-result（真实 CLI 不含 user 事件）
-[[ -f "$iter_dir/session.history.log" ]] && \
-  grep -q '\[assistant\]' "$iter_dir/session.history.log" && \
-  grep -q '\[tool-use name=Bash\]' "$iter_dir/session.history.log" && \
-  grep -q '\[tool-result name=Bash\]' "$iter_dir/session.history.log" && history_ok=1
+[[ -f "$round_dir/session.history.log" ]] && \
+  grep -q '\[assistant\]' "$round_dir/session.history.log" && \
+  grep -q '\[tool-use name=Bash\]' "$round_dir/session.history.log" && \
+  grep -q '\[tool-result name=Bash\]' "$round_dir/session.history.log" && history_ok=1
 if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_id_ok" -eq 1 \
    && "$session_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
   _pass "codex happy: exit 0, done, thread.started, session_id, session.codex.jsonl, capture_status=ok, history.log derived"
@@ -1620,12 +1620,12 @@ RALPH_MOCK_CODEX_SCENARIO=happy \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
   bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
-iter_dir="${run_dir}/iterations/iter-001"
+round_dir="${run_dir}/rounds/round-001"
 jsonl_ok=0; capture_ok=0; src_ok=0; home_clean=1
-[[ -f "$iter_dir/session.codex.jsonl" ]] && jsonl_ok=1
-grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
+[[ -f "$round_dir/session.codex.jsonl" ]] && jsonl_ok=1
+grep -q '"capture_status": "ok"' "$round_dir/meta.json" 2>/dev/null && capture_ok=1
 # session_source_path 应在 custom_cfg/sessions/ 下
-src_path="$(jq -r '.session_source_path // ""' "$iter_dir/meta.json" 2>/dev/null)"
+src_path="$(jq -r '.session_source_path // ""' "$round_dir/meta.json" 2>/dev/null)"
 [[ "$src_path" == "$custom_cfg/sessions/"* ]] && src_ok=1
 # 反向断言：$HOME/.codex/sessions/ 下不应有任何 jsonl（mock-codex 写到 CODEX_HOME）
 if find "$SETUP_CODEX_HOME/.codex/sessions" -name "*.jsonl" -type f 2>/dev/null | grep -q .; then
@@ -1646,14 +1646,14 @@ git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single 
 rc=0
 RALPH_MOCK_CODEX_SCENARIO=missing_thread_id \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-iter 1 2>/dev/null || rc=$?
+  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
-iter_dir="${run_dir}/iterations/iter-001"
+round_dir="${run_dir}/rounds/round-001"
 warn_ok=0; history_ok=0
-grep -q '"capture_status": "warning"' "$iter_dir/meta.json" 2>/dev/null && warn_ok=1
+grep -q '"capture_status": "warning"' "$round_dir/meta.json" 2>/dev/null && warn_ok=1
 # history 派生从 provider.stdout.log 读取，不依赖 session 文件
-[[ -f "$iter_dir/session.history.log" && -s "$iter_dir/session.history.log" ]] && \
-  grep -q '\[assistant\]' "$iter_dir/session.history.log" && history_ok=1
+[[ -f "$round_dir/session.history.log" && -s "$round_dir/session.history.log" ]] && \
+  grep -q '\[assistant\]' "$round_dir/session.history.log" && history_ok=1
 if [[ "$warn_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
   _pass "codex missing thread_id: capture_status=warning, session.history.log derived from stdout"
 else
@@ -1728,8 +1728,8 @@ RALPH_MOCK_CODEX_SCENARIO=happy RALPH_EFFORT=low \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
   bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
-iter_dir="${run_dir}/iterations/iter-001"
-received_effort="$(grep -E '^[[:space:]]*\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+round_dir="${run_dir}/rounds/round-001"
+received_effort="$(grep -E '^[[:space:]]*\{' "$round_dir/provider.stdout.log" 2>/dev/null \
   | jq -r 'select(.type == "thread.started") | ._received_effort // empty' 2>/dev/null \
   | head -1)" || received_effort=""
 if [[ "$rc" -eq 0 && "$received_effort" == "model_reasoning_effort=low" ]]; then
@@ -1749,8 +1749,8 @@ RALPH_MOCK_CODEX_SCENARIO=happy RALPH_EFFORT=none \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
   bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
-iter_dir="${run_dir}/iterations/iter-001"
-received_effort="$(grep -E '^[[:space:]]*\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+round_dir="${run_dir}/rounds/round-001"
+received_effort="$(grep -E '^[[:space:]]*\{' "$round_dir/provider.stdout.log" 2>/dev/null \
   | jq -r 'select(.type == "thread.started") | ._received_effort // empty' 2>/dev/null \
   | head -1)" || received_effort=""
 if [[ "$rc" -eq 0 && -z "$received_effort" ]]; then
@@ -1770,8 +1770,8 @@ RALPH_MOCK_CODEX_SCENARIO=happy RALPH_MODEL="" \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
   bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
-iter_dir="${run_dir}/iterations/iter-001"
-received_model="$(grep -E '^[[:space:]]*\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+round_dir="${run_dir}/rounds/round-001"
+received_model="$(grep -E '^[[:space:]]*\{' "$round_dir/provider.stdout.log" 2>/dev/null \
   | jq -r 'select(.type == "thread.started") | ._received_model // empty' 2>/dev/null \
   | head -1)" || received_model=""
 if [[ "$rc" -eq 0 && -z "$received_model" ]]; then
@@ -1842,26 +1842,26 @@ cleanup_codex_ws
 	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
 	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
-	iter_dir="${run_dir}/iterations/iter-001"
+	round_dir="${run_dir}/rounds/round-001"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 	stdout_ok=0
 	# stream-json 模式：provider.stdout.log 含 init + message + result 事件（QA-2 真实 schema）
-	[[ -f "$iter_dir/provider.stdout.log" ]] && \
-	  grep -q '"type":"init"' "$iter_dir/provider.stdout.log" 2>/dev/null && \
-	  grep -q '"type":"result"' "$iter_dir/provider.stdout.log" 2>/dev/null && stdout_ok=1
+	[[ -f "$round_dir/provider.stdout.log" ]] && \
+	  grep -q '"type":"init"' "$round_dir/provider.stdout.log" 2>/dev/null && \
+	  grep -q '"type":"result"' "$round_dir/provider.stdout.log" 2>/dev/null && stdout_ok=1
 	session_id_ok=0
-	grep -qE '"session_id":[[:space:]]*"[^"]+"' "$iter_dir/meta.json" 2>/dev/null && session_id_ok=1
+	grep -qE '"session_id":[[:space:]]*"[^"]+"' "$round_dir/meta.json" 2>/dev/null && session_id_ok=1
 	session_ok=0
-	[[ -f "$iter_dir/session.gemini.json" ]] && session_ok=1
+	[[ -f "$round_dir/session.gemini.json" ]] && session_ok=1
 	capture_ok=0
-	grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
+	grep -q '"capture_status": "ok"' "$round_dir/meta.json" 2>/dev/null && capture_ok=1
 	history_ok=0
 	# session.history.log 含 [assistant] / [tool-use] / [tool-result] / [result]（从 provider.stdout.log 事件流派生）
-	[[ -f "$iter_dir/session.history.log" ]] && \
-	  grep -q '\[assistant\]' "$iter_dir/session.history.log" && \
-	  grep -q '\[tool-use Bash\]' "$iter_dir/session.history.log" && \
-	  grep -q '\[tool-result\]' "$iter_dir/session.history.log" && \
-	  grep -q '\[result\]' "$iter_dir/session.history.log" && history_ok=1
+	[[ -f "$round_dir/session.history.log" ]] && \
+	  grep -q '\[assistant\]' "$round_dir/session.history.log" && \
+	  grep -q '\[tool-use Bash\]' "$round_dir/session.history.log" && \
+	  grep -q '\[tool-result\]' "$round_dir/session.history.log" && \
+	  grep -q '\[result\]' "$round_dir/session.history.log" && history_ok=1
 	if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_id_ok" -eq 1 \
 	   && "$session_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
 	  _pass "gemini happy: exit 0, done, stream-json events, session_id, session.gemini.json, capture_status=ok, history.log derived"
@@ -1938,12 +1938,12 @@ cleanup_codex_ws
 	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
 	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
-	iter_dir="${run_dir}/iterations/iter-001"
+	round_dir="${run_dir}/rounds/round-001"
 	json_ok=0; capture_ok=0; src_ok=0; home_clean=1
-	[[ -f "$iter_dir/session.gemini.json" ]] && json_ok=1
-	grep -q '"capture_status": "ok"' "$iter_dir/meta.json" 2>/dev/null && capture_ok=1
+	[[ -f "$round_dir/session.gemini.json" ]] && json_ok=1
+	grep -q '"capture_status": "ok"' "$round_dir/meta.json" 2>/dev/null && capture_ok=1
 	# session_source_path 应在 custom_cfg/.gemini/tmp/ 下
-	src_path="$(jq -r '.session_source_path // ""' "$iter_dir/meta.json" 2>/dev/null)"
+	src_path="$(jq -r '.session_source_path // ""' "$round_dir/meta.json" 2>/dev/null)"
 	[[ "$src_path" == "$custom_cfg/.gemini/tmp/"* ]] && src_ok=1
 	# 反向断言：$HOME/.gemini/ 下不应有任何 session 文件（mock-gemini 写到 GEMINI_CLI_HOME）
 	if find "$SETUP_GEMINI_HOME/.gemini" -name "*.json" -type f 2>/dev/null | grep -q .; then
@@ -1964,12 +1964,12 @@ cleanup_codex_ws
 	rc=0
 	RALPH_MOCK_GEMINI_SCENARIO=session_mismatch \
 	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
-	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini --max-iter 1 2>/dev/null || rc=$?
+	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini --max-round 1 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
-	iter_dir="${run_dir}/iterations/iter-001"
+	round_dir="${run_dir}/rounds/round-001"
 	json_ok=0; warn_ok=0
-	[[ -f "$iter_dir/session.gemini.json" ]] && json_ok=1
-	grep -q '"fallback by mtime"' "$iter_dir/meta.json" 2>/dev/null && warn_ok=1
+	[[ -f "$round_dir/session.gemini.json" ]] && json_ok=1
+	grep -q '"fallback by mtime"' "$round_dir/meta.json" 2>/dev/null && warn_ok=1
 	if [[ "$json_ok" -eq 1 && "$warn_ok" -eq 1 ]]; then
 	  _pass "gemini session mtime fallback: session.gemini.json exists, capture_warning=fallback by mtime"
 	else
@@ -1985,15 +1985,15 @@ cleanup_codex_ws
 	rc=0
 	RALPH_MOCK_GEMINI_SCENARIO=no_session_file \
 	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
-	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini --max-iter 1 2>/dev/null || rc=$?
+	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini --max-round 1 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
-	iter_dir="${run_dir}/iterations/iter-001"
+	round_dir="${run_dir}/rounds/round-001"
 	no_session=0; warn_ok=0; history_ok=0
-	[[ ! -f "$iter_dir/session.gemini.json" ]] && no_session=1
-	grep -q '"capture_status": "warning"' "$iter_dir/meta.json" 2>/dev/null && warn_ok=1
+	[[ ! -f "$round_dir/session.gemini.json" ]] && no_session=1
+	grep -q '"capture_status": "warning"' "$round_dir/meta.json" 2>/dev/null && warn_ok=1
 	# 派生视图仍从 stdout 产出（不依赖 session 文件）
-	[[ -f "$iter_dir/session.history.log" ]] && \
-	  grep -q '\[assistant\]' "$iter_dir/session.history.log" && history_ok=1
+	[[ -f "$round_dir/session.history.log" ]] && \
+	  grep -q '\[assistant\]' "$round_dir/session.history.log" && history_ok=1
 	if [[ "$no_session" -eq 1 && "$warn_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
 	  _pass "gemini missing session: no session.gemini.json, capture_status=warning, history from stdout"
 	else
@@ -2060,8 +2060,8 @@ cleanup_codex_ws
 	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
 	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
-	iter_dir="${run_dir}/iterations/iter-001"
-	received_model="$(grep -E '^\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+	round_dir="${run_dir}/rounds/round-001"
+	received_model="$(grep -E '^\{' "$round_dir/provider.stdout.log" 2>/dev/null \
 	  | jq -r 'select(.type == "init") | ._received_model // empty' 2>/dev/null \
 	  | head -1)" || received_model=""
 	if [[ "$rc" -eq 0 && -z "$received_model" ]]; then
@@ -2081,8 +2081,8 @@ cleanup_codex_ws
 	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
 	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
-	iter_dir="${run_dir}/iterations/iter-001"
-	received_model="$(grep -E '^\{' "$iter_dir/provider.stdout.log" 2>/dev/null \
+	round_dir="${run_dir}/rounds/round-001"
+	received_model="$(grep -E '^\{' "$round_dir/provider.stdout.log" 2>/dev/null \
 	  | jq -r 'select(.type == "init") | ._received_model // empty' 2>/dev/null \
 	  | head -1)" || received_model=""
 	if [[ "$rc" -eq 0 && "$received_model" == "gemini-2.5-pro" ]]; then

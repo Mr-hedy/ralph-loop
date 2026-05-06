@@ -22,23 +22,23 @@ provider_check_deps() {
 }
 
 # ── provider_oneshot ─────────────────────────────────────────────────────────
-# <prompt_file> <log_path> <iter_dir>
-# log_path 即 iter_dir/provider.stdout.log，stream-json events 一行一行写入
+# <prompt_file> <log_path> <round_dir>
+# log_path 即 round_dir/provider.stdout.log，stream-json events 一行一行写入
 provider_oneshot() {
   local prompt_file="$1"
   local log_path="$2"
-  local iter_dir="$3"
+  local round_dir="$3"
 
   local session_id
   session_id="$(ralph_uuid)"
 
   # session_id 写入 meta.json（meta.json 已由 run.sh 在本函数调用前建立骨架）
-  update_meta_jq "$iter_dir" '.session_id = $sid' --arg sid "$session_id"
+  update_meta_jq "$round_dir" '.session_id = $sid' --arg sid "$session_id"
 
   # provider_started_at（mtime fallback 锚点替代 .session_start）
   local provider_started_at
   provider_started_at="$(ralph_timestamp)"
-  update_meta_jq "$iter_dir" '.provider_started_at = $ts' --arg ts "$provider_started_at"
+  update_meta_jq "$round_dir" '.provider_started_at = $ts' --arg ts "$provider_started_at"
 
   touch "$log_path"
 
@@ -95,15 +95,15 @@ _claude_cwd_hash() {
 }
 
 provider_collect_session() {
-  local iter_dir="$1"
+  local round_dir="$1"
 
   # 读取 session_id（由 provider_oneshot 写入 meta.json）
   local session_id
-  session_id="$(jq -r '.session_id // empty' "$iter_dir/meta.json" 2>/dev/null)"
+  session_id="$(jq -r '.session_id // empty' "$round_dir/meta.json" 2>/dev/null)"
   if [[ -z "$session_id" || "$session_id" == "null" ]]; then
-    update_meta_jq "$iter_dir" \
+    update_meta_jq "$round_dir" \
       '.capture_status = "warning" | .capture_warning = "session_id missing in meta.json"'
-    touch "$iter_dir/session.history.log"
+    touch "$round_dir/session.history.log"
     return 0
   fi
 
@@ -113,12 +113,12 @@ provider_collect_session() {
   local claude_root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
   local session_dir="$claude_root/projects/$cwd_hash"
   local expected_file="$session_dir/${session_id}.jsonl"
-  local dst="$iter_dir/session.claude.jsonl"
+  local dst="$round_dir/session.claude.jsonl"
 
   if [[ -f "$expected_file" ]]; then
     # 精确匹配：按 session_id 定位
     cp "$expected_file" "$dst"
-    update_meta_jq "$iter_dir" \
+    update_meta_jq "$round_dir" \
       '.capture_status = "ok" | .session_source_path = $src | .session_copied_path = $dst' \
       --arg src "$expected_file" --arg dst "$dst"
   else
@@ -127,7 +127,7 @@ provider_collect_session() {
     local fallback_file=""
     if [[ -d "$session_dir" ]]; then
       local started_at
-      started_at="$(jq -r '.provider_started_at // empty' "$iter_dir/meta.json" 2>/dev/null)"
+      started_at="$(jq -r '.provider_started_at // empty' "$round_dir/meta.json" 2>/dev/null)"
       if [[ -n "$started_at" && "$started_at" != "null" ]]; then
         # 转 BSD find -newermt 兼容格式（local "YYYY-MM-DD HH:MM:SS"），-1s 缓冲
         local started_epoch
@@ -152,20 +152,20 @@ provider_collect_session() {
 
     if [[ -n "$fallback_file" ]]; then
       cp "$fallback_file" "$dst"
-      update_meta_jq "$iter_dir" \
+      update_meta_jq "$round_dir" \
         '.capture_status = "ok" | .capture_warning = "fallback by mtime" | .session_source_path = $src | .session_copied_path = $dst' \
         --arg src "$fallback_file" --arg dst "$dst"
     else
-      update_meta_jq "$iter_dir" \
+      update_meta_jq "$round_dir" \
         '.capture_status = "warning" | .capture_warning = "session file not found"'
     fi
   fi
 
   # 派生 session.history.log（人话视图，含 thinking + tool_use input 摘要）
   if [[ -f "$dst" ]]; then
-    _claude_derive_history "$dst" "$iter_dir/session.history.log"
+    _claude_derive_history "$dst" "$round_dir/session.history.log"
   fi
-  touch "$iter_dir/session.history.log"   # 保证文件存在（warning 时写空文件）
+  touch "$round_dir/session.history.log"   # 保证文件存在（warning 时写空文件）
   return 0
 }
 
@@ -265,16 +265,16 @@ _claude_classify_error() {
 # ── provider_diagnose ────────────────────────────────────────────────────────
 # 从 provider.stdout.log 末尾找 result 事件（stream-json 模式）
 provider_diagnose() {
-  local iter_dir="$1"
-  local log_path="$iter_dir/provider.stdout.log"
+  local round_dir="$1"
+  local log_path="$round_dir/provider.stdout.log"
 
   # 读取 exit_code（provider_oneshot 回填后可用）
   local exit_code
-  exit_code="$(jq -r '.exit_code // 0' "$iter_dir/meta.json" 2>/dev/null)" || exit_code=0
+  exit_code="$(jq -r '.exit_code // 0' "$round_dir/meta.json" 2>/dev/null)" || exit_code=0
 
   # log 文件不存在（CLI crash 无输出）→ unknown
   if [[ ! -f "$log_path" ]]; then
-    update_meta_jq "$iter_dir" \
+    update_meta_jq "$round_dir" \
       '.error = {"type": "unknown", "message": "no stdout log file", "raw": ""}'
     return 0
   fi
@@ -290,7 +290,7 @@ provider_diagnose() {
     if [[ "$exit_code" == "0" ]]; then
       return 0
     fi
-    update_meta_jq "$iter_dir" \
+    update_meta_jq "$round_dir" \
       '.error = {"type": "unknown", "message": "no result event in stream", "raw": ""}'
     return 0
   fi
@@ -311,7 +311,7 @@ provider_diagnose() {
     error_type="unknown"
   fi
 
-  update_meta_jq "$iter_dir" \
+  update_meta_jq "$round_dir" \
     '.error = {"type": $t, "message": $m, "raw": $r}' \
     --arg t "$error_type" \
     --arg m "${result_text:0:200}" \

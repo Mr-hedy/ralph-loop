@@ -5,10 +5,10 @@
 RALPH_PROVIDER_CLI="${RALPH_FAKE_CLI:-bash}"
 
 _fake_run_state_file() {
-  local iter_dir="$1"
+  local round_dir="$1"
   local name="$2"
   local run_dir
-  run_dir="$(dirname "$(dirname "$iter_dir")")"
+  run_dir="$(dirname "$(dirname "$round_dir")")"
   printf '%s/.fake-%s.done' "$run_dir" "$name"
 }
 
@@ -19,15 +19,15 @@ provider_check_deps() {
 }
 
 # ── provider_oneshot ─────────────────────────────────────────────────────────
-# <prompt_file> <log_path> <iter_dir>
+# <prompt_file> <log_path> <round_dir>
 provider_oneshot() {
   local prompt_file="$1"
   local log_path="$2"
-  local iter_dir="$3"
+  local round_dir="$3"
   local scenario="${RALPH_FAKE_SCENARIO:-happy}"
   local sleep_sec="${RALPH_FAKE_SLEEP:-0}"
 
-  mkdir -p "$iter_dir"
+  mkdir -p "$round_dir"
   touch "$log_path"
 
   case "$scenario" in
@@ -70,10 +70,10 @@ provider_oneshot() {
       return 1
       ;;
     partial_progress)
-      # iter 1：标记第 1 条任务 + 写一个文件（使 worktree fingerprint 变化）
-      # iter 2+：什么都不做（触发 stagnation 累加）
+      # round 1：标记第 1 条任务 + 写一个文件（使 worktree fingerprint 变化）
+      # round 2+：什么都不做（触发 stagnation 累加）
       local state_file
-      state_file="$(_fake_run_state_file "$iter_dir" "partial-progress")"
+      state_file="$(_fake_run_state_file "$round_dir" "partial-progress")"
       if [[ ! -f "$state_file" ]]; then
         local tasks_file="${RALPH_WORKSPACE:-.}/.ralph/TASKS.md"
         if [[ -f "$tasks_file" ]]; then
@@ -96,13 +96,13 @@ provider_oneshot() {
       return 0
       ;;
     append_task_once)
-      # iter 1：勾选第 1 条任务并追加一条新任务；iter 2：勾选追加任务。
+      # round 1：勾选第 1 条任务并追加一条新任务；round 2：勾选追加任务。
       # 用于验证 run/status/result 的 tasks_total 会随 TASKS.md 变化刷新。
       local tasks_file="${RALPH_WORKSPACE:-.}/.ralph/TASKS.md"
       if [[ -f "$tasks_file" ]]; then
         local found=0 tmpout
         local state_file
-        state_file="$(_fake_run_state_file "$iter_dir" "append-task-once")"
+        state_file="$(_fake_run_state_file "$round_dir" "append-task-once")"
         tmpout="$(mktemp)"
         while IFS= read -r line || [[ -n "$line" ]]; do
           if [[ "$found" -eq 0 && "$line" =~ ^([[:space:]]*-[[:space:]]+)\[[[:space:]]\](.*)$ ]]; then
@@ -133,7 +133,7 @@ provider_oneshot() {
 	      local actual_sleep="${sleep_sec:-30}"
 	      sleep "$actual_sleep" &
 	      local child_pid=$!
-	      printf '%s\n' "$child_pid" > "$iter_dir/slow-child.pid"
+	      printf '%s\n' "$child_pid" > "$round_dir/slow-child.pid"
 	      echo "fake: slow_child scenario, child ${child_pid} sleeping ${actual_sleep}s" >> "$log_path"
 	      wait "$child_pid"
 	      return 0
@@ -147,11 +147,11 @@ provider_oneshot() {
 
 # ── provider_collect_session ─────────────────────────────────────────────────
 provider_collect_session() {
-  local iter_dir="$1"
+  local round_dir="$1"
   # fake: 写占位派生视图
-  touch "$iter_dir/session.history.log"
+  touch "$round_dir/session.history.log"
   # 更新 meta.json capture_status（若已存在）
-  local meta="$iter_dir/meta.json"
+  local meta="$round_dir/meta.json"
   if [[ -f "$meta" ]]; then
     sed -i.bak 's|"capture_status": ".*"|"capture_status": "ok"|' "$meta" 2>/dev/null || true
     rm -f "${meta}.bak"
@@ -161,9 +161,9 @@ provider_collect_session() {
 
 # ── provider_diagnose ────────────────────────────────────────────────────────
 provider_diagnose() {
-  local iter_dir="$1"
-  local log_file="$iter_dir/provider.stdout.log"
-  local meta="$iter_dir/meta.json"
+  local round_dir="$1"
+  local log_file="$round_dir/provider.stdout.log"
+  local meta="$round_dir/meta.json"
   [[ -f "$meta" ]] || return 0
 
   local exit_code=0

@@ -25,7 +25,7 @@ _ralph_watch_status_color() {
   if [[ "$state" == "running" || "$exit_reason" == "done" ]]; then
     printf '%s' "green"
   elif [[ "$exit_reason" == "provider_failed" || "$exit_reason" == "timeout" \
-        || "$exit_reason" == "max_iterations" || "$exit_reason" == "stagnated" ]]; then
+        || "$exit_reason" == "max_rounds" || "$exit_reason" == "stagnated" ]]; then
     printf '%s' "red"
   elif [[ "$exit_reason" == "blocked_by_human" || "$exit_reason" == "locked" \
         || "$exit_reason" == "interrupted" ]]; then
@@ -42,9 +42,9 @@ _ralph_watch_bar_text() {
     return 0
   fi
 
-  local run_id iter iter_name checked total state exit_reason provider short_id bar
+  local run_id round iter_name checked total state exit_reason provider short_id bar
   run_id="$(_ralph_status_json_val "$f" "run_id")"
-  iter="$(_ralph_status_json_val "$f" "iteration")"
+  round="$(_ralph_status_json_val "$f" "round")"
   iter_name="$(_ralph_status_json_val "$f" "iteration_name")"
   checked="$(_ralph_status_json_val "$f" "tasks_checked")"
   total="$(_ralph_status_json_val "$f" "tasks_total")"
@@ -76,7 +76,7 @@ _ralph_watch_bar_text() {
   if [[ -n "$iter_name" && "$iter_name" != "null" ]]; then
     bar+="  ${dim}iter_name:${reset} ${iter_name}"
   fi
-  bar+="  ${dim}iter${reset} ${iter}"
+  bar+="  ${dim}round${reset} ${round}"
   bar+="  ${checked}/${total} ${dim}tasks${reset}"
   bar+="  ${dim}state:${reset} ${status_color}${state:-}${reset}"
   if [[ -n "$exit_reason" && "$exit_reason" != "null" ]]; then
@@ -110,27 +110,27 @@ _ralph_watch_bar_draw() {
   printf '\033[%d;1H\033[2K%s' "$lines" "$bar"
 }
 
-# ── Build iter log path from status.json run_id + iteration ──────────────────
-_ralph_watch_iter_log_path() {
+# ── Build round log path from status.json run_id + round ──────────────────
+_ralph_watch_round_log_path() {
   local workspace="$1" status_file="$2"
   if [[ ! -f "$status_file" ]]; then
     return 1
   fi
-  local run_id iter
+  local run_id round
   run_id="$(_ralph_status_json_val "$status_file" "run_id")"
-  iter="$(_ralph_status_json_val "$status_file" "iteration")"
-  if [[ -z "$run_id" || -z "$iter" || "$run_id" == "null" || "$iter" == "null" ]]; then
+  round="$(_ralph_status_json_val "$status_file" "round")"
+  if [[ -z "$run_id" || -z "$round" || "$run_id" == "null" || "$round" == "null" ]]; then
     return 1
   fi
   local zero_padded
-  printf -v zero_padded '%03d' "$iter"
-  printf '%s/.ralph/runs/%s/iterations/iter-%s/provider.stdout.log' "$workspace" "$run_id" "$zero_padded"
+  printf -v zero_padded '%03d' "$round"
+  printf '%s/.ralph/runs/%s/rounds/round-%s/provider.stdout.log' "$workspace" "$run_id" "$zero_padded"
 }
 
-# ── Tail area: print new lines from current iter log ─────────────────────────
+# ── Tail area: print new lines from current round log ─────────────────────────
 # Tracks last-read byte offset in _RALPH_TAIL_OFFSET (per log path).
 # When run_id changes: prints separator, resets tail state.
-# When iter changes (same run): resets offset.
+# When round changes (same run): resets offset.
 _ralph_watch_tail_draw() {
   local workspace="$1" status_file="$2"
 
@@ -150,13 +150,13 @@ _ralph_watch_tail_draw() {
   fi
 
   local log_path
-  log_path="$(_ralph_watch_iter_log_path "$workspace" "$status_file")" || return 0
+  log_path="$(_ralph_watch_round_log_path "$workspace" "$status_file")" || return 0
 
   if [[ ! -f "$log_path" ]]; then
     return 0
   fi
 
-  # Detect iter switch: path changed → reset offset
+  # Detect round switch: path changed → reset offset
   if [[ "${_RALPH_TAIL_PREV_PATH:-}" != "$log_path" ]]; then
     _RALPH_TAIL_PREV_PATH="$log_path"
     _RALPH_TAIL_OFFSET=0
@@ -176,7 +176,7 @@ _ralph_watch_tail_draw() {
 }
 
 # ── Render one frame: tail area + sticky bar ─────────────────────────────────
-# RALPH_WATCH_VERBOSE=1 时上方区域 tail iter log；默认 0 时只刷新 sticky bar
+# RALPH_WATCH_VERBOSE=1 时上方区域 tail round log；默认 0 时只刷新 sticky bar
 ralph_watch_frame() {
   local workspace="$1" status_file="$2"
   if [[ "${RALPH_WATCH_VERBOSE:-0}" == "1" ]]; then

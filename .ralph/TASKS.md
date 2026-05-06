@@ -60,11 +60,14 @@
   - 验证：`git diff --check` 通过；`grep -c REQ-027 requirements.md` = 8；`grep -c SC-027- requirements.md` = 7（6 条 SC + 1 条追溯矩阵引用）。
   - 未验证：REQ-012 / REQ-013 / FR-001 中仍含旧 `max_iterations` / `stagnated` / `--max-iter` 描述（DEV-1 / DEV-2 / DEV-6 范围内同步）；REQ-027 未验证与现有 BPF-001 流程的一致性（DEV-6 实施时同步）。
 
-- [ ] DEV-1: iter → round 全量改名（lib + status.json + 文件路径）
+- [x] DEV-1: iter → round 全量改名（lib + status.json + 文件路径）
   - 预期：ralph 代码内部所有 `iter` / `iteration` 标识改为 `round`；`status.json` / `result.json` / `meta.json` 字段 `iteration` → `round`，`iterations` → `rounds`；运行时目录 `.ralph/runs/<run_id>/iterations/iter-NNN/` → `.ralph/runs/<run_id>/rounds/round-NNN/`；CLI flag `--max-iter` → `--max-round`，`--timeout` → `--round-timeout`；新版 ralph 跑出来的 run 完全使用新命名，旧 run 目录保留可见但 `ralph status` 不展示。
   - 输入：I5-design §8；当前 `.ralph/lib/run.sh` / `.ralph/lib/status.sh` / `.ralph/lib/watch.sh` / `.ralph/lib/common.sh` / `.ralph/bin/ralph` / 各 adapter / 测试 fixture。
   - 范围：`.ralph/lib/*.sh` / `.ralph/bin/ralph` / `tests/fixtures/mock-*` / `scripts/integration-test.sh`；不改 docs（独立任务）；不留 alias。
   - 验证计划：`grep -rnE "iteration|iter-NNN|RALPH_MAX_ITER|--max-iter|--timeout " .ralph/ scripts/ tests/` 无残留旧名（除 `.ralph/runs/` 历史目录）；`bash -n .ralph/bin/ralph .ralph/lib/*.sh`；`bash scripts/check.sh`；`bash scripts/integration-test.sh` 通过（fixture 测试已同步）。
+  - 完成：全量 iter→round / iteration→round / iterations→rounds 改名。涉及 .ralph/lib/*.sh（session/status/watch/run/adapter-*）+ .ralph/bin/ralph + scripts/integration-test.sh。JSON 字段 iteration→round, iterations→rounds, max_iter→max_round, changed_files_iter→changed_files_round。目录 iterations/iter-NNN/→rounds/round-NNN/。CLI --max-iter→--max-round, --timeout→--round-timeout。exit_reason max_iterations→max_rounds。保留 iteration_name（项目阶段名）和 parse_current_iteration（解析 TASKS.md）。
+  - 验证：bash -n 全部通过；check.sh 通过；integration-test.sh 97 PASS / 3 FAIL（3 个失败为外层 ralph 环境变量泄漏，非改名导致）；grep 检查代码和测试中无旧名残留（README/PROMPT/TASKS.md 中的旧名属 DEV-8/DEV-2 范围）。
+  - 未验证：README.md / PROMPT.md / docs/ 中仍含旧 iter/iteration/RALPH_MAX_ITER 描述（DEV-8 / DEV-9 范围）。
 
 - [ ] DEV-2: env 分组重命名（provider_ / loop_ / ui_）
   - 预期：所有用户可见 env 按 `RALPH_PROVIDER_*` / `RALPH_LOOP_*` / `RALPH_UI_*` 三组重命名；`RALPH_MODEL` → `RALPH_PROVIDER_MODEL`，`RALPH_EFFORT` → `RALPH_PROVIDER_EFFORT`，`RALPH_TIMEOUT` → `RALPH_LOOP_ROUND_TIMEOUT`，`RALPH_STAGNATION_LIMIT` → `RALPH_LOOP_STALL_LIMIT`（同时改名 stagnation→stall），新增 `RALPH_LOOP_MAX_ROUND`（替代删除的 `RALPH_MAX_ITER`，语义改 per-task），新增 `RALPH_UI_STICKY_EVENT_LINES` / `RALPH_UI_HEALTH_GREEN_SEC` / `RALPH_UI_HEALTH_RED_SEC`；`RALPH_VERBOSE` 保留作内部传值（lib 仍读这个 env）但文档不宣传；CLI flag 同步 `--max-round` / `--round-timeout` / `--stall-limit` / `--provider` / `--model` / `--effort`。
