@@ -96,24 +96,29 @@ _ralph_watch_filter_events() {
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" =~ ^\{ ]] || continue
     printf '%s\n' "$line" | jq -r '
-      def trunc($n): tostring | if length > $n then .[0:$n] else . end;
+      def flat: tostring | gsub("\\s+"; " ");
+      def trunc($n): flat | if length > $n then .[0:$n] else . end;
       if .type == "system" and .subtype == "init" then
         "  ⚙ session " + ((.session_id // "") | .[0:8])
       elif .type == "assistant" then
         ((.message.content // []) | if type == "array" then . else [] end | .[]
-          | if .type == "thinking" then "  💭 " + ((.thinking // "") | .[0:120])
-            elif .type == "text"   then "  💬 " + ((.text // "") | .[0:120])
-            elif .type == "tool_use" then "  🔧 " + (.name // "?") + " " + ((.input // {}) | tostring | .[0:80])
+          | if .type == "thinking" then "  💭 " + ((.thinking // "") | trunc(120))
+            elif .type == "text"   then "  💬 " + ((.text // "") | trunc(120))
+            elif .type == "tool_use" then "  🔧 " + (.name // "?") + " " + ((.input // {}) | trunc(80))
             else empty end)
       elif .type == "user" then
         ((.message.content // []) | if type == "array" then . else [] end | .[]
           | select(.type == "tool_result")
-          | "  ⏎ result " + ((.content // "") | tostring | .[0:80]))
-      elif .type == "result" and has("text") then
-        "  ✓ result " + ((.text // "") | trunc(120))
+          | "  ⏎ result " + ((.content // "") | trunc(80)))
       elif .type == "result" then
-        if .is_error then "  ❌ error: " + ((.result // "") | .[0:120])
-        else "  ✓ result " + ((.result // "") | .[0:120]) end
+        if has("text") then "  ✓ result " + ((.text // "") | trunc(120))
+        elif .is_error then "  ❌ error: " + ((.result // "") | trunc(120))
+        elif .result != null then "  ✓ result " + ((.result // "") | trunc(120))
+        elif .stats != null then
+          "  ✓ result tokens=" + ((.stats.total_tokens // 0) | tostring)
+          + " tools=" + ((.stats.tool_calls // 0) | tostring)
+          + " dur=" + (((.stats.duration_ms // 0) / 1000 | floor) | tostring) + "s"
+        else "  ✓ result" end
       elif .type == "thread.started" then
         "  ⚙ session " + ((.thread_id // "") | .[0:12])
       elif .type == "item.completed" and (.item.type // "") == "agent_message" then
@@ -129,11 +134,12 @@ _ralph_watch_filter_events() {
       elif .type == "init" then
         "  ⚙ session " + ((.session_id // "") | .[0:12])
       elif .type == "message" and (.role // "") == "assistant" then
-        "  💬 " + ((.text // "") | trunc(120))
+        if (.delta // false) then empty
+        else "  💬 " + ((.content // .text // "") | trunc(120)) end
       elif .type == "tool_use" then
-        "  🔧 " + ((.name // "?") | trunc(40)) + " " + (((.input // {}) | tostring) | trunc(60))
+        "  🔧 " + ((.tool_name // .name // "?") | trunc(40)) + " " + (((.parameters // .input // {}) | tostring) | trunc(60))
       elif .type == "tool_result" then
-        "  ⏎ result " + ((.content // "") | tostring | trunc(80))
+        "  ⏎ result " + ((.output // .content // "") | tostring | trunc(80))
       elif .type == "text" then
         "  💬 " + ((.text // "") | trunc(120))
       elif .type == "complete" then
@@ -143,16 +149,6 @@ _ralph_watch_filter_events() {
       else empty end
     ' 2>/dev/null
   done
-}
-
-# ── ISO timestamp → Unix epoch ─────────────────────────────────────────────
-_w_iso_to_epoch() {
-  local iso="$1" stripped epoch
-  stripped="${iso:0:19}"
-  epoch="$(date -j -f "%Y-%m-%dT%H:%M:%S" "$stripped" +%s 2>/dev/null)" \
-    || epoch="$(date -d "$stripped" +%s 2>/dev/null)" \
-    || epoch="$(date +%s)"
-  printf '%s' "$epoch"
 }
 
 # ── Read a value from JSON file ─────────────────────────────────────────────
@@ -277,8 +273,9 @@ ralph_watch() {
   # Sticky renderer base variables
   _RALPH_STICKY_PROVIDER="${provider:-unknown}"
   if [[ -n "$started_at" && "$started_at" != "null" ]]; then
-    _RALPH_STICKY_RUN_START_TS="$(_w_iso_to_epoch "$started_at")"
-  else
+    _RALPH_STICKY_RUN_START_TS="$(ralph_iso_to_epoch "$started_at")"
+  fi
+  if [[ -z "${_RALPH_STICKY_RUN_START_TS:-}" ]]; then
     _RALPH_STICKY_RUN_START_TS="$(date +%s)"
   fi
 
@@ -304,8 +301,9 @@ ralph_watch() {
   # Tracking state
   local _w_prev_round="${round:-0}"
   local _w_prev_run_id="${run_id:-}"
-  local _w_round_start_ts
-  _w_round_start_ts="$(date +%s)"
+  local _w_prev_task_started_at=""
+  local _w_task_start_ts
+  _w_task_start_ts="$(date +%s)"
   local _w_finished=0
   _W_PREV_LOG_PATH=""
 
@@ -322,19 +320,26 @@ ralph_watch() {
     provider="$(_ralph_status_json_val "$status_file" "provider")"
     round="$(_ralph_status_json_val "$status_file" "round")"
     state="$(_ralph_status_json_val "$status_file" "state")"
-    local tasks_checked tasks_total exit_reason
+    local tasks_checked tasks_total exit_reason task_started_at
     tasks_checked="$(_ralph_status_json_val "$status_file" "tasks_checked")"
     tasks_total="$(_ralph_status_json_val "$status_file" "tasks_total")"
     exit_reason="$(_ralph_status_json_val "$status_file" "exit_reason")"
+    task_started_at="$(_ralph_status_json_val "$status_file" "task_started_at")"
 
     # Detect run_id change → full reset
     if [[ -n "$run_id" && "$run_id" != "null" && "$run_id" != "$_w_prev_run_id" ]]; then
       _w_prev_run_id="$run_id"
       _w_prev_round="$round"
-      _w_round_start_ts="$(date +%s)"
+      _w_prev_task_started_at=""
       _w_finished=0
       _SEV_TIMES=()
       _SEV_MSGS=()
+      # Refresh run start ts from new started_at (elapsed restarts on each run)
+      started_at="$(_ralph_status_json_val "$status_file" "started_at")"
+      if [[ -n "$started_at" && "$started_at" != "null" ]]; then
+        _RALPH_STICKY_RUN_START_TS="$(ralph_iso_to_epoch "$started_at")"
+      fi
+      [[ -z "${_RALPH_STICKY_RUN_START_TS:-}" ]] && _RALPH_STICKY_RUN_START_TS="$(date +%s)"
       # Re-read context.json for new run
       full_run_dir="$workspace/${run_dir_str#./}"
       _RALPH_STICKY_MAX_ROUND=0
@@ -348,10 +353,24 @@ ralph_watch() {
       fi
     fi
 
-    # Detect round change → update round_start_ts
+    # Track round change (used for log path bookkeeping)
     if [[ -n "$round" && "$round" != "null" && "$round" != "$_w_prev_round" ]]; then
-      _w_round_start_ts="$(date +%s)"
       _w_prev_round="$round"
+    fi
+
+    # Refresh task_start_ts when status.json.task_started_at changes;
+    # fallback to started_at for legacy status.json without the field.
+    local _w_ts_src=""
+    if [[ -n "$task_started_at" && "$task_started_at" != "null" ]]; then
+      _w_ts_src="$task_started_at"
+    elif [[ -n "${started_at:-}" && "$started_at" != "null" ]]; then
+      _w_ts_src="$started_at"
+    fi
+    if [[ -n "$_w_ts_src" && "$_w_ts_src" != "$_w_prev_task_started_at" ]]; then
+      _w_prev_task_started_at="$_w_ts_src"
+      local _w_ts_epoch
+      _w_ts_epoch="$(ralph_iso_to_epoch "$_w_ts_src")"
+      [[ -n "$_w_ts_epoch" ]] && _w_task_start_ts="$_w_ts_epoch"
     fi
 
     # Compute current log path
@@ -409,7 +428,7 @@ ralph_watch() {
     _RALPH_STICKY_TASKS_TOTAL="${tasks_total:-0}"
     _RALPH_STICKY_CURRENT_TASK="$current_task"
     _RALPH_STICKY_PROVIDER="${provider:-unknown}"
-    _RALPH_STICKY_ROUND_START_TS="$_w_round_start_ts"
+    _RALPH_STICKY_TASK_START_TS="$_w_task_start_ts"
     _RALPH_STICKY_LOG_PATH="${log_path:-}"
     _RALPH_STICKY_STALL_COUNT="$stall_count"
 

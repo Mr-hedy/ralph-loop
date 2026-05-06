@@ -84,7 +84,8 @@ provider_oneshot() {
 # ── _gemini_derive_history ────────────────────────────────────────────────────
 # 从 provider.stdout.log（stream-json 事件流）派生人话视图
 # 真实 CLI 事件类型（QA-2 验证）：init / message / result / tool_use / tool_result
-# 输出：[assistant] 文本摘要
+# Gemini assistant message 是流式（delta:true），需聚合相邻 delta 为一个 [assistant] 块
+# 输出：[assistant] / [tool-use] / [tool-result] / [result] 文本摘要
 _gemini_derive_history() {
   local session_file="$1" out="$2"
   local round_dir="${session_file%/*}"
@@ -97,24 +98,40 @@ _gemini_derive_history() {
   [[ -n "$jsonl_events" ]] || return 0
 
   printf '%s\n' "$jsonl_events" | jq -r --slurp '
-    .[] |
-    if .type == "message" and (.role // "") == "assistant" and (.text // "") != "" then
-      "[assistant]",
-      .text,
-      ""
-    elif .type == "tool_use" and (.name // "") != "" then
-      "[tool-use " + .name + "]",
-      ((.input // {}) | tostring | .[0:2000]),
-      ""
-    elif .type == "tool_result" then
-      "[tool-result]",
-      ((.content // "") | tostring | .[0:2000]),
-      ""
-    elif .type == "result" and (.text // "") != "" then
-      "[result]",
-      .text,
-      ""
-    else empty end
+    # 聚合：连续的 assistant message delta → 单个 assistant_block
+    reduce .[] as $e ([];
+      if $e.type == "message" and ($e.role // "") == "assistant" then
+        if (length > 0) and (.[-1].kind == "assistant_block") then
+          .[:-1] + [{kind:"assistant_block", text: (.[-1].text + ($e.content // $e.text // ""))}]
+        else
+          . + [{kind:"assistant_block", text: ($e.content // $e.text // "")}]
+        end
+      elif $e.type == "tool_use" then
+        . + [{kind:"tool_use", name:($e.tool_name // $e.name // ""), input:($e.parameters // $e.input // {})}]
+      elif $e.type == "tool_result" then
+        . + [{kind:"tool_result", output:($e.output // $e.content // "")}]
+      elif $e.type == "result" then
+        . + [{kind:"result", stats:($e.stats // {}), text:($e.text // "")}]
+      else . end)
+    | .[] |
+      if .kind == "assistant_block" and .text != "" then
+        "[assistant]", .text, ""
+      elif .kind == "tool_use" and .name != "" then
+        "[tool-use " + .name + "]",
+        ((.input // {}) | tostring | .[0:2000]),
+        ""
+      elif .kind == "tool_result" and ((.output // "") | tostring) != "" then
+        "[tool-result]",
+        ((.output // "") | tostring | .[0:2000]),
+        ""
+      elif .kind == "result" then
+        "[result]",
+        (if .text != "" then .text
+         else "tokens=" + ((.stats.total_tokens // 0) | tostring)
+              + " tool_calls=" + ((.stats.tool_calls // 0) | tostring)
+              + " duration_ms=" + ((.stats.duration_ms // 0) | tostring) end),
+        ""
+      else empty end
   ' > "$out" 2>/dev/null || true
 }
 

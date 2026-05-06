@@ -290,13 +290,13 @@ Ralph `--effort` 对 Gemini **不传递**（`none` 或留空同样不传）。�
 
 ### History 派生
 
-Gemini `session.history.log` 从 `provider.stdout.log`（`--output-format stream-json` stdout 事件流）派生。QA-2 真实 smoke 校准后的真实 CLI 事件类型：
+Gemini `session.history.log` 从 `provider.stdout.log`（`--output-format stream-json` stdout 事件流）派生。真实 CLI 事件类型（2026-05-06 校准 stdout 实测）：
 
-- `init`：含 `sessionId` 字段（session capture 用），history 派生跳过
-- `message`：含 `role`（`user` / `assistant`）+ `delta`（boolean）+ `text` 字段；`role=assistant` 的 `text` 按事件顺序写为 `[assistant]` 片段
-- `tool_use`：含 `name` + `input` 字段，标记为 `[tool-use <name>]`，input 截断 2000 字符
-- `tool_result`：含 `content` 字段，标记为 `[tool-result]`，content 截断 2000 字符
-- `result`：含 `text` 字段，标记为 `[result]`
+- `init`：含 `session_id` + `model` 字段（session capture 用），history 派生跳过
+- `message`：含 `role`（`user` / `assistant`）+ `delta`（boolean）+ `content`（字符串）字段；assistant 消息为流式 delta 片段，派生时按相邻 delta 聚合为单个 `[assistant]` 块
+- `tool_use`：含 `tool_name` + `tool_id` + `parameters` 字段，标记为 `[tool-use <tool_name>]`，parameters 截断 2000 字符
+- `tool_result`：含 `tool_id` + `status` + `output` 字段，标记为 `[tool-result]`，output 截断 2000 字符
+- `result`：含 `status` + `stats`（total_tokens / tool_calls / duration_ms 等）字段，标记为 `[result]`，无独立 text 字段
 
 ## 错误诊断（续 Gemini）
 

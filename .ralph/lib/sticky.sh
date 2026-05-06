@@ -10,8 +10,8 @@
 #
 # 调用方需在 render_frame 前设置以下变量:
 #   _RALPH_STICKY_RUN_START_TS   — run 启动 unix timestamp
-#   _RALPH_STICKY_ROUND          — 全局 round 序号
-#   _RALPH_STICKY_ROUND_START_TS — 当前 round 启动 unix timestamp
+#   _RALPH_STICKY_ROUND          — 本次 run 累计 oneshot 数（顶栏 oneshots N）
+#   _RALPH_STICKY_TASK_START_TS  — 当前 task 首次出现 unix timestamp（底栏 spinner 用）
 #   _RALPH_STICKY_TASKS_DONE     — 已勾选任务数
 #   _RALPH_STICKY_TASKS_TOTAL    — 任务总数
 #   _RALPH_STICKY_CURRENT_TASK   — 第一个未勾选任务文本
@@ -212,7 +212,7 @@ _sdraw_top() {
 
   local done="${_RALPH_STICKY_TASKS_DONE:-0}"
   local total="${_RALPH_STICKY_TASKS_TOTAL:-0}"
-  local round="${_RALPH_STICKY_ROUND:-0}"
+  local oneshots="${_RALPH_STICKY_ROUND:-0}"
   local provider="${_RALPH_STICKY_PROVIDER:-unknown}"
   local ver="${RALPH_VERSION:-0.2}"
 
@@ -223,11 +223,11 @@ _sdraw_top() {
   fi
 
   local line
-  line=$(printf '%s[%s]%s %sralph %s%s %s· tasks%s %s%d/%d%s %s· round%s %s%d%s %s· provider%s %s %s· elapsed%s %s' \
+  line=$(printf '%s[%s]%s %sralph %s%s %s· tasks%s %s%d/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· elapsed%s %s' \
     "$_SGRAY" "$started" "$_SRESET" \
     "$_SCYAN" "$ver" "$_SRESET" \
     "$_SGRAY" "$_SRESET" "$tasks_color" "$done" "$total" "$_SRESET" \
-    "$_SGRAY" "$_SRESET" "$_SBOLD" "$round" "$_SRESET" \
+    "$_SGRAY" "$_SRESET" "$_SBOLD" "$oneshots" "$_SRESET" \
     "$_SGRAY" "$_SRESET" "$provider" \
     "$_SGRAY" "$_SRESET" "$elapsed")
   printf '%s%s\n' "$_SEL" "$line"
@@ -257,10 +257,10 @@ _sdraw_events() {
 
 # ── Draw: bottom bar (§4) ────────────────────────────────────────────────────
 _sdraw_bottom() {
-  local now round_elapsed health spin task_short line
+  local now task_elapsed health spin task_short line
   now=$(date +%s)
-  local round_start="${_RALPH_STICKY_ROUND_START_TS:-$now}"
-  round_elapsed=$(_sfmt_elapsed $(( now - round_start )))
+  local task_start="${_RALPH_STICKY_TASK_START_TS:-$now}"
+  task_elapsed=$(_sfmt_elapsed $(( now - task_start )))
   
   if [[ "${_RALPH_STICKY_RETRY_COUNT:-0}" -gt 0 ]]; then
     spin="⏳"
@@ -302,7 +302,7 @@ _sdraw_bottom() {
     "$_SGRAY" "$_SRESET" \
     "$_SGRAY" "$_SRESET" "$stall_color" "$stall_count" "$stall_limit" "$_SRESET" \
     "$_SGRAY" "$_SRESET" \
-    "$_SCYAN" "$spin" "$_SRESET" "$round_elapsed" \
+    "$_SCYAN" "$spin" "$_SRESET" "$task_elapsed" \
     "$_SGRAY" "$_SRESET" \
     "$task_short" "$_SRESET")
 

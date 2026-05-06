@@ -18,7 +18,7 @@
 ### 1. 总布局：10 行紧凑 sticky 块（仅 sticky 模式）
 
 ```
-[HH:MM:SS] ralph 0.2 · tasks N/M · round 12 · provider claude · elapsed H:MM:SS    ← 顶栏（1 行）
+[HH:MM:SS] ralph 0.2 · tasks N/M · oneshots 12 · provider claude · elapsed H:MM:SS    ← 顶栏（1 行）
 ─────────────────────────────────────────────────────────────────────────────────  ← 横线（1 行）
 [ts] event 1                                                                        ┐
 [ts] event 2                                                                        │
@@ -85,13 +85,13 @@ elif cmd == "watch":
 #### 顶栏（1 行）
 
 ```
-[HH:MM:SS] ralph 0.2 · tasks N/M · round 12 · provider claude · elapsed H:MM:SS
+[HH:MM:SS] ralph 0.2 · tasks N/M · oneshots 12 · provider claude · elapsed H:MM:SS
 ```
 
 - `[HH:MM:SS]`：ralph run 启动时刻，本地时间，无 +HHMM 后缀
 - `ralph 0.2`：版本号（dim gray 弱化）
 - `tasks N/M`：当前未勾 / 总任务数
-- `round 12`：**整个 run 的全局 round 总数**（不带上限，全局无 max）
+- `oneshots 12`：**整个 run 累计 oneshot 调用次数**（≡ 全局 round 总数；与底栏 `round N/∞` 的"per-task try 次数"区分，避免同名歧义）
 - `provider claude`：provider 名（不带 model；ralph 不可靠知道 CLI 默认 model）
 - `elapsed H:MM:SS`：整个 run 运行时长，**小时进制**（>24h 继续累加，不进位天）
 - 字段分隔符：`·` (U+00B7)
@@ -109,7 +109,7 @@ elif cmd == "watch":
   - 默认色：`stall 0/5` ~ `stall N/5`（N < limit-2）
   - AMBER（`\033[38;5;178m`）：接近上限（N >= limit-2 且 N < limit），如 `stall 3/5` / `stall 4/5`
   - RED：触发上限（N == limit），如 `stall 5/5`，会同步触发 HUMAN 自动插入和 exit blocked_by_human
-- `⠹ HH:MM:SS`：Braille spinner（8 帧 200ms 一切）+ 当前 round 持续时间
+- `⠹ HH:MM:SS`：Braille spinner（8 帧 200ms 一切）+ **当前 task 累计持续时间**（从该 task 第一次成为第一个未勾任务起算，跨 round 累计；task 切换时重置）。数据源 `status.json.task_started_at`，watch attach 时从 status.json 读，不用 watch 进程启动时间。
 - `→ DEV-1 任务名`：第一个未勾 task 的 ID + 描述，**动态按可见列宽截断**（中文字符按 2 列计算），超长尾巴用 `...`（不是 `…`）
 - 不放 changed_files / last_event 等——保持简洁
 - 窄终端降级顺序：任务名压缩 → 隐藏 spinner 秒数 → 只剩 `● round N/∞ · stall N/M`
@@ -157,7 +157,7 @@ ralph 内部新增维护 `_RALPH_CURRENT_TASK_ID` + `_RALPH_CURRENT_TASK_TRY`：
 
 底栏的 `round N/∞` 显示 `_RALPH_CURRENT_TASK_TRY`。`∞` 来自 `RALPH_LOOP_MAX_ROUND`（默认 0=无限）。
 
-全局 round 计数（即原 `iteration` 变量）保留，仍写 status.json，仍用于 stall 判断（per-task 化后含义见下）和顶栏 `round 12` 字段。
+全局 round 计数（即原 `iteration` 变量）保留，仍写 status.json，仍用于 stall 判断（per-task 化后含义见下）和顶栏 `oneshots 12` 字段（label 改名后避免与底栏 per-task `round N/∞` 同名歧义；status.json 字段仍为 `round`，是工具层契约）。
 
 ### 7. 防死循环：双保险 + 自动插 HUMAN
 

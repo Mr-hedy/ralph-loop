@@ -171,6 +171,7 @@ round dir **4 文件契约** —— 详细命名约定见 [`integrations.md#roun
   "model": null,
   "effort": null,
   "started_at": "2026-04-24T10:00:00Z",
+  "task_started_at": "2026-04-24T10:03:40Z",
   "updated_at": "2026-04-24T10:05:12Z",
   "round": 3,
   "state": "running",
@@ -181,7 +182,7 @@ round dir **4 文件契约** —— 详细命名约定见 [`integrations.md#roun
 }
 ```
 
-run 结束时 `state` 变更为 `finished`，`exit_reason` 填入。
+`task_started_at` 标记当前第一个未勾任务首次成为活跃任务的时刻（task 切换时重写，跨 round 累计）；底栏 spinner 持续时间 = 当前时间 − `task_started_at`。run 结束时 `state` 变更为 `finished`，`exit_reason` 填入。
 
 ### `context.json` schema
 
@@ -585,7 +586,7 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 ### Sticky TUI 布局 (I5)
 
 ```text
-[HH:MM:SS] ralph 0.2 · tasks N/M · round 12 · provider claude · elapsed H:MM:SS
+[HH:MM:SS] ralph 0.2 · tasks N/M · oneshots 12 · provider claude · elapsed H:MM:SS
 ─────────────────────────────────────────────────────────────────────────────────
 [ts] event 1
 [ts] event 2

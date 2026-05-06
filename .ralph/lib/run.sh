@@ -358,6 +358,7 @@ _ralph_write_status() {
   "model": $(ralph_json_str "$model"),
   "effort": $(ralph_json_str "$effort"),
   "started_at": "$(ralph_json_escape "$started_at")",
+  "task_started_at": $(ralph_json_str "${_RALPH_TASK_STARTED_AT:-$started_at}"),
   "updated_at": "$(ralph_json_escape "$(ralph_timestamp)")",
   "round": ${round},
   "iteration_name": $(ralph_json_str "$_RALPH_CURRENT_ITERATION"),
@@ -591,6 +592,8 @@ EOF
     if [[ "$_first_task_text" != "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
       _RALPH_CURRENT_TASK_ID="$_first_task_text"
       _RALPH_CURRENT_TASK_TRY=1
+      _RALPH_TASK_START_TS="$(date -u +%s)"
+      _RALPH_TASK_STARTED_AT="$(ralph_timestamp)"
       stall_count=0
     else
       _RALPH_CURRENT_TASK_TRY=$(( _RALPH_CURRENT_TASK_TRY + 1 ))
@@ -701,7 +704,7 @@ EOF
 
     if [[ "$_RALPH_STICKY_MODE" -eq 1 ]]; then
       # sticky 模式：polling loop → 读事件 + render frame + 超时检测
-      _RALPH_STICKY_ROUND_START_TS=$(( round_start_ts / 1000 ))
+      _RALPH_STICKY_TASK_START_TS="${_RALPH_TASK_START_TS:-$(( round_start_ts / 1000 ))}"
       while kill -0 "$pid" 2>/dev/null; do
         sleep 0.2
         # 读取新事件
@@ -994,24 +997,29 @@ _ralph_filter_verbose() {
     [[ "$line" =~ ^\{ ]] || continue
     # 对每个事件按 type 简化输出（jq 失败则跳过）
     printf '%s\n' "$line" | jq -r '
-      def trunc($n): tostring | if length > $n then .[0:$n] else . end;
+      def flat: tostring | gsub("\\s+"; " ");
+      def trunc($n): flat | if length > $n then .[0:$n] else . end;
       if .type == "system" and .subtype == "init" then
         "  ⚙ session " + ((.session_id // "") | .[0:8])
       elif .type == "assistant" then
         ((.message.content // []) | if type == "array" then . else [] end | .[]
-          | if .type == "thinking" then "  💭 " + ((.thinking // "") | .[0:120])
-            elif .type == "text"   then "  💬 " + ((.text // "") | .[0:120])
-            elif .type == "tool_use" then "  🔧 " + (.name // "?") + " " + ((.input // {}) | tostring | .[0:80])
+          | if .type == "thinking" then "  💭 " + ((.thinking // "") | trunc(120))
+            elif .type == "text"   then "  💬 " + ((.text // "") | trunc(120))
+            elif .type == "tool_use" then "  🔧 " + (.name // "?") + " " + ((.input // {}) | trunc(80))
             else empty end)
       elif .type == "user" then
         ((.message.content // []) | if type == "array" then . else [] end | .[]
           | select(.type == "tool_result")
-          | "  ⏎ result " + ((.content // "") | tostring | .[0:80]))
-      elif .type == "result" and has("text") then
-        "  ✓ result " + ((.text // "") | trunc(120))
+          | "  ⏎ result " + ((.content // "") | trunc(80)))
       elif .type == "result" then
-        if .is_error then "  ❌ error: " + ((.result // "") | .[0:120])
-        else "  ✓ result " + ((.result // "") | .[0:120]) end
+        if has("text") then "  ✓ result " + ((.text // "") | trunc(120))
+        elif .is_error then "  ❌ error: " + ((.result // "") | trunc(120))
+        elif .result != null then "  ✓ result " + ((.result // "") | trunc(120))
+        elif .stats != null then
+          "  ✓ result tokens=" + ((.stats.total_tokens // 0) | tostring)
+          + " tools=" + ((.stats.tool_calls // 0) | tostring)
+          + " dur=" + (((.stats.duration_ms // 0) / 1000 | floor) | tostring) + "s"
+        else "  ✓ result" end
       elif .type == "thread.started" then
         "  ⚙ session " + ((.thread_id // "") | .[0:12])
       elif .type == "item.completed" and (.item.type // "") == "agent_message" then
@@ -1027,11 +1035,12 @@ _ralph_filter_verbose() {
       elif .type == "init" then
         "  ⚙ session " + ((.session_id // "") | .[0:12])
       elif .type == "message" and (.role // "") == "assistant" then
-        "  💬 " + ((.text // "") | trunc(120))
+        if (.delta // false) then empty
+        else "  💬 " + ((.content // .text // "") | trunc(120)) end
       elif .type == "tool_use" then
-        "  🔧 " + ((.name // "?") | trunc(40)) + " " + (((.input // {}) | tostring) | trunc(60))
+        "  🔧 " + ((.tool_name // .name // "?") | trunc(40)) + " " + (((.parameters // .input // {}) | tostring) | trunc(60))
       elif .type == "tool_result" then
-        "  ⏎ result " + ((.content // "") | tostring | trunc(80))
+        "  ⏎ result " + ((.output // .content // "") | tostring | trunc(80))
       elif .type == "text" then
         "  💬 " + ((.text // "") | trunc(120))
       elif .type == "complete" then
