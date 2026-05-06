@@ -140,11 +140,11 @@
   - 未验证：README.md 同步 (属 DEV-8 范围)。
   - 依赖：DEV-1, DEV-4
 
-- [ ] DEV-7: 新建 .ralph/.gitignore + 删工程根 .gitignore 中 ralph 行
+- [x] DEV-7: 新建 .ralph/.gitignore + 删工程根 .gitignore 中 ralph 行
   - 预期：`.ralph/.gitignore` 自带 `runs/` / `lock` / `status.json` / `.env` 规则；用户 `cp -r .ralph` 时 gitignore 自动跟随；工程根 `.gitignore` 删除 `.ralph/runs/` / `.ralph/lock` / `.ralph/status.json` / `.ralph/.env` 4 行；本仓库验证 `git status` 仍正确忽略这些文件。
-  - 输入：I5-design §12；当前工程根 `.gitignore`。
-  - 范围：新建 `.ralph/.gitignore`；编辑工程根 `.gitignore`；不改其他文件。
-  - 验证计划：`cat .ralph/.gitignore` 含 4 行规则；工程根 `.gitignore` 不含 `.ralph/*` 相关行；`git check-ignore .ralph/runs/test .ralph/lock .ralph/status.json .ralph/.env` 全部命中；`git status --ignored` 验证 `.ralph/runs/` 等仍被忽略；`git diff --check` 通过。
+  - 完成：新建 `.ralph/.gitignore` 并包含 4 行规则；清理根 `.gitignore`。
+  - 验证：`git check-ignore` 确认 `.ralph/runs/test` 等仍被忽略；`git status --ignored` 确认生效。
+  - 未验证：None.
 
 - [ ] DEV-8: 重写 .ralph/README.md
   - 预期：按 I5-design §10 / §影响 REQ-文档 描述重写 `.ralph/README.md`：环境变量按 provider/loop/ui 三组分类（每个变量含默认 / 说明 / 示例）；新增《Ralph loop 与 round》小节解释 round ≠ task 概念；新增《防死循环机制》小节描述 max_round + stall + HUMAN 自动插入；新增《agent 调用 ralph》最佳实践（默认 `ralph run` plain 即 agent 友好）；新增《sticky 模式异常退出救援》（`stty sane`）；删除所有 `RALPH_VERBOSE` / `RALPH_MAX_ITER` / `iter` 旧名宣传；`.ralph/.gitignore` 自包含说明（cp -r 时自动跟随）。
