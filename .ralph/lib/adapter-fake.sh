@@ -62,6 +62,20 @@ provider_oneshot() {
       echo "fake: crash scenario" >> "$log_path"
       return 1
       ;;
+    rate_limit)
+      # 非零退出 + stderr 含 rate limit 关键字
+      local rl_msg="fake: rate limit error occurred"
+      echo "$rl_msg" >> "$log_path"
+      echo "$rl_msg" >&2
+      return 1
+      ;;
+    network)
+      # 非零退出 + stderr 含 network error 关键字
+      local nw_msg="fake: network error occurred"
+      echo "$nw_msg" >> "$log_path"
+      echo "$nw_msg" >&2
+      return 1
+      ;;
     api-error)
       # 非零退出 + stderr 含 api 关键字
       local api_msg="fake: api error occurred: api request failed"
@@ -174,7 +188,11 @@ provider_diagnose() {
 
   local error_json="null"
   if [[ "${exit_code:-0}" -ne 0 ]]; then
-    if [[ -f "$log_file" ]] && grep -qi "api" "$log_file" 2>/dev/null; then
+    if [[ -f "$log_file" ]] && grep -qi "rate limit" "$log_file" 2>/dev/null; then
+      error_json='{"type":"rate_limit","message":"rate limit detected","raw":""}'
+    elif [[ -f "$log_file" ]] && grep -qi "network error" "$log_file" 2>/dev/null; then
+      error_json='{"type":"network","message":"network error detected","raw":""}'
+    elif [[ -f "$log_file" ]] && grep -qi "api" "$log_file" 2>/dev/null; then
       error_json='{"type":"api","message":"api error detected","raw":""}'
     else
       error_json='{"type":"unknown","message":"provider exited non-zero","raw":""}'

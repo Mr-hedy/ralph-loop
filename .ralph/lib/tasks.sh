@@ -111,3 +111,59 @@ validate_task_prefixes() {
   fi
   return 0
 }
+
+# find_first_unchecked_lineno <tasks_file>
+# 返回第一个 - [ ] 任务的行号（1-indexed）；无未勾任务时 return 1
+find_first_unchecked_lineno() {
+  local tasks_file="$1"
+  [[ -f "$tasks_file" ]] || return 1
+  local lineno=0 line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    lineno=$(( lineno + 1 ))
+    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]+\[[[:space:]]\] ]]; then
+      printf '%d\n' "$lineno"
+      return 0
+    fi
+  done < "$tasks_file"
+  return 1
+}
+
+# next_human_number <tasks_file>
+# 扫描所有任务（含 [x]）的 HUMAN-N: 前缀，返回 max(N)+1
+next_human_number() {
+  local tasks_file="$1"
+  local max_n=0 line
+  [[ -f "$tasks_file" ]] || { printf '1\n'; return 0; }
+  local re_human='^[[:space:]]*-[[:space:]]+\[[[:space:]xX]\][[:space:]]+HUMAN-([0-9]+)'
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ $re_human ]]; then
+      local n="${BASH_REMATCH[1]}"
+      [[ "$n" -gt "$max_n" ]] && max_n="$n"
+    fi
+  done < "$tasks_file"
+  printf '%d\n' $(( max_n + 1 ))
+}
+
+# insert_human_before_task <tasks_file> <lineno> <number> <trigger> <task_id> <elapsed>
+# 在 tasks_file 第 <lineno> 行前插入 HUMAN-N 块
+insert_human_before_task() {
+  local tasks_file="$1"
+  local lineno="$2"
+  local number="$3"
+  local trigger="$4"
+  local task_id="$5"
+  local elapsed="$6"
+
+  local tmp
+  tmp="$(mktemp)"
+  {
+    [[ "$lineno" -gt 1 ]] && head -n $(( lineno - 1 )) "$tasks_file"
+    printf -- '- [ ] HUMAN-%d: %s 卡住，请检查任务描述\n' "$number" "$task_id"
+    printf '  - 触发：%s\n' "$trigger"
+    printf '  - 已耗时：%s\n' "$elapsed"
+    printf '  - 建议：检查描述是否清晰 / 是否需要拆分 / 是否需要补充 context\n'
+    printf '  - 修复后：勾掉本行让 ralph run 继续\n'
+    tail -n +"$lineno" "$tasks_file"
+  } > "$tmp"
+  mv "$tmp" "$tasks_file"
+}

@@ -162,6 +162,61 @@ cleanup_ws "$ws"
 
 # ────────────────────────────────
 echo ""
+echo "-- Provider retry: rate_limit"
+ws=$(setup_workspace)
+rc=0
+stderr_file="$(mktemp)"
+RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="1 1" bash "$ws/.ralph/bin/ralph" run --provider fake \
+  2>"$stderr_file" || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir")"
+retry_count=$(grep -c "retry" "$stderr_file" || true)
+if [[ "$reason" == "provider_failed" && "$rc" -eq 2 && "$retry_count" -eq 2 ]]; then
+  _pass "retry (rate_limit): retried 2 times then failed as expected"
+else
+  _fail "retry (rate_limit): expected 2 retries, got $retry_count. reason=$reason, rc=$rc"
+fi
+cleanup_ws "$ws"
+rm -f "$stderr_file"
+
+# ────────────────────────────────
+echo ""
+echo "-- Provider retry: api-error (no retry)"
+ws=$(setup_workspace)
+rc=0
+stderr_file="$(mktemp)"
+RALPH_FAKE_SCENARIO=api-error bash "$ws/.ralph/bin/ralph" run --provider fake \
+  2>"$stderr_file" || rc=$?
+retry_count=$(grep -c "retry" "$stderr_file" || true)
+if [[ "$retry_count" -eq 0 ]]; then
+  _pass "retry (api-error): no retry as expected"
+else
+  _fail "retry (api-error): expected 0 retries, got $retry_count"
+fi
+cleanup_ws "$ws"
+rm -f "$stderr_file"
+
+# ────────────────────────────────
+echo ""
+echo "-- Provider retry: status.json"
+ws=$(setup_workspace)
+RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="5 5" bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null &
+PID=$!
+sleep 2 
+status_file="$ws/.ralph/status.json"
+retry_count_json=$(jq -r '.retry_count' "$status_file" 2>/dev/null || echo "null")
+next_retry_at=$(jq -r '.next_retry_at' "$status_file" 2>/dev/null || echo "null")
+kill $PID || true
+wait $PID 2>/dev/null || true
+if [[ "$retry_count_json" -eq 1 && "$next_retry_at" != "null" ]]; then
+  _pass "retry (status.json): retry_count=1 and next_retry_at set during backoff"
+else
+  _fail "retry (status.json): retry_count=$retry_count_json, next_retry_at=$next_retry_at"
+fi
+cleanup_ws "$ws"
+
+# ────────────────────────────────
+echo ""
 echo "-- Exit reason: timeout"
 ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
@@ -211,41 +266,84 @@ cleanup_ws "$ws"
 
 # ────────────────────────────────
 echo ""
-echo "-- Exit reason: max_rounds"
+echo "-- Per-task max_round: happy completes within limit (--max-round 1)"
 ws=$(setup_workspace)
-# 两条任务，max-round=1，happy 只勾一条
-printf '%s\n' "- [ ] Task A" "- [ ] Task B" > "$ws/.ralph/TASKS.md"
-git -C "$ws" add . && git -C "$ws" commit -q -m "two tasks" 2>/dev/null || true
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
 RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
-if [[ "$reason" == "max_rounds" && "$rc" -eq 4 ]]; then
-  _pass "max_rounds: exit_reason=max_rounds, rc=4"
+if [[ "$reason" == "done" && "$rc" -eq 0 ]]; then
+  _pass "per-task max_round happy: exit_reason=done, rc=0 (no false trigger)"
 else
-  _fail "max_rounds: expected max_rounds/rc=4, got $reason/$rc"
+  _fail "per-task max_round happy: expected done/rc=0, got $reason/$rc"
 fi
 cleanup_ws "$ws"
 
 # ────────────────────────────────
 echo ""
-echo "-- Exit reason: stagnated"
+echo "-- Per-task max_round: stagnation triggers blocked_by_human"
 ws=$(setup_workspace)
-git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
+printf '%s\n' "- [ ] DEV-1: Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 3 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
-if [[ "$reason" == "stagnated" && "$rc" -eq 5 ]]; then
-  _pass "stagnated: exit_reason=stagnated, rc=5"
+if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
+  _pass "per-task max_round: exit_reason=blocked_by_human, rc=7"
 else
-  _fail "stagnated: expected stagnated/rc=5, got $reason/$rc"
+  _fail "per-task max_round: expected blocked_by_human/rc=7, got $reason/$rc"
+fi
+if grep -q '^\- \[ \] HUMAN-1:' "$ws/.ralph/TASKS.md"; then
+  _pass "per-task max_round: HUMAN-1 inserted in TASKS.md"
+else
+  _fail "per-task max_round: HUMAN-1 not found in TASKS.md"
+fi
+if grep -q '^\- \[ \] DEV-1:' "$ws/.ralph/TASKS.md"; then
+  _pass "per-task max_round: original task preserved after HUMAN-1"
+else
+  _fail "per-task max_round: original task missing from TASKS.md"
 fi
 cleanup_ws "$ws"
 
 # ────────────────────────────────
 echo ""
-echo "-- Stagnation: partial_progress triggers stagnated (stagnation_limit=2)"
+echo "-- Per-task stall: stagnation triggers blocked_by_human"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] DEV-1: Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 3 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
+  _pass "per-task stall: exit_reason=blocked_by_human, rc=7"
+else
+  _fail "per-task stall: expected blocked_by_human/rc=7, got $reason/$rc"
+fi
+# Verify HUMAN-1 template has 4 indented structured fields
+_h_line="$(grep -n '^\- \[ \] HUMAN-1:' "$ws/.ralph/TASKS.md" | head -1)" || _h_line=""
+if [[ -n "$_h_line" ]]; then
+  _h_lineno="${_h_line%%:*}"
+  _f1="$(sed -n "$(( _h_lineno + 1 ))p" "$ws/.ralph/TASKS.md")"
+  _f2="$(sed -n "$(( _h_lineno + 2 ))p" "$ws/.ralph/TASKS.md")"
+  _f3="$(sed -n "$(( _h_lineno + 3 ))p" "$ws/.ralph/TASKS.md")"
+  _f4="$(sed -n "$(( _h_lineno + 4 ))p" "$ws/.ralph/TASKS.md")"
+  if [[ "$_f1" =~ '触发：' && "$_f2" =~ '已耗时：' && "$_f3" =~ '建议：' && "$_f4" =~ '修复后：' ]]; then
+    _pass "per-task stall: HUMAN-1 template has 4 structured fields"
+  else
+    _fail "per-task stall: HUMAN-1 template missing structured fields (got: $_f1 / $_f2 / $_f3 / $_f4)"
+  fi
+else
+  _fail "per-task stall: HUMAN-1 not found in TASKS.md"
+fi
+cleanup_ws "$ws"
+
+# ────────────────────────────────
+echo ""
+echo "-- Per-task stall: task switch resets stall count (stall-limit=2)"
 ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
@@ -253,19 +351,19 @@ RALPH_FAKE_SCENARIO=partial_progress bash "$ws/.ralph/bin/ralph" run \
   --provider fake --stall-limit 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
-if [[ "$reason" == "stagnated" && "$rc" -eq 5 ]]; then
-  _pass "partial_progress stagnation: exit_reason=stagnated, rc=5"
+if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
+  _pass "partial_progress per-task stall: exit_reason=blocked_by_human, rc=7"
 else
-  _fail "partial_progress stagnation: expected stagnated/rc=5, got $reason/$rc"
+  _fail "partial_progress per-task stall: expected blocked_by_human/rc=7, got $reason/$rc"
 fi
 if command -v jq >/dev/null 2>&1; then
   sc1="$(jq '.stall_count // 0' "$run_dir/rounds/round-001/meta.json" 2>/dev/null)" || sc1=0
   sc2="$(jq '.stall_count // 0' "$run_dir/rounds/round-002/meta.json" 2>/dev/null)" || sc2=0
   sc3="$(jq '.stall_count // 0' "$run_dir/rounds/round-003/meta.json" 2>/dev/null)" || sc3=0
   if [[ "$sc1" -eq 0 && "$sc2" -eq 1 && "$sc3" -eq 2 ]]; then
-    _pass "partial_progress stall_count: round1=0 round2=1 round3=2"
+    _pass "partial_progress per-task stall_count: round1=0 round2=1 round3=2"
   else
-    _fail "partial_progress stall_count: expected 0/1/2, got $sc1/$sc2/$sc3"
+    _fail "partial_progress per-task stall_count: expected 0/1/2, got $sc1/$sc2/$sc3"
   fi
 fi
 cleanup_ws "$ws"
@@ -310,10 +408,10 @@ run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 heartbeat_ok=0
 grep -Eq 'still running .*provider log .*tail -f .*/provider.stdout.log' "$stderr_file" 2>/dev/null && heartbeat_ok=1
-if [[ "$rc" -eq 4 && "$reason" == "max_rounds" && "$heartbeat_ok" -eq 1 ]]; then
+if [[ "$rc" -eq 7 && "$reason" == "blocked_by_human" && "$heartbeat_ok" -eq 1 ]]; then
   _pass "provider heartbeat: default run prints still-running marker for long oneshot"
 else
-  _fail "provider heartbeat: expected rc=4 max_rounds + heartbeat, got rc=$rc reason=$reason heartbeat_ok=$heartbeat_ok"
+  _fail "provider heartbeat: expected rc=7 blocked_by_human + heartbeat, got rc=$rc reason=$reason heartbeat_ok=$heartbeat_ok"
 fi
 rm -f "$stderr_file"
 cleanup_ws "$ws"

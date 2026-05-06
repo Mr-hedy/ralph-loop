@@ -255,6 +255,8 @@ _claude_classify_error() {
     printf 'rate_limit'
   elif [[ "$lower" == *"quota"* || "$lower" == *"credits exhausted"* || "$lower" == *"billing"* ]]; then
     printf 'quota'
+  elif [[ "$lower" == *"econnreset"* || "$lower" == *"etimedout"* || "$lower" == *"enotfound"* || "$lower" == *"fetch failed"* || "$lower" == *"connection refused"* || "$lower" == *"network error"* ]]; then
+    printf 'network'
   elif [[ "$lower" =~ (^|[^0-9])5[0-9][0-9]([^0-9]|$) || "$lower" == *"api error"* || "$lower" == *"internal server"* || "$lower" == *"service unavailable"* ]]; then
     printf 'api'
   else

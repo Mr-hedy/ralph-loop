@@ -59,6 +59,11 @@ Options:
                            (env: RALPH_LOOP_ROUND_TIMEOUT). Default: 0
   --stall-limit <n>        Consecutive no-progress rounds per task before stall
                            (env: RALPH_LOOP_STALL_LIMIT). Default: 5
+  --max-retry <n>          Max provider retries on transient errors (env: RALPH_LOOP_MAX_RETRY).
+                           Default: 3. Transient = rate_limit, network.
+  --retry-schedule <"s1 s2 ...">
+                           Backoff schedule in seconds (env: RALPH_LOOP_RETRY_SCHEDULE).
+                           Default: "60 120 300"
   --verbose, -v            Live-tail provider events to stderr (env: RALPH_VERBOSE=1)
   --help                   Show this help and exit.
 
@@ -206,6 +211,8 @@ ralph_run_cmd() {
       --max-round)         export RALPH_LOOP_MAX_ROUND="$2";       shift 2 ;;
       --round-timeout)     export RALPH_LOOP_ROUND_TIMEOUT="$2";  shift 2 ;;
       --stall-limit)       export RALPH_LOOP_STALL_LIMIT="$2";    shift 2 ;;
+      --max-retry)         export RALPH_LOOP_MAX_RETRY="$2";      shift 2 ;;
+      --retry-schedule)    export RALPH_LOOP_RETRY_SCHEDULE="$2"; shift 2 ;;
       --*)                 ralph_usage_error "unknown flag: $1" ;;
       *)                   ralph_usage_error "unexpected argument: $1" ;;
     esac

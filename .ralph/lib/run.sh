@@ -80,6 +80,7 @@ _ralph_sticky_update_vars() {
   _RALPH_STICKY_PROVIDER="${_RALPH_PROVIDER:-unknown}"
   _RALPH_STICKY_LOG_PATH="${_RALPH_CURRENT_LOG_PATH:-}"
   _RALPH_STICKY_EXIT_REASON="${_RALPH_EXIT_REASON:-}"
+  _RALPH_STICKY_RETRY_COUNT="${retry_count:-0}"
 }
 
 _ralph_child_pids() {
@@ -317,7 +318,7 @@ _ralph_finish() {
     local tasks_md="$_RALPH_WORKSPACE/.ralph/TASKS.md"
     [[ -f "$tasks_md" ]] && cp "$tasks_md" "$_RALPH_RUN_DIR/TASKS.md"
     # status.json 更新为 finished
-    _ralph_update_status "finished" "$exit_reason" "$rounds" "$tasks_total" "$tasks_checked_end"
+    _ralph_update_status "finished" "$exit_reason" "$rounds" "$tasks_total" "$tasks_checked_end" "$last_error"
     # 终端格式化总结（接力提示）
     _ralph_print_summary "$exit_reason" "$rounds" "$tasks_total" "$tasks_checked_end"
     ralph_lock_release "$_RALPH_LOCK_FILE"
@@ -356,6 +357,9 @@ _ralph_write_status() {
   local tasks_total="$8"
   local tasks_checked="$9"
   local exit_reason="${10:-}"
+  local last_error_json="${11:-null}"
+  local retry_count="${12:-0}"
+  local next_retry_at="${13:-null}"
 
   cat > "$_RALPH_WORKSPACE/.ralph/status.json" <<EOF
 {
@@ -373,7 +377,9 @@ _ralph_write_status() {
   "tasks_total": ${tasks_total},
   "tasks_checked": ${tasks_checked},
   "exit_reason": $(ralph_json_str "$exit_reason"),
-  "last_error": null
+  "retry_count": ${retry_count},
+  "next_retry_at": $(ralph_json_num "$next_retry_at"),
+  "last_error": ${last_error_json}
 }
 EOF
 }
@@ -384,9 +390,14 @@ _ralph_update_status() {
   local round="${3:-0}"
   local tasks_total="${4:-0}"
   local tasks_checked="${5:-0}"
+  local last_error_json="${6:-null}"
+  local retry_count="${7:-0}"
+  local next_retry_at="${8:-null}"
+
   _ralph_write_status "$state" "$_RALPH_RUN_ID" "$_RALPH_PROVIDER" \
     "$_RALPH_MODEL" "$_RALPH_EFFORT" "$_RALPH_STARTED_AT" \
-    "$round" "$tasks_total" "$tasks_checked" "$exit_reason"
+    "$round" "$tasks_total" "$tasks_checked" "$exit_reason" \
+    "$last_error_json" "$retry_count" "$next_retry_at"
 }
 
 # ── 启动校验 ─────────────────────────────────────────────────────────────────
@@ -434,6 +445,8 @@ ralph_run() {
   local max_round="${RALPH_LOOP_MAX_ROUND:-0}"
   local timeout_sec="${RALPH_LOOP_ROUND_TIMEOUT:-0}"
   local stall_limit="${RALPH_LOOP_STALL_LIMIT:-5}"
+  local max_retry="${RALPH_LOOP_MAX_RETRY:-3}"
+  local retry_schedule="${RALPH_LOOP_RETRY_SCHEDULE:-60 120 300}"
 
   # workspace 定位
   local workspace
@@ -450,6 +463,9 @@ ralph_run() {
   effort="${RALPH_PROVIDER_EFFORT:-$effort}"
   max_round="${RALPH_LOOP_MAX_ROUND:-$max_round}"
   timeout_sec="${RALPH_LOOP_ROUND_TIMEOUT:-$timeout_sec}"
+  stall_limit="${RALPH_LOOP_STALL_LIMIT:-$stall_limit}"
+  max_retry="${RALPH_LOOP_MAX_RETRY:-$max_retry}"
+  retry_schedule="${RALPH_LOOP_RETRY_SCHEDULE:-$retry_schedule}"
 
   # 载入 adapter（设置 RALPH_PROVIDER_CLI）
   local adapter_file="$workspace/.ralph/lib/adapter-${provider:-fake}.sh"
@@ -550,12 +566,13 @@ EOF
     _RALPH_STICKY_PROVIDER="$provider"
     _RALPH_STICKY_STALL_LIMIT="$stall_limit"
     _RALPH_STICKY_MAX_ROUND="$max_round"
+    _RALPH_STICKY_RETRY_COUNT=0
     ralph_sticky_enter
   fi
 
   # status.json 初始写入
   _ralph_write_status "running" "$run_id" "$provider" "$model" "$effort" \
-    "$started_at" 0 "$tasks_total" "$tasks_checked_start"
+    "$started_at" 0 "$tasks_total" "$tasks_checked_start" "null" "null" 0 "null"
 
   # TASKS.md 空或全部已勾选 → 直接 done，不产生 round
   if [[ "$tasks_total" -eq 0 || "$tasks_checked_start" -ge "$tasks_total" ]]; then
@@ -571,10 +588,13 @@ EOF
   local stall_count=0
   local round=0
   local last_error_json="null"
+  local retry_count=0
 
   # ── 主循环 ──────────────────────────────────────────────────────────────
   while true; do
-    round=$(( round + 1 ))
+    if [[ "$retry_count" -eq 0 ]]; then
+      round=$(( round + 1 ))
+    fi
     _RALPH_ROUND="$round"
 
     # per-task round tracking：比较当前第一个未勾 task 与上轮
@@ -583,6 +603,7 @@ EOF
     if [[ "$_first_task_text" != "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
       _RALPH_CURRENT_TASK_ID="$_first_task_text"
       _RALPH_CURRENT_TASK_TRY=1
+      stall_count=0
     else
       _RALPH_CURRENT_TASK_TRY=$(( _RALPH_CURRENT_TASK_TRY + 1 ))
     fi
@@ -605,13 +626,6 @@ EOF
     if is_blocked_by_human "$tasks_md"; then
       _RALPH_TASKS_CHECKED_END="$checked_before"
       _ralph_finish "blocked_by_human" 7 "$(( round - 1 ))" "$tasks_total" \
-        "$tasks_checked_start" "$checked_before" "$started_at" "null"
-    fi
-
-    # max_round 检查
-    if [[ "$max_round" -gt 0 && "$round" -gt "$max_round" ]]; then
-      _RALPH_TASKS_CHECKED_END="$checked_before"
-      _ralph_finish "max_rounds" 4 "$(( round - 1 ))" "$tasks_total" \
         "$tasks_checked_start" "$checked_before" "$started_at" "null"
     fi
 
@@ -650,7 +664,8 @@ EOF
 
     # status 必须在 provider_oneshot 前指向当前 round；watch -v 依赖它定位
     # 当前正在写入的 provider.stdout.log。
-    _ralph_update_status "running" "" "$round" "$tasks_total" "$checked_before"
+    _ralph_update_status "running" "" "$round" "$tasks_total" "$checked_before" "null" "$retry_count"
+
 
     # 进度 marker：round 启动
     local _max_round_disp="∞"
@@ -807,6 +822,45 @@ EOF
       else
         last_error_json="{\"type\":\"unknown\",\"message\":\"provider exited with code $rc\",\"raw\":\"\"}"
       fi
+
+      local error_type="unknown"
+      if [[ -n "$error_obj" && "$error_obj" != "null" ]]; then
+        if command -v jq >/dev/null 2>&1; then
+          error_type="$(printf '%s' "$error_obj" | jq -r '.type // "unknown"' 2>/dev/null)" || error_type="unknown"
+        fi
+      fi
+
+      # 重试判定：transient 错误 && 未超限
+      if [[ "$retry_count" -lt "$max_retry" ]] && [[ "$error_type" == "rate_limit" || "$error_type" == "network" ]]; then
+        retry_count=$(( retry_count + 1 ))
+        _RALPH_STICKY_RETRY_COUNT="$retry_count"
+        
+        # 计算 backoff
+        local wait_sec
+        wait_sec="$(echo "$retry_schedule" | awk -v i="$retry_count" '{print $i}')"
+        [[ -z "$wait_sec" ]] && wait_sec="$(echo "$retry_schedule" | awk '{print $NF}')"
+        [[ ! "$wait_sec" =~ ^[0-9]+$ ]] && wait_sec=60
+        
+        local next_retry_at
+        next_retry_at=$(( $(date -u +%s) + wait_sec ))
+
+        # status.json 更新 retry 状态
+        local checked_now
+        checked_now="$(count_checked "$tasks_md")"
+        _ralph_update_status "running" "" "$round" "$tasks_total" "$checked_now" "$last_error_json" "$retry_count" "$next_retry_at"
+
+        # 输出 retry marker
+        if [[ "$_RALPH_STICKY_MODE" -ne 1 ]]; then
+          printf 'ralph: round %d retry %d/%d after %ds backoff (last_error: %s)\n' \
+            "$round" "$retry_count" "$max_retry" "$wait_sec" "$error_type" >&2
+        fi
+
+        sleep "$wait_sec"
+        continue
+      fi
+
+      retry_count=0
+      _RALPH_STICKY_RETRY_COUNT=0
       local total_after_failure checked_after_failure
       total_after_failure="$(count_total "$tasks_md")"
       checked_after_failure="$(count_checked "$tasks_md")"
@@ -820,6 +874,8 @@ EOF
     # session 采集 + 诊断
     provider_collect_session "$round_dir" || true
     provider_diagnose "$round_dir" || true
+    retry_count=0
+    _RALPH_STICKY_RETRY_COUNT=0
 
     # changed_files + stall 判定（方案 B：本轮 vs 上轮 fingerprint 对比）
     local checked_after
@@ -897,9 +953,44 @@ EOF
         "$(ralph_format_duration "$_run_dur_sec")" >&2
     fi
 
-    # stall 退出
-    if [[ "$stall_count" -ge "$stall_limit" ]]; then
-      _ralph_finish "stagnated" 5 "$round" "$tasks_total" \
+    # ── per-task 防死循环检查 ────────────────────────────────────────────────
+    local _task_prefix=""
+    if [[ -n "${_RALPH_CURRENT_TASK_ID:-}" && "${_RALPH_CURRENT_TASK_ID}" =~ ^([A-Z]+-[0-9]+) ]]; then
+      _task_prefix="${BASH_REMATCH[1]}"
+    elif [[ -n "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
+      _task_prefix="${_RALPH_CURRENT_TASK_ID:0:40}"
+    fi
+    local _run_elapsed=""
+    if [[ -n "${_RALPH_START_TIME:-}" ]]; then
+      _run_elapsed="$(ralph_format_duration $(( $(date -u +%s) - _RALPH_START_TIME )))"
+    fi
+    # 仅在当前 task 仍为 first_unchecked 时触发（已完成的不触发）
+    local _still_first=""
+    _still_first="$(first_unchecked_task "$tasks_md" 2>/dev/null)" || _still_first=""
+
+    # per-task max_round 触发
+    if [[ "$max_round" -gt 0 && "${_RALPH_CURRENT_TASK_TRY:-0}" -ge "$max_round" \
+          && "$_still_first" == "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
+      local _human_n _task_lineno
+      _human_n="$(next_human_number "$tasks_md")"
+      _task_lineno="$(find_first_unchecked_lineno "$tasks_md")"
+      insert_human_before_task "$tasks_md" "$_task_lineno" "$_human_n" \
+        "$_task_prefix 已试 ${_RALPH_CURRENT_TASK_TRY} 次 round 超过上限（max_round ${max_round}）" \
+        "$_task_prefix" "$_run_elapsed"
+      _ralph_finish "blocked_by_human" 7 "$round" "$tasks_total" \
+        "$tasks_checked_start" "$checked_after" "$started_at" "null"
+    fi
+
+    # per-task stall 触发
+    if [[ "$stall_count" -ge "$stall_limit" \
+          && "$_still_first" == "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
+      local _human_n _task_lineno
+      _human_n="$(next_human_number "$tasks_md")"
+      _task_lineno="$(find_first_unchecked_lineno "$tasks_md")"
+      insert_human_before_task "$tasks_md" "$_task_lineno" "$_human_n" \
+        "$_task_prefix 连续 ${stall_count} 次 round 无进展（stall ${stall_count}/${stall_limit}）" \
+        "$_task_prefix" "$_run_elapsed"
+      _ralph_finish "blocked_by_human" 7 "$round" "$tasks_total" \
         "$tasks_checked_start" "$checked_after" "$started_at" "null"
     fi
   done

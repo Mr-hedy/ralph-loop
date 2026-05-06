@@ -20,6 +20,7 @@
 #   _RALPH_STICKY_STALL_COUNT    — 当前 task 连续无进展次数
 #   _RALPH_STICKY_STALL_LIMIT    — stall 上限
 #   _RALPH_STICKY_PROVIDER       — provider 名
+#   _RALPH_STICKY_RETRY_COUNT    — 当前 retry 次数
 #   _RALPH_STICKY_LOG_PATH       — provider.stdout.log 路径（健康灯用）
 #   _RALPH_STICKY_EXIT_REASON    — 退出原因（最后一次渲染用；空=运行中）
 #
@@ -260,7 +261,12 @@ _sdraw_bottom() {
   now=$(date +%s)
   local round_start="${_RALPH_STICKY_ROUND_START_TS:-$now}"
   round_elapsed=$(_sfmt_elapsed $(( now - round_start )))
-  spin="${_SSPIN_FRAMES[$_SSPIN_IDX]}"
+  
+  if [[ "${_RALPH_STICKY_RETRY_COUNT:-0}" -gt 0 ]]; then
+    spin="⏳"
+  else
+    spin="${_SSPIN_FRAMES[$_SSPIN_IDX]}"
+  fi
   health="$(_shealth)"
 
   local task_try="${_RALPH_STICKY_TASK_TRY:-1}"
