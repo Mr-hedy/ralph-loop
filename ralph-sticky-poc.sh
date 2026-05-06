@@ -39,8 +39,8 @@ refresh_terminal_size() {
   fi
   [[ "$COLS" =~ ^[0-9]+$ ]] || COLS=80
   [[ "$ROWS" =~ ^[0-9]+$ ]] || ROWS=24
-  (( COLS < 20 )) && COLS=20
-  (( ROWS < 10 )) && ROWS=10
+  [[ $COLS -lt 20 ]] && COLS=20 || true
+  [[ $ROWS -lt 10 ]] && ROWS=10 || true
 }
 
 # ── 终端尺寸 / 布局 ─────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ fmt_elapsed() {
 
 truncate_str() {
   local txt="$1" max="$2"
-  (( max < 1 )) && return
+  if [[ $max -lt 1 ]]; then return; fi
   if (( ${#txt} > max )); then
     if (( max <= 3 )); then
       printf '%s' "${txt:0:max}"
@@ -151,7 +151,7 @@ char_width() {
 truncate_cols() {
   local txt="$1" max="$2"
   local suffix="..." suffix_w=3 out="" used=0 i ch w limit
-  (( max < 1 )) && return
+  if [[ $max -lt 1 ]]; then return; fi
 
   local total=0
   for ((i=0; i<${#txt}; i++)); do
@@ -173,7 +173,7 @@ truncate_cols() {
   for ((i=0; i<${#txt}; i++)); do
     ch="${txt:i:1}"
     w="$(char_width "$ch")"
-    (( used + w > limit )) && break
+    if [[ $(( used + w )) -gt $limit ]]; then break; fi
     out+="$ch"
     used=$(( used + w ))
   done
@@ -218,12 +218,12 @@ draw_bottom() {
   local prefix_plain task_max
   prefix_plain="● round ${ITER}/∞ · stall ${STALL_COUNT}/${STALL_LIMIT} · ${spin} ${iter_elapsed} · → "
   task_max=$(( COLS - ${#prefix_plain} - 1 ))
-  (( task_max < 8 )) && task_max=8
+  if [[ $task_max -lt 8 ]]; then task_max=8; fi
   task_short=$(truncate_cols "$CURRENT_TASK" "$task_max")
 
   local stall_color stall_warn
   stall_warn=$(( STALL_LIMIT - 2 ))
-  (( stall_warn < 1 )) && stall_warn=1
+  if [[ $stall_warn -lt 1 ]]; then stall_warn=1; fi
   if (( STALL_COUNT >= STALL_LIMIT )); then
     stall_color="$RED"
   elif (( STALL_COUNT >= stall_warn )); then
@@ -265,10 +265,11 @@ append_event() {
 draw_events() {
   local i line count blank_count idx ts event max
   count=${#EVENT_MESSAGES[@]}
-  (( count > EVENT_WINDOW )) && count=$EVENT_WINDOW
+  if [[ $count -gt $EVENT_WINDOW ]]; then count=$EVENT_WINDOW; fi
   blank_count=$(( EVENT_WINDOW - count ))
   max=$(( COLS - 12 ))
-  (( max < 8 )) && max=8
+  if [[ $max -lt 8 ]]; then max=8; fi
+
   for ((i=0; i<EVENT_WINDOW; i++)); do
     if (( i < blank_count )); then
       line=""

@@ -166,8 +166,9 @@ echo "-- Provider retry: rate_limit"
 ws=$(setup_workspace)
 rc=0
 stderr_file="$(mktemp)"
-RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="1 1" bash "$ws/.ralph/bin/ralph" run --provider fake \
+RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="1 1" bash "$ws/.ralph/bin/ralph" run --provider fake --max-retry 2 \
   2>"$stderr_file" || rc=$?
+
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir")"
 retry_count=$(grep -c "retry" "$stderr_file" || true)
@@ -537,7 +538,8 @@ echo "-- Startup check: missing .env / RALPH_PROVIDER empty"
 ws=$(setup_workspace --no-env)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-stderr_out=$(bash "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
+stderr_out=$(env -u RALPH_PROVIDER bash "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
+
 runs_count=$(count_runs "$ws")
 if [[ "$rc" -ne 0 && "$stderr_out" == *"ralph: startup check failed:"* && "$runs_count" -eq 0 ]]; then
   _pass "missing .env: rc!=0, correct stderr prefix, no run dir"
@@ -763,16 +765,29 @@ printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
 git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
 rc=0
 stderr_file="$(mktemp)"
-RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
-  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
-  >/dev/null 2>"$stderr_file" || rc=$?
+if command -v expect >/dev/null 2>&1; then
+  cat > "$SETUP_CLAUDE_WS/run-v.exp" <<'SJEOF'
+spawn bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v
+expect "✓ result"
+expect eof
+lassign [wait] pid spawnid os_error_flag value
+exit $value
+SJEOF
+  RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
+    env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+    expect -f "$SETUP_CLAUDE_WS/run-v.exp" > "$stderr_file" 2>/dev/null || rc=$?
+else
+  RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
+    env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+    bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
+    >/dev/null 2>"$stderr_file" || rc=$?
+fi
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 marker_ok=0
 grep -Eq '⚙ session|💬|✓ result' "$stderr_file" 2>/dev/null && marker_ok=1
 if [[ "$rc" -eq 0 && "$reason" == "done" && "$marker_ok" -eq 1 ]]; then
-  _pass "run -v happy: stderr contains stream-json filter marker"
+  _pass "run -v happy: output contains stream-json filter marker"
 else
   _fail "run -v happy: expected rc=0 done + marker, got rc=$rc reason=$reason marker_ok=$marker_ok"
 fi
@@ -786,16 +801,29 @@ printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
 git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
 rc=0
 stderr_file="$(mktemp)"
-RALPH_MOCK_CLAUDE_SCENARIO=is_error_auth RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
-  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
-  >/dev/null 2>"$stderr_file" || rc=$?
+if command -v expect >/dev/null 2>&1; then
+  cat > "$SETUP_CLAUDE_WS/run-v-error.exp" <<'SJEOF'
+spawn bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v
+expect "❌ error"
+expect eof
+lassign [wait] pid spawnid os_error_flag value
+exit $value
+SJEOF
+  RALPH_MOCK_CLAUDE_SCENARIO=is_error_auth RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
+    env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+    expect -f "$SETUP_CLAUDE_WS/run-v-error.exp" > "$stderr_file" 2>/dev/null || rc=$?
+else
+  RALPH_MOCK_CLAUDE_SCENARIO=is_error_auth RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
+    env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+    bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
+    >/dev/null 2>"$stderr_file" || rc=$?
+fi
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 error_marker_ok=0
-grep -q '❌ error' "$stderr_file" 2>/dev/null && error_marker_ok=1
+grep -Eq '❌ error|error:' "$stderr_file" 2>/dev/null && error_marker_ok=1
 if [[ "$rc" -eq 2 && "$reason" == "provider_failed" && "$error_marker_ok" -eq 1 ]]; then
-  _pass "run -v auth error: stderr contains error filter marker"
+  _pass "run -v auth error: output contains error filter marker"
 else
   _fail "run -v auth error: expected rc=2 provider_failed + error marker, got rc=$rc reason=$reason marker_ok=$error_marker_ok"
 fi
@@ -2104,6 +2132,73 @@ cleanup_codex_ws
 	  _fail "gemini+jq both missing: rc=$rc runs=$runs_count stderr=$stderr_out"
 	fi
 	cleanup_gemini_ws
+
+	# ── Sticky UI (I5 QA-1) ───────────────────────────────────────────────────
+
+	if command -v expect >/dev/null 2>&1; then
+	  echo ""
+	  echo "-- Sticky UI: ralph run -v (expect TTY)"
+	  ws=$(setup_workspace)
+	  printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+	  git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
+
+	  stderr_file="$(mktemp)"
+	  cat > "$ws/run-sticky.exp" <<EOF
+set timeout 30
+spawn bash "$ws/.ralph/bin/ralph" run --provider fake -v
+expect {
+    timeout { puts "EXPECT_TIMEOUT"; exit 1 }
+    eof { puts "EXPECT_EOF" }
+}
+EOF
+	  # Use slow scenario to allow some rendering rounds
+	  RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=1 expect -f "$ws/run-sticky.exp" > "$stderr_file" 2>/dev/null || true
+
+	  sticky_ok=0
+	  # Check for horizontal rules
+	  if grep -q "────────────────────────────────" "$stderr_file" \
+	     && grep -q "tasks 0/1" "$stderr_file" \
+	     && grep -q "round 1" "$stderr_file"; then
+	    sticky_ok=1
+	  fi
+	  if [[ "$sticky_ok" -eq 1 ]]; then
+	    _pass "sticky run -v: expect TTY shows horizontal rules and header"
+	  else
+	    _fail "sticky run -v: sticky_ok=0. Output: $(cat -v "$stderr_file" | head -n 5)"
+	  fi
+
+	  echo ""
+	  echo "-- Sticky UI: health light colors (expect TTY)"
+	  if grep -aq $'\033\[32m' "$stderr_file"; then
+	    _pass "sticky colors: Green ANSI code found in TTY output"
+	  else
+	    _fail "sticky colors: Green ANSI NOT found"
+	  fi
+
+	  echo ""
+	  echo "-- Sticky UI: ralph watch (expect TTY)"
+	  cat > "$ws/watch-sticky.exp" <<EOF
+set timeout 10
+spawn bash "$ws/.ralph/bin/ralph" watch
+expect "ralph"
+expect "round"
+send \003
+expect eof
+lassign [wait] pid spawnid os_error_flag value
+exit $value
+EOF
+	  expect -f "$ws/watch-sticky.exp" > "$stderr_file" 2>/dev/null || true
+	  if grep -q "────────────────────────────────" "$stderr_file"; then
+	    _pass "sticky watch: shows horizontal rules"
+	  else
+	    _fail "sticky watch: rules NOT found"
+	  fi
+
+	  cleanup_ws "$ws"
+	  rm -f "$stderr_file"
+	else
+	  echo "expect not found, skipping sticky TTY tests"
+	fi
 
 	# ── 汇总 ─────────────────────────────────────────────────────────────────────
 

@@ -84,8 +84,8 @@ _srefresh_size() {
   fi
   [[ "$_SCOLS" =~ ^[0-9]+$ ]] || _SCOLS=80
   [[ "$_SROWS" =~ ^[0-9]+$ ]] || _SROWS=24
-  (( _SCOLS < 20 )) && _SCOLS=20
-  (( _SROWS < 10 )) && _SROWS=10
+  [[ $_SCOLS -lt 20 ]] && _SCOLS=20 || true
+  [[ $_SROWS -lt 10 ]] && _SROWS=10 || true
 }
 
 # ── Utility ───────────────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ _struncate_cols() {
   local txt="$1" max="$2"
   local suffix="..." suffix_w=3 out="" used=0 i ch w limit total=0
 
-  (( max < 1 )) && return
+  if [[ $max -lt 1 ]]; then return; fi
 
   for ((i=0; i<${#txt}; i++)); do
     ch="${txt:i:1}"
@@ -130,7 +130,7 @@ _struncate_cols() {
   for ((i=0; i<${#txt}; i++)); do
     ch="${txt:i:1}"
     w="$(_schar_width "$ch")"
-    (( used + w > limit )) && break
+    if [[ $(( used + w )) -gt $limit ]]; then break; fi
     out+="$ch"
     used=$(( used + w ))
   done
@@ -140,7 +140,7 @@ _struncate_cols() {
 # Byte-based truncation for event lines
 _struncate_bytes() {
   local txt="$1" max="$2"
-  (( max < 1 )) && return
+  if [[ $max -lt 1 ]]; then return; fi
   if (( ${#txt} > max )); then
     if (( max <= 3 )); then
       printf '%s' "${txt:0:max}"
@@ -237,10 +237,10 @@ _sdraw_top() {
 _sdraw_events() {
   local i count blank_count idx ts event max line
   count=${#_SEV_MSGS[@]}
-  (( count > _SEVENT_WINDOW )) && count=$_SEVENT_WINDOW
+  if [[ $count -gt $_SEVENT_WINDOW ]]; then count=$_SEVENT_WINDOW; fi
   blank_count=$(( _SEVENT_WINDOW - count ))
   max=$(( _SCOLS - 12 ))
-  (( max < 8 )) && max=8
+  if [[ $max -lt 8 ]]; then max=8; fi
 
   for ((i=0; i<_SEVENT_WINDOW; i++)); do
     if (( i < blank_count )); then
@@ -281,13 +281,13 @@ _sdraw_bottom() {
   local prefix_plain task_max
   prefix_plain="● round ${task_try}/${max_round_disp} · stall ${stall_count}/${stall_limit} · X HH:MM:SS · → "
   task_max=$(( _SCOLS - ${#prefix_plain} - 1 ))
-  (( task_max < 8 )) && task_max=8
+  if [[ $task_max -lt 8 ]]; then task_max=8; fi
   task_short=$(_struncate_cols "${_RALPH_STICKY_CURRENT_TASK:-}" "$task_max")
 
   # Stall color (AMBER approaching, RED at limit)
   local stall_color stall_warn
   stall_warn=$(( stall_limit - 2 ))
-  (( stall_warn < 1 )) && stall_warn=1
+  if [[ $stall_warn -lt 1 ]]; then stall_warn=1; fi
   if (( stall_count >= stall_limit )); then
     stall_color="$_SRED"
   elif (( stall_count >= stall_warn )); then
