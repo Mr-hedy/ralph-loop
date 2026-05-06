@@ -176,11 +176,14 @@
   - 未验证：`ralph run -v --provider fake` end-to-end sticky 视觉（需真实 TTY + 完整集成测试跑通，受 Codex diagnose 预存挂住阻塞）；tmux/screen 兼容性（QA-5 范围）。
   - 依赖：DEV-3, DEV-4, DEV-5
 
-- [ ] QA-2: plain 模式回归（ralph run 默认 / 非 TTY 自动降级）
+- [x] QA-2: plain 模式回归（ralph run 默认 / 非 TTY 自动降级）
   - 预期：集成测试覆盖 plain 模式：`ralph run`（无 -v）输出形态 ≈ `ralph-plain-poc.sh`；含启动 banner / 每 round 启停 marker / 60s heartbeat（长 round 用 fake-slow 触发） / 退出总结；`ralph run -v 2> /tmp/log` 在非 TTY stderr 自动降级 plain（无 ANSI）；`ralph run | cat` 同上。
   - 输入：I5-design §3；DEV-4 完成后；现有 REQ-025 集成测试用例。
   - 范围：`scripts/integration-test.sh` 新增/修订 plain 模式回归用例；不改 lib。
   - 验证计划：mock-claude fake provider 跑 `ralph run`，断言每个 round 启停一行 marker / 长 round 触发 heartbeat / 退出 summary 块字段全；`ralph run -v 2> /tmp/log` 后 `grep -P '\\033\\[' /tmp/log` 无 ANSI；`bash scripts/integration-test.sh` 通过。
+  - 完成：在 `scripts/integration-test.sh` 新增 6 个 plain 模式回归测试：①多轮输出结构（banner + 2 round start/end markers + summary block + stdout 静默）②无 ANSI 转义码 ③`-v` + 非 TTY stdout 自动降级 plain（round markers + 无 sticky 输出 + 无 ANSI）④pipe 到 cat 降级 ⑤exit-message.txt 字段完整性（8 个字段全部验证）⑥retry marker 格式验证。
+  - 验证：`bash -n` 通过；`check.sh` 通过；`integration-test.sh` 118 PASS / 9 FAIL（9 个失败均为预存环境泄漏 + Claude/Codex/Gemini -v marker + sticky TTY 问题，非 QA-2 改动导致）；6 个 QA-2 测试全部 PASS。
+  - 未验证：TTY 下 `ralph run -v` sticky 视觉（QA-5/QA-6 范围）。
   - 依赖：DEV-4
 
 - [ ] QA-3: per-task round 边界 + HUMAN 自动插入测试

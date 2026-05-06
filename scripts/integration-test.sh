@@ -418,6 +418,172 @@ rm -f "$stderr_file"
 cleanup_ws "$ws"
 
 # ────────────────────────────────
+# QA-2: plain 模式回归（ralph run 默认 / 非 TTY 自动降级）
+# ────────────────────────────────
+
+echo ""
+echo "-- QA-2: plain multi-round output structure (banner + round markers + summary)"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" "- [ ] Task B" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "two tasks" 2>/dev/null || true
+rc=0
+stdout_file="$(mktemp)"
+stderr_file="$(mktemp)"
+RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake \
+  >"$stdout_file" 2>"$stderr_file" || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+banner_ok=0
+grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] ralph [^ ]+ \| run ' "$stderr_file" && banner_ok=1
+r1_start=0; grep -Eq 'round 1/∞ → Task A' "$stderr_file" && r1_start=1
+r1_end=0; grep -Eq 'round 1/∞ ✓ done' "$stderr_file" && r1_end=1
+r2_start=0; grep -Eq 'round 2/∞ → Task B' "$stderr_file" && r2_start=1
+r2_end=0; grep -Eq 'round 2/∞ ✓ done' "$stderr_file" && r2_end=1
+summary_ok=0
+grep -q 'Ralph Run Complete' "$stderr_file" \
+  && grep -q 'Exit Reason:   done' "$stderr_file" \
+  && grep -q 'Rounds:        2' "$stderr_file" \
+  && grep -q 'Tasks:         2 / 2' "$stderr_file" \
+  && summary_ok=1
+stdout_silent=0
+[[ ! -s "$stdout_file" ]] && stdout_silent=1
+rm -f "$stdout_file" "$stderr_file"
+if [[ "$rc" -eq 0 && "$reason" == "done" \
+  && "$banner_ok" -eq 1 \
+  && "$r1_start" -eq 1 && "$r1_end" -eq 1 \
+  && "$r2_start" -eq 1 && "$r2_end" -eq 1 \
+  && "$summary_ok" -eq 1 \
+  && "$stdout_silent" -eq 1 ]]; then
+  _pass "QA-2 multi-round: banner + 2 round markers + summary + stdout silent"
+else
+  _fail "QA-2 multi-round: rc=$rc reason=$reason banner=$banner_ok r1=$r1_start/$r1_end r2=$r2_start/$r2_end summary=$summary_ok stdout=$stdout_silent"
+fi
+cleanup_ws "$ws"
+
+echo ""
+echo "-- QA-2: plain mode no ANSI escape codes"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+stderr_file="$(mktemp)"
+RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake \
+  >/dev/null 2>"$stderr_file" || rc=$?
+no_ansi=0
+stderr_content="$(cat "$stderr_file")"
+[[ "$stderr_content" != *$'\033['* ]] && no_ansi=1
+rm -f "$stderr_file"
+if [[ "$rc" -eq 0 && "$no_ansi" -eq 1 ]]; then
+  _pass "QA-2 no-ANSI: plain mode stderr contains no escape codes"
+else
+  _fail "QA-2 no-ANSI: rc=$rc no_ansi=$no_ansi"
+fi
+cleanup_ws "$ws"
+
+echo ""
+echo "-- QA-2: non-TTY degradation with -v (stdout redirected → plain mode)"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+stdout_file="$(mktemp)"
+stderr_file="$(mktemp)"
+RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake -v \
+  >"$stdout_file" 2>"$stderr_file" || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+plain_markers=0
+grep -Eq 'round 1/.*→' "$stderr_file" && grep -Eq 'round 1/.*✓ done' "$stderr_file" && plain_markers=1
+stdout_empty=0
+[[ ! -s "$stdout_file" ]] && stdout_empty=1
+no_ansi=0
+stderr_content="$(cat "$stderr_file")"
+[[ "$stderr_content" != *$'\033['* ]] && no_ansi=1
+rm -f "$stdout_file" "$stderr_file"
+if [[ "$rc" -eq 0 && "$reason" == "done" \
+  && "$plain_markers" -eq 1 && "$stdout_empty" -eq 1 && "$no_ansi" -eq 1 ]]; then
+  _pass "QA-2 non-TTY -v: plain markers, no sticky output, no ANSI"
+else
+  _fail "QA-2 non-TTY -v: rc=$rc reason=$reason plain=$plain_markers stdout_empty=$stdout_empty no_ansi=$no_ansi"
+fi
+cleanup_ws "$ws"
+
+echo ""
+echo "-- QA-2: non-TTY pipe degradation (ralph run | cat → plain mode)"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+stderr_file="$(mktemp)"
+RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake \
+  2>"$stderr_file" | cat >/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+plain_markers=0
+grep -Eq 'round 1/.*→' "$stderr_file" && grep -Eq 'round 1/.*✓ done' "$stderr_file" && plain_markers=1
+no_ansi=0
+stderr_content="$(cat "$stderr_file")"
+[[ "$stderr_content" != *$'\033['* ]] && no_ansi=1
+rm -f "$stderr_file"
+if [[ "$rc" -eq 0 && "$reason" == "done" && "$plain_markers" -eq 1 && "$no_ansi" -eq 1 ]]; then
+  _pass "QA-2 pipe: plain markers on stderr, no ANSI"
+else
+  _fail "QA-2 pipe: rc=$rc reason=$reason plain=$plain_markers no_ansi=$no_ansi"
+fi
+cleanup_ws "$ws"
+
+echo ""
+echo "-- QA-2: summary block field completeness in exit-message.txt"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
+> 当前迭代: I1
+
+- [ ] Task A
+TASKS_EOF
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake \
+  >/dev/null 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+summary_ok=1
+grep -q 'Ralph Run Complete' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
+grep -q 'Run ID:' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
+grep -q 'Iteration:     I1' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
+grep -q 'Exit Reason:   done' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
+grep -q 'Rounds:        1' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
+grep -q 'Tasks:         1 / 1' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
+grep -q 'Duration:' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
+grep -q 'All tasks completed' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
+if [[ "$rc" -eq 0 && "$summary_ok" -eq 1 ]]; then
+  _pass "QA-2 summary: all 8 fields present in exit-message.txt"
+else
+  _fail "QA-2 summary: rc=$rc summary_ok=$summary_ok"
+fi
+cleanup_ws "$ws"
+
+echo ""
+echo "-- QA-2: retry marker format in plain mode"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+stderr_file="$(mktemp)"
+RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="1 1 1" \
+  bash "$ws/.ralph/bin/ralph" run --provider fake --max-retry 3 \
+  >/dev/null 2>"$stderr_file" || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+retry_fmt=0
+grep -Eq 'ralph: round 1 retry [0-9]+/3 after [0-9]+s backoff \(last_error: rate_limit\)' "$stderr_file" && retry_fmt=1
+rm -f "$stderr_file"
+if [[ "$reason" == "provider_failed" && "$retry_fmt" -eq 1 ]]; then
+  _pass "QA-2 retry marker: format matches 'ralph: round N retry M/X after Ys backoff (last_error: type)'"
+else
+  _fail "QA-2 retry marker: reason=$reason retry_fmt=$retry_fmt"
+fi
+cleanup_ws "$ws"
+
+# ────────────────────────────────
 echo ""
 echo "-- Dynamic TASKS.md growth updates run totals"
 ws=$(setup_workspace)
