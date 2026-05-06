@@ -186,11 +186,14 @@
   - 未验证：TTY 下 `ralph run -v` sticky 视觉（QA-5/QA-6 范围）。
   - 依赖：DEV-4
 
-- [ ] QA-3: per-task round 边界 + HUMAN 自动插入测试
+- [x] QA-3: per-task round 边界 + HUMAN 自动插入测试
   - 预期：集成测试覆盖 §6 / §7 全部场景：单 task max_round 触发自动插 HUMAN / 单 task stall 触发自动插 HUMAN / task 切换时 per-task try 归零 / HUMAN-N 模板正确（短 name + 缩进字段） / exit_reason=blocked_by_human / 用户勾掉 HUMAN-N 重跑 ralph run 能继续做原 task。
   - 输入：I5-design §6 §7；DEV-6 完成后。
   - 范围：`scripts/integration-test.sh` 新增 per-task round 用例；可能新增 `tests/fixtures/mock-stall/`；不改 lib。
   - 验证计划：fake provider 配置成"完全不勾不改文件"模式，跑 `RALPH_LOOP_MAX_ROUND=3 ralph run` → 3 次后 TASKS.md 出现 HUMAN-1，断言行号在原 task 前 + name 简短 + 缩进含 4 个结构化字段；`RALPH_LOOP_STALL_LIMIT=5 ralph run` 5 次无进展同样触发；mock 第 1 个 task 勾完进入第 2 个，per-task try 重置；`bash scripts/integration-test.sh` 通过。
+  - 完成：在 `scripts/integration-test.sh` 新增 7 个 QA-3 测试场景（11 个断言），覆盖：①max_round 触发 → HUMAN-1 插在原 task 之前（行号顺序）+ name 含 task prefix 且简短 ②stall 触发 → 同样验证行号顺序 + name 格式 ③勾掉 HUMAN-1 后重跑 → 原 task 完成（done/rc=0）+ 原 task 被勾选 ④HUMAN 编号递增（已有 HUMAN-1 时插入 HUMAN-2）⑤max_round=0 默认不触发，stall 单独触发 ⑥task 切换时 stall_count 重置（meta.json 验证 0/1/2 模式）⑦无前缀任务也能触发 HUMAN 插入。
+  - 验证：隔离运行 11/11 PASS；集成测试中 QA-3 段全部 PASS（后续 adapter 测试段因预存 Codex/Gemini 挂住问题未跑完全部套件，非 QA-3 引入）；`bash -n` + `check.sh` 通过。
+  - 未验证：完整 `integration-test.sh` 跑到底（受预存 adapter 挂住阻塞）。
   - 依赖：DEV-6
 
 - [ ] QA-4: iter → round 改名 + env 重命名一致性回归

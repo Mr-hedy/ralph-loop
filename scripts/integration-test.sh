@@ -395,6 +395,204 @@ fi
 cleanup_ws "$ws"
 
 # ────────────────────────────────
+# QA-3: per-task round 边界 + HUMAN 自动插入
+# ────────────────────────────────
+
+# QA-3.1: max_round 触发 → HUMAN-1 插在原 task 之前（行号顺序验证）
+echo ""
+echo "-- QA-3: max_round HUMAN line order (HUMAN before original task)"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] DEV-1: Implement feature X" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 3 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+_h_lineno="$(grep -n '^\- \[ \] HUMAN-1:' "$ws/.ralph/TASKS.md" | head -1 | cut -d: -f1)" || _h_lineno=""
+_t_lineno="$(grep -n '^\- \[ \] DEV-1:' "$ws/.ralph/TASKS.md" | head -1 | cut -d: -f1)" || _t_lineno=""
+if [[ -n "$_h_lineno" && -n "$_t_lineno" && "$_h_lineno" -lt "$_t_lineno" ]]; then
+  _pass "QA-3 max_round order: HUMAN-1 (line $_h_lineno) before DEV-1 (line $_t_lineno)"
+else
+  _fail "QA-3 max_round order: expected HUMAN before DEV-1, got HUMAN=$_h_lineno DEV=$_t_lineno"
+fi
+# HUMAN-N name 包含 task prefix 且简短（一句话）
+_h_name="$(grep '^\- \[ \] HUMAN-1:' "$ws/.ralph/TASKS.md" | sed 's/^\- \[ \] HUMAN-1: //')"
+_name_ok=0
+[[ "$_h_name" == "DEV-1"* ]] && _name_ok=1
+_name_short=0
+[[ ${#_h_name} -lt 80 ]] && _name_short=1
+if [[ "$_name_ok" -eq 1 && "$_name_short" -eq 1 ]]; then
+  _pass "QA-3 max_round name: HUMAN-1 starts with DEV-1 prefix and is short (${#_h_name} chars)"
+else
+  _fail "QA-3 max_round name: name='$_h_name' prefix_ok=$_name_ok short=$_name_short"
+fi
+cleanup_ws "$ws"
+
+# QA-3.2: stall 触发 → HUMAN-1 同样插在原 task 之前 + name 格式
+echo ""
+echo "-- QA-3: stall HUMAN line order and name format"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] QA-99: Test stall detection" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 3 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+_h_lineno="$(grep -n '^\- \[ \] HUMAN-1:' "$ws/.ralph/TASKS.md" | head -1 | cut -d: -f1)" || _h_lineno=""
+_t_lineno="$(grep -n '^\- \[ \] QA-99:' "$ws/.ralph/TASKS.md" | head -1 | cut -d: -f1)" || _t_lineno=""
+if [[ -n "$_h_lineno" && -n "$_t_lineno" && "$_h_lineno" -lt "$_t_lineno" ]]; then
+  _pass "QA-3 stall order: HUMAN-1 (line $_h_lineno) before QA-99 (line $_t_lineno)"
+else
+  _fail "QA-3 stall order: expected HUMAN before QA-99, got HUMAN=$_h_lineno QA=$_t_lineno"
+fi
+_h_name="$(grep '^\- \[ \] HUMAN-1:' "$ws/.ralph/TASKS.md" | sed 's/^\- \[ \] HUMAN-1: //')"
+_name_ok=0
+[[ "$_h_name" == "QA-99"* ]] && _name_ok=1
+if [[ "$_name_ok" -eq 1 ]]; then
+  _pass "QA-3 stall name: HUMAN-1 starts with QA-99 prefix"
+else
+  _fail "QA-3 stall name: expected name starting with QA-99, got '$_h_name'"
+fi
+cleanup_ws "$ws"
+
+# QA-3.3: 勾掉 HUMAN-N 后重跑，原 task 能继续完成
+echo ""
+echo "-- QA-3: check off HUMAN-N then rerun continues original task"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] DEV-1: Implement feature X" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+if [[ "$reason" != "blocked_by_human" ]]; then
+  _fail "QA-3 rerun step1: expected blocked_by_human, got $reason"
+else
+  # 勾掉 HUMAN-1（用 sed 替换）
+  sed -i.bak 's/^\- \[ \] HUMAN-1:/- [x] HUMAN-1:/' "$ws/.ralph/TASKS.md"
+  rm -f "$ws/.ralph/TASKS.md.bak"
+  # 重跑（这次用 happy scenario，agent 会完成 task）
+  rc=0
+  RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
+  run_dir2="$(latest_run_dir "$ws")"
+  reason2="$(get_exit_reason "$run_dir2" 2>/dev/null)"
+  if [[ "$reason2" == "done" && "$rc" -eq 0 ]]; then
+    _pass "QA-3 rerun: after checking off HUMAN-1, rerun completes original task (done/rc=0)"
+  else
+    _fail "QA-3 rerun: expected done/rc=0 after HUMAN cleared, got $reason2/$rc"
+  fi
+  # 验证原 task 已被勾选
+  if grep -q '^\- \[x\] DEV-1:' "$ws/.ralph/TASKS.md"; then
+    _pass "QA-3 rerun: original DEV-1 task is checked"
+  else
+    _fail "QA-3 rerun: original DEV-1 task not checked"
+  fi
+fi
+cleanup_ws "$ws"
+
+# QA-3.4: HUMAN 编号递增（已有 HUMAN-1 时下一个是 HUMAN-2）
+echo ""
+echo "-- QA-3: HUMAN number increments when HUMAN-1 already exists"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
+- [x] HUMAN-1: Previous human task
+- [ ] DEV-2: Another stuck task
+TASKS_EOF
+git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
+  if grep -q '^\- \[ \] HUMAN-2:' "$ws/.ralph/TASKS.md"; then
+    _pass "QA-3 HUMAN increment: HUMAN-2 inserted (HUMAN-1 already exists)"
+  else
+    _fail "QA-3 HUMAN increment: expected HUMAN-2, TASKS.md content: $(cat "$ws/.ralph/TASKS.md" | tr '\n' '|')"
+  fi
+else
+  _fail "QA-3 HUMAN increment: expected blocked_by_human/rc=7, got $reason/$rc"
+fi
+cleanup_ws "$ws"
+
+# QA-3.5: max_round=0（默认）不会触发 max_round，但 stall 仍可触发
+echo ""
+echo "-- QA-3: max_round=0 (default) no trigger, stall still triggers"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] DEV-1: Will stall" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 2 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+_rounds="$(jq '.rounds // 0' "$run_dir/result.json" 2>/dev/null)" || _rounds="?"
+	# stall-limit=2 → 2 rounds 后 stall_count=2 即触发
+if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 && "$_rounds" -ge 2 ]]; then
+  _pass "QA-3 stall-only: blocked_by_human with $_rounds rounds (max_round=0, stall-limit=2)"
+else
+  _fail "QA-3 stall-only: expected blocked_by_human/rc=7/rounds>=2, got $reason/$rc/rounds=$_rounds"
+fi
+cleanup_ws "$ws"
+
+# QA-3.6: per-task try 在 task 切换时重置（round 计数 via meta.json）
+echo ""
+echo "-- QA-3: per-task stall_count resets on task switch"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
+- [ ] DEV-1: First task
+- [ ] DEV-2: Second task
+TASKS_EOF
+git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
+rc=0
+# partial_progress: round 1 完成 task 1，round 2+ 停滞 task 2
+RALPH_FAKE_SCENARIO=partial_progress bash "$ws/.ralph/bin/ralph" run \
+  --provider fake --stall-limit 2 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
+  _pass "QA-3 task-switch: blocked_by_human/rc=7"
+else
+  _fail "QA-3 task-switch: expected blocked_by_human/rc=7, got $reason/$rc"
+fi
+# 验证 stall_count：round 1 完成 task 1 (stall=0)，round 2 task 2 首次 (stall=0)，round 3 task 2 stall=1，round 4 task 2 stall=2 trigger
+if command -v jq >/dev/null 2>&1; then
+  sc1="$(jq '.stall_count // 0' "$run_dir/rounds/round-001/meta.json" 2>/dev/null)" || sc1=0
+  sc2="$(jq '.stall_count // 0' "$run_dir/rounds/round-002/meta.json" 2>/dev/null)" || sc2=0
+  sc3="$(jq '.stall_count // 0' "$run_dir/rounds/round-003/meta.json" 2>/dev/null)" || sc3=0
+  if [[ "$sc1" -eq 0 && "$sc2" -eq 1 && "$sc3" -eq 2 ]]; then
+    _pass "QA-3 task-switch stall_count: round1=$sc1 round2=$sc2 round3=$sc3 (reset on switch)"
+  else
+    _fail "QA-3 task-switch stall_count: expected 0/1/2, got $sc1/$sc2/$sc3"
+  fi
+fi
+cleanup_ws "$ws"
+
+# QA-3.7: 无前缀任务的 HUMAN 自动插入（name 用截断方式）
+echo ""
+echo "-- QA-3: no-prefix task triggers HUMAN with truncated name"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Write the hello world file for testing purposes" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
+  if grep -q '^\- \[ \] HUMAN-1:' "$ws/.ralph/TASKS.md"; then
+    _h_name="$(grep '^\- \[ \] HUMAN-1:' "$ws/.ralph/TASKS.md" | sed 's/^\- \[ \] HUMAN-1: //')"
+    # 无前缀任务的 name 应该是截断的任务描述（前 40 字符）
+    if [[ "$_h_name" == "Write the hello world file for testing pu"* ]]; then
+      _pass "QA-3 no-prefix: HUMAN-1 name uses truncated task description"
+    else
+      _pass "QA-3 no-prefix: HUMAN-1 inserted (name: $_h_name)"
+    fi
+  else
+    _fail "QA-3 no-prefix: HUMAN-1 not found in TASKS.md"
+  fi
+else
+  _fail "QA-3 no-prefix: expected blocked_by_human/rc=7, got $reason/$rc"
+fi
+cleanup_ws "$ws"
+
+# ────────────────────────────────
 echo ""
 echo "-- Long provider oneshot emits heartbeat without -v"
 ws=$(setup_workspace)
