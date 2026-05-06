@@ -146,11 +146,14 @@
   - 验证：`git check-ignore` 确认 `.ralph/runs/test` 等仍被忽略；`git status --ignored` 确认生效。
   - 未验证：None.
 
-- [ ] DEV-8: 重写 .ralph/README.md
+- [x] DEV-8: 重写 .ralph/README.md
   - 预期：按 I5-design §10 / §影响 REQ-文档 描述重写 `.ralph/README.md`：环境变量按 provider/loop/ui 三组分类（每个变量含默认 / 说明 / 示例）；新增《Ralph loop 与 round》小节解释 round ≠ task 概念；新增《防死循环机制》小节描述 max_round + stall + HUMAN 自动插入；新增《agent 调用 ralph》最佳实践（默认 `ralph run` plain 即 agent 友好）；新增《sticky 模式异常退出救援》（`stty sane`）；删除所有 `RALPH_VERBOSE` / `RALPH_MAX_ITER` / `iter` 旧名宣传；`.ralph/.gitignore` 自包含说明（cp -r 时自动跟随）。
-  - 输入：I5-design 全文；DEV-1 / DEV-2 / DEV-7 完成后；当前 `.ralph/README.md`。
+  - 输入：I5-design §10 / §影响 REQ-文档；DEV-1 / DEV-2 / DEV-7 完成后；当前 `.ralph/README.md`。
   - 范围：`.ralph/README.md`；不改 docs/architecture/。
   - 验证计划：`grep -E "RALPH_VERBOSE|RALPH_MAX_ITER|^- iter " .ralph/README.md` 无残留；环境变量小节有 provider/loop/ui 三组表格；含 round/防死循环/agent 调用/sticky 救援/.gitignore 五个新小节；`git diff --check` 通过。
+  - 完成：全量重写 `.ralph/README.md`。实现环境变量分组（provider/loop/ui）、round vs task 概念解释、防死循环机制说明、Agent 调用最佳实践、Sticky 救援指南、.gitignore 自包含说明。删除所有旧名宣传。
+  - 验证：`grep -E "RALPH_VERBOSE|RALPH_MAX_ITER|^- iter " .ralph/README.md` 无残留；`git diff --check` 通过；人工确认 5 个新小节和 3 组环境变量表均已到位。
+  - 未验证：None.
   - 依赖：DEV-1, DEV-2, DEV-7
 
 - [ ] DEV-9: 同步 docs/architecture/ + docs/roadmap.md
