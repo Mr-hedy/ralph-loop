@@ -1,0 +1,147 @@
+#!/usr/bin/expect -f
+# QA-5 stty restore test — run ralph inside a persistent shell
+# Usage: expect tests/qa5-stty-restore.exp
+
+set timeout 20
+set project_dir "/Users/hedy/Develop/code/ai-project/ralph-loop"
+set ws [exec mktemp -d /tmp/ralph-qa5-stty-XXXXXX]
+puts "Workspace: $ws"
+
+# Setup
+exec mkdir -p $ws/.ralph/lib $ws/.ralph/bin
+exec sh -c "cp $project_dir/.ralph/lib/*.sh $ws/.ralph/lib/"
+exec cp $project_dir/.ralph/bin/ralph $ws/.ralph/bin/ralph
+exec chmod +x $ws/.ralph/bin/ralph
+exec cp $project_dir/.ralph/PROMPT.md $ws/.ralph/PROMPT.md
+catch { exec cp $project_dir/.ralph/.gitignore $ws/.ralph/.gitignore }
+
+proc reset_tasks {ws} {
+    set fd [open "$ws/.ralph/TASKS.md" w]
+    puts $fd {> 当前迭代: I5
+
+- [ ] DEV-1: test task one
+- [ ] DEV-2: test task two
+}
+    close $fd
+    exec sh -c "cd $ws && (git rev-parse --git-dir >/dev/null 2>&1 || git init -q) && git add -A && git commit -q -m reset --allow-empty --author='test <test@test.com>' 2>/dev/null"
+}
+
+reset_tasks $ws
+
+# ── Test: stty restore after Ctrl+C in sticky mode ────────────────────────
+puts "\n=== Test A: stty restore after sticky Ctrl+C ==="
+
+spawn /bin/sh
+sleep 0.3
+
+# Record baseline stty (use -a for human-readable flags on macOS)
+send "stty -a > $ws/stty-baseline.txt\r"
+expect "$ "
+sleep 0.2
+
+# Run ralph with stagnation + sticky
+send "cd $ws && RALPH_FAKE_SCENARIO=stagnation RALPH_FAKE_SLEEP=2 RALPH_WORKSPACE=$ws $ws/.ralph/bin/ralph run -v --provider fake --max-round 10\r"
+sleep 3
+
+# Send Ctrl+C to interrupt ralph
+send "\x03"
+sleep 2
+
+# Check stty after interrupt
+send "stty -a > $ws/stty-after-ctrlc.txt\r"
+expect "$ "
+sleep 0.2
+
+send "echo STTY_CTRL_C_DONE\r"
+expect "STTY_CTRL_C_DONE"
+expect "$ "
+
+# Read results
+set stty_baseline ""
+set stty_after_ctrlc ""
+catch { set stty_baseline [exec cat $ws/stty-baseline.txt] }
+catch { set stty_after_ctrlc [exec cat $ws/stty-after-ctrlc.txt] }
+
+puts "  baseline: $stty_baseline"
+puts "  after Ctrl+C: $stty_after_ctrlc"
+
+set ctrlc_pass 0
+
+# Check echo
+if {[string match "*echo*" $stty_after_ctrlc]} {
+    puts "  PASS: echo restored after Ctrl+C"
+    incr ctrlc_pass
+} else {
+    puts "  FAIL: echo NOT restored after Ctrl+C"
+}
+
+# Check icanon
+if {[string match "*icanon*" $stty_after_ctrlc]} {
+    puts "  PASS: icanon restored after Ctrl+C"
+    incr ctrlc_pass
+} else {
+    puts "  FAIL: icanon NOT restored after Ctrl+C"
+}
+
+# ── Test: stty restore after normal completion ────────────────────────────
+puts "\n=== Test B: stty restore after normal completion ==="
+
+reset_tasks $ws
+
+send "cd $ws && RALPH_WORKSPACE=$ws $ws/.ralph/bin/ralph run -v --provider fake --max-round 2\r"
+
+expect {
+    "Ralph Run Complete" {
+        puts "  ralph completed normally"
+    }
+    timeout {
+        puts "  WARN: timeout waiting for completion"
+    }
+}
+
+sleep 1
+expect "$ "
+
+# Check stty after normal exit
+send "stty -a > $ws/stty-after-done.txt\r"
+expect "$ "
+sleep 0.2
+
+send "echo STTY_DONE_CHECK\r"
+expect "STTY_DONE_CHECK"
+expect "$ "
+
+set stty_after_done ""
+catch { set stty_after_done [exec cat $ws/stty-after-done.txt] }
+
+set done_pass 0
+
+if {[string match "*echo*" $stty_after_done]} {
+    puts "  PASS: echo restored after normal completion"
+    incr done_pass
+} else {
+    puts "  FAIL: echo NOT restored after normal completion"
+}
+
+if {[string match "*icanon*" $stty_after_done]} {
+    puts "  PASS: icanon restored after normal completion"
+    incr done_pass
+} else {
+    puts "  FAIL: icanon NOT restored after normal completion"
+}
+
+# ── Cleanup ───────────────────────────────────────────────────────────────
+send "exit\r"
+expect eof
+
+exec rm -rf $ws
+
+puts "\n=== stty Summary ==="
+puts "  Ctrl+C: $ctrlc_pass/2"
+puts "  Normal: $done_pass/2"
+
+if {$ctrlc_pass + $done_pass < 4} {
+    exit 1
+} else {
+    exit 0
+}

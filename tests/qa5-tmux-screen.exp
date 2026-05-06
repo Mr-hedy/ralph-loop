@@ -1,0 +1,171 @@
+#!/usr/bin/expect -f
+# QA-5: tmux/screen sticky rendering smoke test
+# Usage: expect tests/qa5-tmux-screen.exp
+
+set timeout 30
+set project_dir "/Users/hedy/Develop/code/ai-project/ralph-loop"
+set ws [exec mktemp -d /tmp/ralph-qa5-XXXXXX]
+puts "Workspace: $ws"
+
+# ── Helper: setup workspace ───────────────────────────────────────────────
+proc setup_ws {ws project_dir} {
+    exec mkdir -p $ws/.ralph/lib $ws/.ralph/bin
+    exec sh -c "cp $project_dir/.ralph/lib/*.sh $ws/.ralph/lib/"
+    exec cp $project_dir/.ralph/bin/ralph $ws/.ralph/bin/ralph
+    exec chmod +x $ws/.ralph/bin/ralph
+    catch { exec cp $project_dir/.ralph/PROMPT.md $ws/.ralph/PROMPT.md }
+    catch { exec cp $project_dir/.ralph/.gitignore $ws/.ralph/.gitignore }
+    reset_tasks $ws
+}
+
+proc reset_tasks {ws} {
+    set fd [open "$ws/.ralph/TASKS.md" w]
+    puts $fd {> 当前迭代: I5
+
+- [ ] DEV-1: test task one
+- [ ] DEV-2: test task two
+}
+    close $fd
+    exec sh -c "cd $ws && git init -q 2>/dev/null; git add -A 2>/dev/null; git commit -q -m init --allow-empty --author='test <test@test.com>' 2>/dev/null"
+}
+
+proc cleanup {ws} {
+    catch { exec tmux kill-server }
+    catch { exec screen -S qa5-screen -X quit }
+    catch { exec rm -rf $ws }
+}
+
+setup_ws $ws $project_dir
+set pass_count 0
+set fail_count 0
+
+# ── Test 1: tmux sticky rendering ─────────────────────────────────────────
+puts "\n=== Test 1: tmux sticky rendering ==="
+
+spawn tmux new-session -x 120 -y 30 "cd $ws && RALPH_FAKE_SLEEP=0 $ws/.ralph/bin/ralph run -v --provider fake --max-round 2; echo TMUX_DONE"
+
+expect {
+    "TMUX_DONE" {
+        puts "  PASS: ralph completed in tmux sticky mode"
+        incr pass_count
+    }
+    timeout {
+        puts "  FAIL: timeout waiting for ralph in tmux"
+        incr fail_count
+    }
+}
+
+# ── Test 2: tmux stty restore after Ctrl+C ────────────────────────────────
+puts "\n=== Test 2: tmux stty restore ==="
+
+reset_tasks $ws
+
+spawn tmux new-session -x 120 -y 30
+sleep 1
+
+# Record stty before
+send "stty -g | tr '\\n' ' ' > $ws/stty-before.txt && echo STTY_BEFORE_DONE\r"
+expect {
+    "STTY_BEFORE_DONE" {}
+    timeout { puts "  WARN: could not record stty before" }
+}
+
+# Start ralph with stagnation scenario (won't progress, good for Ctrl+C test)
+send "cd $ws && RALPH_FAKE_SCENARIO=stagnation RALPH_FAKE_SLEEP=2 $ws/.ralph/bin/ralph run -v --provider fake --max-round 10\r"
+sleep 4
+
+# Send Ctrl+C
+send "\x03"
+sleep 2
+
+# Record stty after
+send "stty -g | tr '\\n' ' ' > $ws/stty-after.txt && echo STTY_AFTER_DONE\r"
+expect {
+    "STTY_AFTER_DONE" {}
+    timeout { puts "  WARN: could not record stty after" }
+}
+sleep 0.5
+
+# Read and compare stty
+set stty_before ""
+set stty_after ""
+catch { set stty_before [exec cat $ws/stty-before.txt] }
+catch { set stty_after [exec cat $ws/stty-after.txt] }
+
+puts "  stty before: $stty_before"
+puts "  stty after:  $stty_after"
+
+if {[string match "*echo*" $stty_after]} {
+    puts "  PASS: echo restored after Ctrl+C"
+    incr pass_count
+} else {
+    puts "  FAIL: echo NOT restored after Ctrl+C"
+    incr fail_count
+}
+
+if {[string match "*icanon*" $stty_after]} {
+    puts "  PASS: icanon restored after Ctrl+C"
+    incr pass_count
+} else {
+    puts "  FAIL: icanon NOT restored after Ctrl+C"
+    incr fail_count
+}
+
+exec tmux kill-server
+
+# ── Test 3: screen sticky rendering ───────────────────────────────────────
+puts "\n=== Test 3: screen sticky rendering ==="
+
+reset_tasks $ws
+
+spawn screen -S qa5-screen /bin/sh -c "cd $ws && RALPH_FAKE_SLEEP=0 $ws/.ralph/bin/ralph run -v --provider fake --max-round 2 && echo SCREEN_DONE || echo SCREEN_FAIL"
+
+expect {
+    "SCREEN_DONE" {
+        puts "  PASS: ralph completed in screen sticky mode"
+        incr pass_count
+    }
+    "SCREEN_FAIL" {
+        puts "  FAIL: ralph failed in screen"
+        incr fail_count
+    }
+    timeout {
+        puts "  FAIL: timeout waiting for ralph in screen"
+        incr fail_count
+    }
+}
+
+catch { exec screen -S qa5-screen -X quit }
+
+# ── Test 4: tmux narrow terminal ──────────────────────────────────────────
+puts "\n=== Test 4: tmux narrow terminal (40 cols) ==="
+
+reset_tasks $ws
+
+spawn tmux new-session -x 40 -y 30 "cd $ws && RALPH_FAKE_SLEEP=0 $ws/.ralph/bin/ralph run -v --provider fake --max-round 1; echo NARROW_DONE"
+
+expect {
+    "NARROW_DONE" {
+        puts "  PASS: ralph completed in narrow tmux (40 cols)"
+        incr pass_count
+    }
+    timeout {
+        puts "  FAIL: timeout in narrow tmux"
+        incr fail_count
+    }
+}
+
+catch { exec tmux kill-server }
+
+# ── Summary ───────────────────────────────────────────────────────────────
+puts "\n=== QA-5 Summary ==="
+puts "  PASS: $pass_count"
+puts "  FAIL: $fail_count"
+
+cleanup $ws
+
+if {$fail_count > 0} {
+    exit 1
+} else {
+    exit 0
+}

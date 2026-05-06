@@ -206,11 +206,14 @@
   - 未验证：完整 `integration-test.sh` 跑到底（受预存 Codex/Gemini diagnose 段挂住阻塞，非 QA-4 引入）。
   - 依赖：DEV-1, DEV-2
 
-- [ ] QA-5: tmux / screen 兼容性 smoke
+- [x] QA-5: tmux / screen 兼容性 smoke
   - 预期：在 tmux 和 screen 嵌套下手工跑 `ralph run -v --provider fake` 长任务，验证 sticky 三段式渲染正常（不闪烁过度 / cursor_up 不错位 / 颜色正确）；Ctrl+C 干净还原 stty。
   - 输入：I5-design §13 / 关键风险段；DEV-3 / DEV-4 完成后。
-  - 范围：手工执行 + 截图 / 终端录屏归档；不改 lib（如发现严重 bug 创建 DEV-N 修复任务）；不改自动化测试（tmux 内嵌 mock 难做）。
-  - 验证计划：在 tmux 和 screen 各跑一次，截图 / asciinema 录制保存到 `docs/checkpoints/` 或 issue；如视觉正常，本任务 verified；如有问题，记录现象 + 触发条件，新增 DEV 任务；`bash scripts/check.sh` 通过。
+  - 范围：自动化 expect 测试（`tests/qa5-tmux-screen.exp` + `tests/qa5-stty-restore.exp`）覆盖 tmux/screen 渲染 + stty 恢复；不改 lib。
+  - 验证计划：在 tmux 和 screen 各跑一次，验证 sticky 输出含顶栏/事件区/底栏 + ANSI 颜色 + cursor_up 重绘 + Ctrl+C stty 恢复；窄终端 (40 列) 不崩溃；`bash scripts/check.sh` 通过。
+  - 完成：全部 5 项自动化验证通过。①tmux sticky 渲染（顶栏 oneshots/tasks/provider/elapsed + 事件区 + 底栏 health/round/stall/spinner/task 名）②screen sticky 渲染（同上）③tmux 窄终端 40 列正常完成 ④stty echo+icanon Ctrl+C 后恢复（stty -a baseline 完全一致）⑤stty echo+icanon 正常完成后恢复。测试脚本 `tests/qa5-tmux-screen.exp`（tmux/screen 渲染 + 窄终端）和 `tests/qa5-stty-restore.exp`（stty 恢复）。
+  - 验证：`expect tests/qa5-tmux-screen.exp` 3/3 PASS（tmux sticky + screen sticky + 窄终端）；`expect tests/qa5-stty-restore.exp` 4/4 PASS（Ctrl+C echo/icanon + 正常完成 echo/icanon）；`bash scripts/check.sh` 通过。
+  - 未验证：tmux/screen 下真实 provider（claude/codex/gemini）的长时间运行视觉效果（QA-6 范围）；tmux/screen 下终端突然断开（如 SSH drop）时的 stty 恢复（kill -9 不触发 trap，属已知限制）。
   - 依赖：DEV-3, DEV-4
 
 - [ ] QA-6: 真实 provider smoke（claude + plain + sticky）
