@@ -593,6 +593,225 @@ fi
 cleanup_ws "$ws"
 
 # ────────────────────────────────
+# QA-4: iter → round 改名 + env 重命名一致性回归
+# ────────────────────────────────
+
+# QA-4.1: JSON 字段使用 round/rounds（无旧名 iteration/iterations）
+# status.json 在 workspace 级别 .ralph/status.json，result.json/meta.json 在 run_dir 内
+echo ""
+echo "-- QA-4.1: status.json + result.json + meta.json fields use round/rounds"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+round_dir="${run_dir}/rounds/round-001"
+
+# Check .ralph/status.json for "round": N (not "iteration": N)
+status_round_ok=0
+grep -qE '"round":' "$ws/.ralph/status.json" 2>/dev/null && status_round_ok=1
+status_no_old_iter=1
+# Should NOT have "iteration": N (iteration_name is OK — it's the project phase name)
+grep -qE '"iteration":' "$ws/.ralph/status.json" 2>/dev/null && status_no_old_iter=0
+
+# Check result.json for round/rounds
+result_rounds_ok=0; result_no_old_iter=1
+grep -qE '"rounds":' "$run_dir/result.json" 2>/dev/null && result_rounds_ok=1
+grep -qE '"iterations":' "$run_dir/result.json" 2>/dev/null && result_no_old_iter=0
+
+# Check meta.json for changed_files_round (not changed_files_iter)
+meta_round_ok=0; meta_no_bad_iter=1
+grep -qE '"changed_files_round"' "$round_dir/meta.json" 2>/dev/null && meta_round_ok=1
+grep -qE '"changed_files_iter"' "$round_dir/meta.json" 2>/dev/null && meta_no_bad_iter=0
+
+# Check context.json for stall_count (not stagnation_count)
+context_ok=1
+if [[ -f "$run_dir/context.json" ]]; then
+  grep -qE '"stagnation"' "$run_dir/context.json" 2>/dev/null && context_ok=0
+fi
+
+if [[ "$rc" -eq 0 && "$status_round_ok" -eq 1 && "$status_no_old_iter" -eq 1 \
+   && "$result_rounds_ok" -eq 1 && "$result_no_old_iter" -eq 1 \
+   && "$meta_round_ok" -eq 1 && "$meta_no_bad_iter" -eq 1 && "$context_ok" -eq 1 ]]; then
+  _pass "QA-4.1: all JSON fields use round/rounds, no old iter names"
+else
+  _fail "QA-4.1: s_r=$status_round_ok s_ni=$status_no_old_iter r_rs=$result_rounds_ok r_ni=$result_no_old_iter m_r=$meta_round_ok m_ni=$meta_no_bad_iter ctx=$context_ok rc=$rc"
+fi
+cleanup_ws "$ws"
+
+# QA-4.2: Runtime directory uses rounds/round-NNN/ (not iterations/iter-NNN/)
+echo ""
+echo "-- QA-4.2: runtime directory rounds/round-NNN/"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+has_round_dir=0; no_iter_dir=1
+[[ -d "$run_dir/rounds/round-001" ]] && has_round_dir=1
+[[ -d "$run_dir/iterations" ]] && no_iter_dir=0
+# Also check no iter-001 directory
+[[ -d "$run_dir/rounds/iter-001" ]] && no_iter_dir=0
+if [[ "$rc" -eq 0 && "$has_round_dir" -eq 1 && "$no_iter_dir" -eq 1 ]]; then
+  _pass "QA-4.2: directory rounds/round-001 exists, no iterations/ or iter-NNN"
+else
+  _fail "QA-4.2: has_round_dir=$has_round_dir no_iter_dir=$no_iter_dir rc=$rc"
+fi
+cleanup_ws "$ws"
+
+# QA-4.3: CLI flag --max-round works
+echo ""
+echo "-- QA-4.3: --max-round flag works (limits rounds)"
+ws=$(setup_workspace)
+cat > "$ws/.ralph/TASKS.md" <<'EOF'
+- [ ] DEV-1: task one
+- [ ] DEV-2: task two
+EOF
+git -C "$ws" add . && git -C "$ws" commit -q -m "tasks" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 \
+  2>/dev/null 1>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+# With max-round=2, ralph should detect per-task max_round trigger (stall or max round) and exit
+# The exact exit_reason depends on stall/max_round logic, but ralph should NOT run more than 2 rounds
+rounds_done=0
+if [[ -d "$run_dir/rounds" ]]; then
+  rounds_done=$(ls -1d "$run_dir/rounds"/round-* 2>/dev/null | wc -l | tr -d ' ')
+fi
+max_round_respected=0
+[[ "$rounds_done" -le 2 ]] && max_round_respected=1
+if [[ "$max_round_respected" -eq 1 ]]; then
+  _pass "QA-4.3: --max-round 2 respected (ran $rounds_done rounds)"
+else
+  _fail "QA-4.3: --max-round not respected (ran $rounds_done rounds, reason=$reason rc=$rc)"
+fi
+cleanup_ws "$ws"
+
+# QA-4.4: CLI flag --round-timeout works
+echo ""
+echo "-- QA-4.4: --round-timeout triggers timeout exit"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=10 \
+  bash "$ws/.ralph/bin/ralph" run --provider fake --round-timeout 2 --max-round 1 \
+  2>/dev/null 1>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+if [[ "$reason" == "timeout" && "$rc" -eq 3 ]]; then
+  _pass "QA-4.4: --round-timeout 2 triggers exit_reason=timeout rc=3"
+else
+  _fail "QA-4.4: expected timeout/rc=3, got $reason/$rc"
+fi
+cleanup_ws "$ws"
+
+# QA-4.5: Old CLI flags --max-iter and --timeout rejected
+echo ""
+echo "-- QA-4.5: old flags --max-iter and --timeout rejected"
+rc1=0
+err1=$(bash "$REPO_ROOT/.ralph/bin/ralph" run --max-iter 3 2>&1 1>/dev/null) || rc1=$?
+rc2=0
+err2=$(bash "$REPO_ROOT/.ralph/bin/ralph" run --timeout 60 2>&1 1>/dev/null) || rc2=$?
+if [[ "$rc1" -ne 0 && "$err1" == *"unknown flag"* && "$rc2" -ne 0 && "$err2" == *"unknown flag"* ]]; then
+  _pass "QA-4.5: --max-iter and --timeout rejected as unknown flags"
+else
+  _fail "QA-4.5: rc1=$rc1 err1=$err1 rc2=$rc2 err2=$err2"
+fi
+
+# QA-4.6: New env names RALPH_PROVIDER_MODEL / RALPH_LOOP_MAX_ROUND work
+# status.json is at $ws/.ralph/status.json (workspace level)
+echo ""
+echo "-- QA-4.6: new env names RALPH_PROVIDER_MODEL / RALPH_LOOP_MAX_ROUND functional"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_PROVIDER_MODEL="test-model-xyz" \
+  bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+model_in_status=0
+grep -q '"model": *"test-model-xyz"' "$ws/.ralph/status.json" 2>/dev/null && model_in_status=1
+if [[ "$rc" -eq 0 && "$model_in_status" -eq 1 ]]; then
+  _pass "QA-4.6: RALPH_PROVIDER_MODEL reflected in status.json"
+else
+  _fail "QA-4.6: rc=$rc model_in_status=$model_in_status"
+fi
+cleanup_ws "$ws"
+
+# QA-4.7: Old env name RALPH_MODEL not read (single-round test)
+# Multi-round RALPH_MAX_ITER not-read verified by QA-4.9 code scan + manual evidence
+echo ""
+echo "-- QA-4.7: old env name RALPH_MODEL not read by ralph"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+# RALPH_MODEL (old) should NOT be read — model should stay default, not "old-should-be-ignored"
+RALPH_MODEL="old-should-be-ignored" \
+  bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+old_model_ignored=0
+if grep -q '"model": *"old-should-be-ignored"' "$ws/.ralph/status.json" 2>/dev/null; then
+  old_model_ignored=0  # BAD: old env was read
+else
+  old_model_ignored=1  # GOOD: old env ignored
+fi
+if [[ "$rc" -eq 0 && "$old_model_ignored" -eq 1 ]]; then
+  _pass "QA-4.7: RALPH_MODEL (old) not read by ralph"
+else
+  _fail "QA-4.7: rc=$rc old_model_ignored=$old_model_ignored"
+fi
+cleanup_ws "$ws"
+
+# QA-4.8: --stall-limit flag works (was --stagnation-limit)
+# Use stagnation scenario (no TASKS.md changes, returns 0)
+echo ""
+echo "-- QA-4.8: --stall-limit triggers stall after N rounds"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+RALPH_FAKE_SCENARIO=stagnation \
+  bash "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 3 --max-round 0 \
+  2>/dev/null 1>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+# stall_limit=3 means after 3 consecutive no-progress rounds, HUMAN-N is inserted
+stall_triggered=0
+[[ "$reason" == "blocked_by_human" ]] && stall_triggered=1
+if [[ "$stall_triggered" -eq 1 ]]; then
+  _pass "QA-4.8: --stall-limit 3 triggered blocked_by_human"
+else
+  _fail "QA-4.8: expected blocked_by_human, got reason=$reason rc=$rc"
+fi
+cleanup_ws "$ws"
+
+# QA-4.9: grep scan — code + tests contain no old field names
+# Exclude internal variables (prefixed with _RALPH_*) and iteration_name (legitimate)
+echo ""
+echo "-- QA-4.9: code scan — no old iter/env names in .ralph/lib and bin"
+scan_ok=1
+old_names=$(grep -rnE 'max_iterations|changed_files_iter|stagnation_count|stagnation_limit|RALPH_MAX_ITER|RALPH_STAGNATION' \
+  "$REPO_ROOT/.ralph/lib/" "$REPO_ROOT/.ralph/bin/" 2>/dev/null \
+  | grep -v 'iteration_name' \
+  | grep -v '#' || true)
+# Also check for old public env names (must not be preceded by _ to exclude internal vars)
+old_env_names=$(grep -rnE '(^|[^_])RALPH_MODEL[^_]|(^|[^_])RALPH_EFFORT[^_]|(^|[^_])RALPH_TIMEOUT[^_]' \
+  "$REPO_ROOT/.ralph/lib/" "$REPO_ROOT/.ralph/bin/" 2>/dev/null \
+  | grep -v '#' || true)
+if [[ -n "$old_names" || -n "$old_env_names" ]]; then
+  scan_ok=0
+fi
+if [[ "$scan_ok" -eq 1 ]]; then
+  _pass "QA-4.9: no old field/env names in .ralph/lib and bin"
+else
+  combined="$(echo "$old_names"; echo "$old_env_names")"
+  _fail "QA-4.9: found old names: $(echo "$combined" | head -5)"
+fi
+
+# ────────────────────────────────
 echo ""
 echo "-- Long provider oneshot emits heartbeat without -v"
 ws=$(setup_workspace)

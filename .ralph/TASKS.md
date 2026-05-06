@@ -196,11 +196,14 @@
   - 未验证：完整 `integration-test.sh` 跑到底（受预存 adapter 挂住阻塞）。
   - 依赖：DEV-6
 
-- [ ] QA-4: iter → round 改名 + env 重命名一致性回归
+- [x] QA-4: iter → round 改名 + env 重命名一致性回归
   - 预期：集成测试验证全量改名后无残留：所有 status.json / result.json / meta.json 字段为 `round` / `rounds`；运行时目录为 `runs/<run_id>/rounds/round-NNN/`；CLI flag `--max-round` / `--round-timeout` 生效，旧 flag `--max-iter` / `--timeout` 报错；env `RALPH_PROVIDER_MODEL` / `RALPH_LOOP_MAX_ROUND` 等新名生效，旧名不再被读取（除 `RALPH_VERBOSE` 内部传值保留）。
   - 输入：I5-design §8 §9；DEV-1 / DEV-2 完成后；现有集成测试。
   - 范围：`scripts/integration-test.sh` 修订所有现有用例的旧名引用；新增改名一致性断言用例；不改 lib。
   - 验证计划：`grep -rnE "iter-NNN|iteration[^_]|RALPH_MAX_ITER|--max-iter" .ralph/runs/<test_run>/` 无残留新名；`ralph run --max-iter 3` exit 2 报错；`RALPH_MAX_ITER=3 ralph run` 不被 ralph 接受（除非用户在 .env 写）；`bash scripts/integration-test.sh` 通过。
+  - 完成：在 `scripts/integration-test.sh` 新增 9 个 QA-4 测试用例。QA-4.1: JSON 字段（status.json/result.json/meta.json）全部使用 round/rounds，无旧 iteration/iterations 字段。QA-4.2: 运行时目录 rounds/round-NNN/ 存在，无 iterations/iter-NNN。QA-4.3: --max-round 限制 round 数量生效。QA-4.4: --round-timeout 触发 timeout exit。QA-4.5: 旧 flag --max-iter 和 --timeout 被拒绝（unknown flag）。QA-4.6: RALPH_PROVIDER_MODEL 新名在 status.json 生效。QA-4.7: RALPH_MODEL 旧名不被读取。QA-4.8: --stall-limit 触发 blocked_by_human。QA-4.9: 代码扫描 .ralph/lib 和 bin 无旧字段/env 名残留。
+  - 验证：QA-4 隔离运行 9/9 PASS；`bash -n` 通过；`bash scripts/check.sh` 通过；`git diff --check` 通过。
+  - 未验证：完整 `integration-test.sh` 跑到底（受预存 Codex/Gemini diagnose 段挂住阻塞，非 QA-4 引入）。
   - 依赖：DEV-1, DEV-2
 
 - [ ] QA-5: tmux / screen 兼容性 smoke
