@@ -320,11 +320,12 @@ ralph_watch() {
     provider="$(_ralph_status_json_val "$status_file" "provider")"
     round="$(_ralph_status_json_val "$status_file" "round")"
     state="$(_ralph_status_json_val "$status_file" "state")"
-    local tasks_checked tasks_total exit_reason task_started_at
+    local tasks_checked tasks_total exit_reason task_started_at task_try
     tasks_checked="$(_ralph_status_json_val "$status_file" "tasks_checked")"
     tasks_total="$(_ralph_status_json_val "$status_file" "tasks_total")"
     exit_reason="$(_ralph_status_json_val "$status_file" "exit_reason")"
     task_started_at="$(_ralph_status_json_val "$status_file" "task_started_at")"
+    task_try="$(_ralph_status_json_val "$status_file" "task_try")"
 
     # Detect run_id change → full reset
     if [[ -n "$run_id" && "$run_id" != "null" && "$run_id" != "$_w_prev_run_id" ]]; then
@@ -431,6 +432,7 @@ ralph_watch() {
     _RALPH_STICKY_TASK_START_TS="$_w_task_start_ts"
     _RALPH_STICKY_LOG_PATH="${log_path:-}"
     _RALPH_STICKY_STALL_COUNT="$stall_count"
+    _RALPH_STICKY_TASK_TRY="${task_try:-1}"
 
     if [[ "${state:-}" == "finished" ]]; then
       _RALPH_STICKY_EXIT_REASON="${exit_reason:-}"

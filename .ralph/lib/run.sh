@@ -348,6 +348,7 @@ _ralph_write_status() {
   local last_error_json="${11:-null}"
   local retry_count="${12:-0}"
   local next_retry_at="${13:-null}"
+  local task_try="${14:-1}"
 
   cat > "$_RALPH_WORKSPACE/.ralph/status.json" <<EOF
 {
@@ -361,6 +362,7 @@ _ralph_write_status() {
   "task_started_at": $(ralph_json_str "${_RALPH_TASK_STARTED_AT:-$started_at}"),
   "updated_at": "$(ralph_json_escape "$(ralph_timestamp)")",
   "round": ${round},
+  "task_try": ${task_try},
   "iteration_name": $(ralph_json_str "$_RALPH_CURRENT_ITERATION"),
   "state": "$(ralph_json_escape "$state")",
   "tasks_total": ${tasks_total},
@@ -382,11 +384,12 @@ _ralph_update_status() {
   local last_error_json="${6:-null}"
   local retry_count="${7:-0}"
   local next_retry_at="${8:-null}"
+  local task_try="${9:-${_RALPH_CURRENT_TASK_TRY:-1}}"
 
   _ralph_write_status "$state" "$_RALPH_RUN_ID" "$_RALPH_PROVIDER" \
     "$_RALPH_MODEL" "$_RALPH_EFFORT" "$_RALPH_STARTED_AT" \
     "$round" "$tasks_total" "$tasks_checked" "$exit_reason" \
-    "$last_error_json" "$retry_count" "$next_retry_at"
+    "$last_error_json" "$retry_count" "$next_retry_at" "$task_try"
 }
 
 # ── 启动校验 ─────────────────────────────────────────────────────────────────
@@ -561,7 +564,7 @@ EOF
 
   # status.json 初始写入
   _ralph_write_status "running" "$run_id" "$provider" "$model" "$effort" \
-    "$started_at" 0 "$tasks_total" "$tasks_checked_start" "null" "null" 0 "null"
+    "$started_at" 0 "$tasks_total" "$tasks_checked_start" "null" "null" 0 "null" 1
 
   # TASKS.md 空或全部已勾选 → 直接 done，不产生 round
   if [[ "$tasks_total" -eq 0 || "$tasks_checked_start" -ge "$tasks_total" ]]; then

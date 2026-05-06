@@ -255,9 +255,12 @@
     - [P3] `_struncate_bytes` 事件区字节截断 vs `_struncate_cols` 任务名列宽截断不一致
     - [已确认无问题] iter→round 改名无代码残留（`iteration_name` / `parse_current_iteration` 保留正确）；per-task round 边界（TASKS.md 空→done / 全勾→done / HUMAN 首位→exit 7 / max_round 与 stall 互不干扰）；HUMAN 自动插入不重复触发（`_still_first` 守卫 + `next_human_number` 递增）；TTY 检测在 CI 走 plain 降级正确；`.ralph/.gitignore` cp -r 自包含正确；plain 模式 6 种 exit_reason 全覆盖（startup_failed 在 finish 前直接 exit）
 
-- [ ] DEV-11: 修复 watch sticky 底栏 per-task try 显示
+- [x] DEV-11: 修复 watch sticky 底栏 per-task try 显示
   - 预期：`ralph watch` sticky 底栏 "round N/M" 的 N 准确反映当前 task 的 per-task try 次数（而非永远显示 1）。
   - 输入：REVIEW-1 P1 finding；run.sh `_ralph_current_task_try` / `_ralph_write_status` / `_ralph_update_status`；watch.sh `_RALPH_STICKY_TASK_TRY`。
   - 范围：run.sh（status.json 新增 `task_try` 字段）；watch.sh（读取 `task_try` 并设置 `_RALPH_STICKY_TASK_TRY`）；不改 sticky.sh。
   - 验证计划：跑 `ralph run -v --provider fake`（stagnation 场景，3 轮后手动 Ctrl+C），另一终端 `ralph watch` 底栏显示 round ≥ 2；status.json 含 `task_try` 字段；`bash scripts/check.sh` 通过。
+  - 完成：run.sh `_ralph_write_status` 新增第 14 参数 `task_try` 写入 status.json；`_ralph_update_status` 新增第 9 参数透传；初始写入 `task_try=1`，后续通过 `_RALPH_CURRENT_TASK_TRY` 跟踪。watch.sh 轮询循环读取 `status.json` 的 `task_try` 字段设置 `_RALPH_STICKY_TASK_TRY`。
+  - 验证：`bash -n` 通过；`bash scripts/check.sh` 通过；临时 workspace 验证 status.json 含 `"task_try": 1`（正常完成）和 `"task_try": 2`（stagnation 2 次后 blocked_by_human）；`git diff --check` 通过。
+  - 未验证：TTY 下 `ralph watch` 实际 sticky 底栏视觉显示 task_try 递增（需真实终端 + 后台 run，QA-5/QA-6 范围）。
   - 依赖：REVIEW-1
