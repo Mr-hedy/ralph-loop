@@ -77,10 +77,8 @@ Exit reasons:
   done            All tasks completed successfully.
   provider_failed Provider CLI returned error or is_error=true.
   timeout         Round exceeded --round-timeout.
-  max_rounds      --max-round limit reached.
-  stagnated       No task progress after consecutive rounds (stall).
   locked          Another ralph run is already active in this workspace.
-  blocked_by_human First unchecked task is HUMAN-*.
+  blocked_by_human First unchecked task is HUMAN-* (automatic on max-round/stall).
   interrupted     SIGTERM/SIGINT received.
 
 Run directory layout (.ralph/runs/<run-id>/):

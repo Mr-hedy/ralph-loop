@@ -125,7 +125,7 @@
   - 未验证：`RALPH_UI_STICKY_RETRY_COUNT` 在 TTY 下的视觉效果（QA-1 范围）。
   - 依赖：DEV-1, DEV-2
 
-- [ ] DEV-6: per-task round 防死循环 + HUMAN 自动插入
+- [x] DEV-6: per-task round 防死循环 + HUMAN 自动插入
   - 预期：`RALPH_LOOP_MAX_ROUND > 0` 时，同一 task 试了 N 次 → 触发；`RALPH_LOOP_STALL_LIMIT`（默认 5）连续无进展（无勾任务 + worktree fingerprint 不变）→ 触发；任一触发 → ralph 在 `.ralph/TASKS.md` 当前 first_unchecked task **前面**插入一行 HUMAN-N（按 §7 模板，短 name + 缩进结构化字段）→ exit `blocked_by_human`；stall 改 per-task 判断（同一 task 连续 N 次无进展，task 切换时归零）；删除原全局 stall 逻辑；删除 `max_iterations` exit_reason（全局 max 取消）。
   - 输入：I5-design §6 §7；DEV-1 / DEV-4 完成后；当前 `.ralph/lib/run.sh` stall 判断。
   - 范围：`.ralph/lib/run.sh` 主循环 + stall 判断 + TASKS.md 写入；新增 helper 函数（解析 first_unchecked task、生成 HUMAN-N 编号、按模板插入行）。
@@ -135,6 +135,9 @@
     - task 切换归零：mock 第 1 个 task 完成（勾掉），第 2 个 task 开始，per-task try 重置为 1
     - HUMAN-N 模板：name 简短、缩进字段含触发原因 / 已耗时 / 建议 / 修复后操作
     - `bash scripts/integration-test.sh` 通过
+  - 完成：per-task round 计数与 stall 判断逻辑实现，触发时自动在 TASKS.md 插入 HUMAN-N 任务并以 blocked_by_human 退出。删除 exit_reason max_rounds (old max_iterations) 和 stagnated。更新 PROMPT.md 同步退出语义。
+  - 验证：`tests/test-dev6.sh` (已清理) 验证 max_round 触发和 stall 触发均成功插入 HUMAN-1 并退出 7。`scripts/integration-test.sh` 中相关用例全部 PASS。
+  - 未验证：README.md 同步 (属 DEV-8 范围)。
   - 依赖：DEV-1, DEV-4
 
 - [ ] DEV-7: 新建 .ralph/.gitignore + 删工程根 .gitignore 中 ralph 行

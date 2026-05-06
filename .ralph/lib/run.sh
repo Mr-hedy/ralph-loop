@@ -243,23 +243,11 @@ _ralph_print_summary() {
       lines+=("  把答案落到对应 docs（requirements / architecture），")
       lines+=("  在 TASKS.md 里勾掉 HUMAN 任务，重启 ralph run。")
       ;;
-    stagnated)
-      lines+=("")
-      lines+=("连续多轮无文件变更，疑似 agent 卡住或任务描述不清。")
-      lines+=("Next step:")
-      lines+=("  排查最后任务描述是否模糊、provider 是否异常、PROMPT 是否需调整。")
-      ;;
     timeout)
       lines+=("")
       lines+=("单轮 oneshot 超时。")
       lines+=("Next step:")
       lines+=("  考虑拆分任务或排查 provider 性能；调整 --round-timeout。")
-      ;;
-    max_rounds)
-      lines+=("")
-      lines+=("已达 --max-round 上限。")
-      lines+=("Next step:")
-      lines+=("  评估剩余任务复杂度，必要时拆分；或提高 --max-round 重跑。")
       ;;
     provider_failed)
       lines+=("")

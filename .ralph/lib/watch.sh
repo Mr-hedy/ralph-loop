@@ -29,10 +29,9 @@ _ralph_watch_status_color() {
   if [[ "$state" == "running" || "$exit_reason" == "done" ]]; then
     printf '%s' "green"
   elif [[ "$exit_reason" == "provider_failed" || "$exit_reason" == "timeout" \
-        || "$exit_reason" == "max_rounds" || "$exit_reason" == "stagnated" ]]; then
+        || "$exit_reason" == "blocked_by_human" ]]; then
     printf '%s' "red"
-  elif [[ "$exit_reason" == "blocked_by_human" || "$exit_reason" == "locked" \
-        || "$exit_reason" == "interrupted" ]]; then
+  elif [[ "$exit_reason" == "locked" || "$exit_reason" == "interrupted" ]]; then
     printf '%s' "yellow"
   fi
 }

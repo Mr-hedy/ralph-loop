@@ -166,7 +166,7 @@ _shealth() {
       printf '%s✓%s' "$_SGREEN" "$_SRESET"
       return
       ;;
-    provider_failed|timeout|blocked_by_human|max_rounds|stagnated)
+    provider_failed|timeout|blocked_by_human)
       printf '%s✗%s' "$_SRED" "$_SRESET"
       return
       ;;

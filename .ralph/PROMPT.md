@@ -153,11 +153,9 @@ HUMAN-N 是任务类型之一，但和其他类型不同：**必须由人类在 
 |---------|---------|----------|
 | `done` | TASKS.md 全部 `[x]` | 0 |
 | `provider_failed` | CLI 崩溃或非零退出 | 2 |
-| `timeout` | 单次 oneshot 超过 `--timeout` 秒 | 3 |
-| `max_iterations` | 总轮次超过 `--max-iter` | 4 |
-| `stagnated` | 连续 N 轮本轮 vs 上轮无文件变更且无任务勾选 | 5 |
+| `timeout` | 单次 oneshot 超过 `--round-timeout` 秒 | 3 |
 | `locked` | 并发 run 检测到锁 | 6 |
-| `blocked_by_human` | 第一个 `- [ ]` 任务前缀是 `HUMAN-`（不调 provider） | 7 |
+| `blocked_by_human` | 第一个 `- [ ]` 任务前缀是 `HUMAN-`（含自动触发） | 7 |
 | `interrupted` | SIGINT | 130 |
 | `startup_failed` | 启动校验失败（含任务前缀格式错误） | 1 |
 
