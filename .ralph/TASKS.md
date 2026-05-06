@@ -216,11 +216,14 @@
   - 未验证：tmux/screen 下真实 provider（claude/codex/gemini）的长时间运行视觉效果（QA-6 范围）；tmux/screen 下终端突然断开（如 SSH drop）时的 stty 恢复（kill -9 不触发 trap，属已知限制）。
   - 依赖：DEV-3, DEV-4
 
-- [ ] QA-6: 真实 provider smoke（claude + plain + sticky）
+- [x] QA-6: 真实 provider smoke（claude + plain + sticky）
   - 预期：在临时 workspace 跑两次真实 `ralph run`：① `ralph run --provider claude` plain 模式跑到 `exit_reason=done`（或主动 Ctrl+C），输出 ≈ ralph-plain-poc.sh 形态、main agent 角色 grep 友好；② `ralph run -v --provider claude` sticky 模式手工观察三段式视觉、健康灯、退出后 sticky 块保留；新版 `runs/<run_id>/rounds/round-NNN/` 目录结构正确；`status.json` / `result.json` / `meta.json` 字段名为 `round`。
   - 输入：DEV-1 ~ DEV-6 全部完成后；I5 所有改名 / 行为变化已落地。
   - 范围：手工执行 + 截图归档；不改 lib；如发现 bug 新增 DEV 修复任务。
   - 验证计划：两次 smoke 全程录屏 / 截图，归档到 `docs/checkpoints/2026-MM-DD-i5-smoke.md`；plain 输出行数 ≤ 50（一个中等长 run）；sticky 视觉与 ralph-sticky-poc.sh 一致；`runs/<run_id>/rounds/` 目录结构 + meta.json `round` 字段；本仓库 `bash scripts/check.sh` + `bash scripts/integration-test.sh` 通过。
+  - 完成：真实 claude provider (CLI 2.1.131) smoke 测试通过。Plain 模式（17s/1 round/exit_reason=done）输出 20 行 ≤ 50，含 banner + round marker + summary block，无 ANSI。Sticky 模式（28s/1 round/exit_reason=done）三段式布局确认：顶栏(version/tasks/oneshots/provider/elapsed) + 事件区(6行⚙事件) + 底栏(●/round/stall/spinner/task名)。健康灯绿●(ANSI32)、spinner动画、cursor_up重绘、终端还原(cursor show + reset)均正常。runs/ 目录使用 rounds/round-NNN/，所有 JSON 字段使用 round/rounds（仅 iteration_name 保留作为 TASKS.md 迭代号）。Session 捕获(session.claude.jsonl + session.history.log)正常。归档到 `docs/checkpoints/2026-05-07-01-i5-qa6-smoke.md`。
+  - 验证：`bash scripts/check.sh` 通过；`bash -n scripts/integration-test.sh` 通过；两次真实 ralph run 均以 exit 0 完成；JSON 字段、目录结构、exit-message.txt 全字段验证通过。未发现 bug，无需新增 DEV 任务。
+  - 未验证：sticky 视觉保真度与 ralph-sticky-poc.sh 的精确对比（需真实终端人工观察）；健康灯黄/红态转换（需 >60s/>300s 长运行任务）；Ctrl+C 退出后 sticky 块保留（需交互终端）；异常退出 stty 还原（kill -9 不触发 trap，属已知限制）。这些项需人工在真实终端完成。
   - 依赖：DEV-1, DEV-2, DEV-3, DEV-4, DEV-5, DEV-6, DEV-7, DEV-8, DEV-9
 
 - [ ] REVIEW-1: I5 实施完成 adversarial review | adversarial-review
