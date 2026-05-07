@@ -48,7 +48,7 @@
 
 ```bash
 .ralph/bin/ralph run                          # 默认 plain 模式（agent/CI 友好）
-.ralph/bin/ralph run -v                       # 启用 sticky TUI（人类友好，10 行 sticky 块）
+.ralph/bin/ralph run -v                       # 启用 sticky TUI（人类友好，11 行 sticky 块）
 .ralph/bin/ralph run --provider claude        # CLI 覆盖 RALPH_PROVIDER
 .ralph/bin/ralph run --max-round 10           # 限制单任务最多 10 轮
 .ralph/bin/ralph run --round-timeout 600      # 单轮 600 秒超时
@@ -61,7 +61,7 @@
 追加式纯文本，无 ANSI 控制码，每行独立可 grep。仅打印 ralph 核心 marker（启动 banner、round 启停、60s heartbeat、退出总结）。
 
 **Sticky 模式（`-v`，仅 TTY）**：
-10 行紧凑 sticky 块，包含顶栏（任务进度/全局 round/elapsed）、事件区（最近 6 条 tool/chat 事件流）、底栏（健康灯/per-task round/stall 计数/当前任务名）。
+紧凑 sticky 块（live 11 行 / frozen 10 行）。Live：顶栏（tasks/oneshots/provider/elapsed）+ 事件区（最近 6 条 tool/chat 事件流）+ 底栏（健康灯/per-task round/stall/spinner+时间/当前任务名）+ 提示行 `( CTRL+C to exit )`。Frozen（run 跑完 / watch attach 已结束 run）：顶栏 elapsed 改为 `finished Xago · duration H:MM:SS`，done 终态底栏简化为 `✓ all tasks done · ( CTRL+C to exit )`，其它退出态在底栏末尾追加 ` · ( CTRL+C to exit )` 后缀。
 
 ### `ralph status`
 
@@ -74,7 +74,7 @@
 
 ### `ralph watch`
 
-持续刷新（200ms 间隔），始终使用 sticky TUI（仅 TTY）。
+持续刷新（100ms 间隔），始终使用 sticky TUI（仅 TTY）。Attach 已 finished run 时自动冻结时钟（spinner 不前进、顶栏 `finished Xago · duration H:MM:SS`），Ctrl+C 退出 watch。
 
 ```bash
 .ralph/bin/ralph watch                       # 观察当前活跃 run

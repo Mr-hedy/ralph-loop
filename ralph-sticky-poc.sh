@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
-# Ralph watch PoC：每次命令输出一个 session-local 状态块
+# Ralph watch PoC v1（启动前视觉锚点）
 # 跑法：bash ralph-sticky-poc.sh
 # 退出：Ctrl+C
 #
-# 默认 10 行：顶栏 + 分割线 + 6 行事件区 + 分割线 + 底栏。
+# **状态**：本 PoC 是 I5 启动前的视觉契约 v1，**不再跟踪实施期变更**。
+# 当前生效合约见 `docs/requirements/ralph-loop/I5-design.md` §0 ChangeLog
+# 和实际实现 `.ralph/lib/sticky.sh`。主要差异：
+#   - live 模式高度 11 行（v1: 10 行）；新增 `( CTRL+C to exit )` 提示行
+#   - 删除顶栏起始 `[HH:MM:SS]` 时间戳
+#   - frozen 模式（watch attach 已 finished run）顶栏改 `finished Xago · duration`
+#   - exit_reason=done 底栏简化为 `✓ all tasks done · ( CTRL+C to exit )`
+#   - spinner / 渲染节奏 200ms → 100ms
+#
+# v1 PoC 默认 10 行：顶栏 + 分割线 + 6 行事件区 + 分割线 + 底栏。
 # 可用 RALPH_STICKY_EVENT_LINES 覆盖事件区行数。运行时只重绘本次输出块，
 # 不设置 scroll region，不清屏，不删除 Ctrl+C 时已经输出的内容。
 

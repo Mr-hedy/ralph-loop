@@ -1,9 +1,75 @@
 # I5 设计方案 — run / watch sticky 输出 + per-task round + env 重组
 
-> 状态：已确认，待实施
+> 状态：已实施（REVIEW-2 后续修订完成）
 > 创建：2026-05-05
+> 最后修订：2026-05-07（REVIEW-2 实施后按下方 §0 ChangeLog 校准）
 > 角色：I5 启动前的设计锚点；实施过程如需改变稳定契约，应先更新需求或架构事实源
-> 与 `I5-FINAL-TASK.md` 关系：I5 完成时 cp `.ralph/TASKS.md` 归档为 `I5-FINAL-TASK.md`，本文保留为启动前方案
+> 与 `I5-FINAL-TASK.md` 关系：I5 完成时 cp `.ralph/TASKS.md` 归档为 `I5-FINAL-TASK.md`，本文保留为启动前方案 + 实施期 ChangeLog
+
+## §0. 实施期 ChangeLog（启动后产生的契约修订）
+
+> 阅读顺序提示：以下条目优先于下方原始 §1-§13；后者保留作为启动初版决议，**当与下方冲突时以本节为准**。
+
+### 0.1 sticky 高度：固定 10 行 → live 11 / frozen 10（commit c3d79b8）
+
+**原**：`总块高度 = EVENT_WINDOW + 4`（默认 10）。
+
+**实**：根据 `_RALPH_STICKY_FROZEN_NOW` 是否非空决定：
+- live（FROZEN_NOW 空）：`EVENT_WINDOW + 5`（默认 11），最后 1 行是 `( CTRL+C to exit )` 提示行（dim gray）
+- frozen（FROZEN_NOW 非空）：`EVENT_WINDOW + 4`（默认 10），不带提示行
+
+**收缩切换**：sticky.sh `ralph_sticky_render_frame` 跟踪 `_STICKY_LINES_LAST`，从 live 11 → frozen 10 时清残留行 + cursor 拉回，避免帧位置漂移。
+
+### 0.2 顶栏字段（删起始时间戳；frozen 用 `finished/duration`）
+
+**live 模式**：
+```
+ralph 0.2 · tasks N/M · oneshots N · provider X · elapsed H:MM:SS
+```
+（删除原 `[HH:MM:SS]` 起始时间戳——elapsed 已隐含，且 frozen 模式有更直观的相对时间字段。）
+
+**frozen 模式**（watch attach 已 finished run / run -v 退出最终帧）：
+```
+ralph 0.2 · tasks N/M · oneshots N · provider X · finished Xago · duration H:MM:SS
+```
+- `finished Xago`：相对实时间，每帧用 wall clock 重算（`Ns` / `Nm` / `Nh` / `Nd`）
+- `duration H:MM:SS`：历史 run 总耗时，恒定不变
+
+### 0.3 底栏字段（done 终态简化 + frozen 后缀）
+
+**live**（不变）：
+```
+● round N/M · stall N/M · ⠹ HH:MM:SS · → DEV-X 任务名
+```
+
+**frozen + exit_reason=done**（全部任务勾完）：
+```
+✓ all tasks done · ( CTRL+C to exit )
+```
+（round/stall/spinner/time/arrow 在 done 终态下都已无现实参考意义，简化掉。）
+
+**frozen + 其它退出态（provider_failed / blocked_by_human / interrupted）**：底栏完整内容 + ` · ( CTRL+C to exit )` 后缀，task 名按 `frozen_suffix_w=24` 列预算自动截断让出空间。
+
+**颜色约定**：状态结论（`all tasks done`）用 `_SGRAY`；提示（`( CTRL+C to exit )`）用 `_SDIM`——状态主级、提示弱化。
+
+### 0.4 spinner 节奏：200ms → 100ms
+
+run.sh sticky polling + watch.sh main loop sleep 0.2 → 0.1，spinner 整圈从 1.6s 降到 0.8s（10fps）。
+
+### 0.5 frozen 视觉的入口
+
+- `ralph watch` 检测 state=finished 时，从 status.json `updated_at` 读取并 epoch 化写入 `_RALPH_STICKY_FROZEN_NOW`
+- `ralph run -v` 在 `_ralph_finish` 调最终一帧前 `_RALPH_STICKY_FROZEN_NOW=$(date +%s)`，让 "run 跑完一闪 → exit" 的最终视觉与 watch 完全一致
+
+### 0.6 retry × per-task TRY 守门（DEV-12）
+
+`run.sh` per-task TRY 计数（`_RALPH_CURRENT_TASK_TRY`）包入 `if [[ "$retry_count" -eq 0 ]]; then ... fi` 守门，与 round 同源。修复前 rate_limit/network retry 会让 status.json `task_try` 灌水，配合 max_round 检查可能假阳性触发 HUMAN-N 自动插入。
+
+### 0.7 集成测试 diagnose hang 修复
+
+`scripts/integration-test.sh` 3 个 `_run_*_diagnose_case()` 加 `--max-retry 0`：默认 retry backoff 60+120+300=8min × 4 个 rate_limit/network 场景共 32min，必然超 perl alarm。Diagnose 测试只验证 error.type 分类，retry 行为不在范围。修后整套测试从 65 → **148 PASS / 0 FAIL** 首次完整通过。
+
+---
 
 ## 背景与目标
 

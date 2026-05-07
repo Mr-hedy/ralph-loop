@@ -1,82 +1,97 @@
 # 当前目标与约束
 
-- 本轮目标：完成 I5 设计方案对齐 + PLAN 任务拆分；I5 主题是 run/watch sticky 输出 + per-task round + env 重组；全量术语对齐到 round/stall（PoC 已是事实源）。
-- 硬约束：中文回复；当前开发任务事实源是 `.ralph/TASKS.md`；root `task.md` 已封版；`.ralph/runs/`、`.ralph/status.json`、`.ralph/lock`、`.env` 不入仓；I5 实施时 `.ralph/.gitignore` 自包含会替换工程根 `.gitignore` 中 ralph 相关行。
-- 用户明确要求：I5 是 dev 阶段广泛 breaking change，**不留兼容 alias**（iter→round 改名 + stagnation→stall + env 分组重命名 + 删除 RALPH_MAX_ITER 等）；agent 友好是 `ralph run` 默认 plain 模式的核心目标；root PoC 脚本 `ralph-sticky-poc.sh` 和 `ralph-plain-poc.sh` 是视觉契约活文档，commit 进根目录；未来想看视觉效果直接跑 PoC，sticky 由 codex 改完用户已视觉确认。
+- 目标：I5 已经实施完毕（含 REVIEW-1 / REVIEW-2 / DEV-12 / CHORE-1 后续修订），整套 sticky / per-task / retry / iter→round / env 重组都落地；当前 main 干净，下一步是归档 I5（cp `.ralph/TASKS.md` → `docs/requirements/ralph-loop/I5-FINAL-TASK.md` + 清空 `.ralph/TASKS.md` + commit）或开 I6。
+- 硬约束：中文回复；当前开发任务事实源是 `.ralph/TASKS.md`；项目最终产物是 `.ralph/` 整个目录（用户 cp -r 部署）；`.ralph/.gitignore` 自包含。
+- 用户偏好（本会话累积）：sticky UI 偏好极简——`( CTRL+C to exit )` 紧凑（无空格）+ "all tasks done" 用 `_SGRAY`/提示用 `_SDIM`/状态结论比提示更亮；视觉契约要在 design 文档同步（不接受 design vs 实现漂移）；后台任务必须用 waiter 显式等而不能轮询。
 
 # 当前阶段与范围
 
-- 阶段：I5 设计已对齐 + PLAN 已拆分 + PoC 视觉契约已确认；待按 PLAN 执行 DEV/QA/REVIEW（18 个任务，2 REQ + 9 DEV + 6 QA + 1 REVIEW）。
-- 影响模块：`.ralph/lib/`（新增 sticky.sh + 改造 run.sh / watch.sh）、`.ralph/bin/ralph`、`.ralph/.gitignore` 新建、`.ralph/README.md` 重写、`docs/requirements/ralph-loop/{requirements,I5-design}.md`、`docs/architecture/{overview,integrations,security,testing}.md`、`docs/roadmap.md`、工程根 `.gitignore` 删 ralph 行、`scripts/integration-test.sh` 扩展、`tests/fixtures/` 新增 sticky/stall mock。
-- 变更类型：设计文档 + PLAN 拆分 + PoC 视觉契约（本轮）；后续是代码大改造（DEV）+ 测试扩展（QA）+ 对抗审查（REVIEW）。
+- 阶段：I5 实施完成 + 第二轮 adversarial review 后续修复全部 landed + doc-drift 同步完成。
+- 影响模块（本轮）：`.ralph/lib/run.sh` / `.ralph/lib/sticky.sh` / `.ralph/lib/watch.sh` / `scripts/integration-test.sh` / `.ralph/README.md` / `docs/requirements/ralph-loop/I5-design.md` / `ralph-sticky-poc.sh` / `.ralph/TASKS.md` / `.gitignore`。
+- 变更类型：代码 fix（P1 retry × TRY 灌水 / watch 时钟冻结）+ UX 升级（live hint 行 / frozen 后缀 / `( CTRL+C to exit )` 文本与颜色）+ 测试修复（diagnose retry hang / pty stty size / ANSI grep / 删 4 个失效 -v live tail 测试）+ 文档同步（I5-design §0 ChangeLog / .ralph/README / PoC 注释）+ 工作树清理。
 
 # 稳定决策
 
-- I5 设计方案落 `docs/requirements/ralph-loop/I5-design.md`（13 项关键决策）。
-- 命令矩阵：`ralph run` plain（默认，agent 友好），`ralph run -v` sticky 三段式 10 行（人类），`ralph watch` sticky（与 run -v 共用 renderer），删除 `ralph watch -v`。
-- sticky 实现：纯 append + cursor_up 重绘（不用 ANSI scroll region）；10 行紧凑块（顶栏 + 横线 + 6 行事件区 + 横线 + 底栏）；不接管全屏，shell prompt 在 sticky 块下方继续；`stty -echo -icanon` + trap INT/TERM/EXIT 严格还原。
-- plain 模式：只打 ralph 自己的 marker（启动 banner / round 启停 / 60s heartbeat / 退出总结），**不打 agent 内部事件**；agent 排障时按需 `grep` `provider.stdout.log`；典型 4 round / 9 分钟 run ≈ 15 行输出。
-- 顶栏：`[HH:MM:SS] ralph 0.2 · tasks N/M · round 12 · provider claude · elapsed H:MM:SS`（round 是全局总数，无上限）。
-- 底栏：`● round N/∞ · stall N/M · ⠹ HH:MM:SS · → 任务名（动态截断 ...）`（round 是 per-task 已用次数 / 上限；stall 是 per-task 连续无进展次数 / 上限；接近上限 AMBER，触发 RED）。
-- 健康灯三态：●绿（60s 内 stdout 字节有变化）/ ●黄 idle（60-300s 无变化，与底栏 stall 字段区分）/ ●红 critical（300s+ 无变化）；只测 `provider.stdout.log` 字节增长，不依赖 stream-json 解析。
-- per-task 防死循环双保险：`RALPH_LOOP_MAX_ROUND`（默认 0=无限）+ `RALPH_LOOP_STALL_LIMIT`（默认 5），任一触发 → 自动在当前 task 前插入 HUMAN-N（短 name + 缩进结构化字段）→ exit `blocked_by_human`；stall 改 per-task 判断（task 切换归零）；删除 `max_iterations` exit_reason。
-- 改名 breaking 范围：iter→round（含 CLI flag `--max-round` / `--round-timeout` / `--stall-limit`、status.json 字段 `round` / `rounds`、文件路径 `runs/<run_id>/rounds/round-NNN/`）+ stagnation→stall + env 分组重命名（provider_/loop_/ui_/internal）+ 删除 `RALPH_MAX_ITER`（全局 max 取消）；不留 alias。
-- `RALPH_VERBOSE` 保留作 CLI → lib 内部传值机制，文档不宣传；用户接口只暴露 flag。
-- `.ralph/.gitignore` 自包含：runs/ + lock + status.json + .env，cp -r 时跟随生效。
+- **I5-design.md §0 ChangeLog 是当前 sticky 契约事实源**，§1-§13 保留作启动初版决议但与 §0 冲突时以 §0 为准。
+- Sticky 高度按模式变化：live = `EVENT_WINDOW + 5`（默认 11，含 `( CTRL+C to exit )` 提示行）；frozen = `EVENT_WINDOW + 4`（默认 10，不带提示行，提示走底栏后缀）。
+- Frozen 视觉触发：watch 检测 state=finished 时从 status.json `updated_at` 写入 `_RALPH_STICKY_FROZEN_NOW`；run -v 在 `_ralph_finish` 前 `_RALPH_STICKY_FROZEN_NOW=$(date +%s)`，让 run -v 退出最终帧与 watch attach 已 finished run 视觉完全一致。
+- Frozen 顶栏 `finished Xago · duration H:MM:SS` 替代 `elapsed H:MM:SS`；起始时间戳 `[HH:MM:SS]` 整体删除（live/frozen 都不显示）。
+- Frozen + exit_reason=done 底栏简化为 `✓ all tasks done · ( CTRL+C to exit )`；其它 frozen 退出态在原底栏末尾追加 ` · ( CTRL+C to exit )` 后缀（task 名 `_struncate_cols` 按 `frozen_suffix_w=24` 让出空间）。
+- 颜色：状态结论 `all tasks done` 用 `_SGRAY`；提示 `( CTRL+C to exit )` 用 `_SDIM`（提示弱化，状态主级）。
+- Spinner 节奏 200ms → 100ms（10fps）；run.sh sticky polling + watch.sh main loop 都改 sleep 0.1。
+- per-task TRY 计数与 round 同源：必须包入 `if [[ "$retry_count" -eq 0 ]]; then ... fi` 守门，retry 不增 TRY。
+- `.ralph/scheduled_tasks.lock` / `.claude/worktrees/` / `.claude/settings.local.json` 进 root `.gitignore`，不再污染 git status。
+- REVIEW-1 P2 三项（watch SIGTERM trap / run.sh × watch.sh 事件过滤 jq 重复 / `ralph_sticky_install_traps` 死代码）+ P3 几项（plain retry round-marker 重打 / CJK locale）保留至 I6，本轮不改。
 
-# 已完成工作
+# 已完成工作（commit 链 17ee6e2 → c3d79b8）
 
-- 重写 `docs/requirements/ralph-loop/I5-design.md`：13 项关键决策、影响 REQ/文档清单、范围/非范围、关键风险、验收口径、待解决/未决；全量 round/stall 命名。
-- 拆 `.ralph/TASKS.md` PLAN：18 个任务（REQ-1/2、DEV-1~9、QA-1~6、REVIEW-1），每个含预期/输入/范围/验证计划四字段 + 任务依赖标注。
-- 落地两个 PoC 视觉契约：`ralph-sticky-poc.sh`（sticky 模式，含 round + stall + AMBER 颜色 + 任务名动态截断 + char_width 中文支持，codex 改进版用户已视觉确认）、`ralph-plain-poc.sh`（plain 模式，方案 A 粗反馈，已对齐 round 用词）。
-- 全量术语对齐：oneshot→round / stagnation→stall / env 名 / CLI flag / 文件路径 / status.json 字段，仅在"旧名→新名映射"位置保留旧名以便 grep 残留检查。
-- I5-design 头部 status 字段从"草稿"改为"已确认，待实施"。
+- `17ee6e2` task_try 字段写入 status.json（DEV-11，REVIEW-1 P1 修）
+- `df1206d` REVIEW-1 adversarial review（1 P1 + 3 P2 + 4 P3）
+- `402aa3c` REVIEW-2 + DEV-12 + CHORE-1：retry × TRY 守门 + watch 时钟冻结 + spinner 提速 + 删 4 个 -v live tail 失效测试 + 工作树残渣清理 + diagnose retry hang 修
+- `0668b6a` 顶栏 frozen 用 `finished Xago · ran H:MM:SS`
+- `778f09a` 顶栏精简（删 `[HH:MM:SS]`）+ 底栏 done 简化为 `✓ all tasks done` + diagnose hang `--max-retry 0` + pty `stty rows 24 cols 80` + sticky `tasks 0/1` 断言改为先 strip ANSI 再 grep —— integration test 首次 145/0 全通过
+- `7bacc16` live 加 `( ctrl + c )` 提示行 + frozen 底栏后缀 + `_RALPH_STICKY_FROZEN_NOW` 变高 cursor 管理
+- `c3d79b8` 文本 `(ctrl + c) to exit` → `( CTRL+C to exit )`（后续用户改成无空格紧凑形）+ 颜色互换（dim/gray 互换）
+- 本次未提交（待 commit）：I5-design §0 ChangeLog、.ralph/README 同步、ralph-sticky-poc.sh PoC v1 注释、`.gitignore` 加 `.claude/` 系列条目
 
 # 最新验证
 
-- 命令：`git diff --check`
+- 命令：`bash scripts/integration-test.sh`
+- 结果：**148 PASS / 0 FAIL** 完整通过（首次）
+- 诊断：之前的 100 PASS / 3 FAIL 中 3 个 -v live tail 已删除；65 PASS 截断点（Codex diagnose retry hang）已通过 `--max-retry 0` 修复。
+
+- 命令：`bash -n .ralph/lib/{run,sticky,watch}.sh scripts/integration-test.sh ralph-sticky-poc.sh`
 - 结果：通过
-- 诊断：无 whitespace error。
+- 诊断：所有改动 shell 文件语法 OK。
 
-- 命令：`bash -n ralph-sticky-poc.sh ralph-plain-poc.sh`
+- 命令：`bash scripts/check.sh`
 - 结果：通过
-- 诊断：两个 PoC 脚本语法正确（codex 改 sticky 版用户已视觉确认；plain 版本设计阶段已确认形态）。
 
-- 命令：`grep -cE "^- \[ \]" .ralph/TASKS.md`
-- 结果：18
-- 诊断：18 个任务，分布 9 DEV / 6 QA / 2 REQ / 1 REVIEW，符合 PLAN 设计。
+- 命令：`git worktree list`
+- 结果：仅 main 一个工作树
+- 诊断：`.claude/worktrees/blissful-satoshi-0538ef`（早先 Agent isolation 残留）已 `git worktree remove` + `git branch -D claude/blissful-satoshi-0538ef`。
 
-- 命令：`grep -nE "oneshot|stagnat" docs/requirements/ralph-loop/I5-design.md .ralph/TASKS.md ralph-plain-poc.sh handoff.md`
-- 结果：3 处命中
-- 诊断：3 处均是"旧名→新名映射关系描述"（`RALPH_STAGNATION_LIMIT → RALPH_LOOP_STALL_LIMIT` 和 breaking 范围说明），有意保留，不是漏改。
+- 命令：unit visual test（live / frozen+done / frozen+blocked 三模式 _sdraw_top + _sdraw_bottom + _sdraw_hint）
+- 结果：三模式视觉与 design §0 ChangeLog 描述一致；spinner live mode 0→1→2 递增、frozen mode 不前进；frozen 后缀含 `( CTRL+C to exit )`；done 终态底栏简化。
+
+- 未运行：TTY 真实终端下的 spinner 100ms 视觉、watch attach finished run 时钟冻结视觉、live↔frozen 收缩切换的实际终端展现。需人工冒烟（QA-5/QA-6 范围）。
 
 # 已验证与未验证
 
-- 已验证：I5-design 13 项关键决策与 PoC 视觉锚点用户已确认；PLAN 任务总数 / 前缀分布 / 依赖关系一致；全量术语对齐 round/stall；`git diff --check` 通过；I5-design 文档结构 / 字段命名内部自洽。
-- 未验证：实际代码改造（DEV-1~9 全部待执行）；集成测试（QA-1~6 全部待执行）；tmux/screen 兼容性（QA-5）；真实 provider smoke（QA-6）；adversarial review（REVIEW-1）；sticky PoC 当前健康灯阈值 60/180，I5 决策 60/300，DEV-3 实施 sticky.sh 时按决策值对齐。
+- 已验证：DEV-12 retry × TRY 不灌水（`task_try=1` 而非旧 6）、retry × max_round=2 不假阳性触发 HUMAN-N、QA-1 sticky 11 unit + 2 stty + 2 e2e、所有 diagnose case error.type 分类、所有 plain 模式 retry marker 格式、所有 per-task max_round / stall HUMAN 自动插入、iter→round 改名一致性。
+- 未验证：TTY 视觉冒烟（spinner / watch 时钟冻结 / live↔frozen 切换）；需真实终端人工对比 `ralph-sticky-poc.sh` 与实际 `ralph run -v`（PoC 已标注 v1 contract，新合约见 design §0 ChangeLog）。
 
 # Checkpoint 与 Postmortem 状态
 
-- Checkpoint：本轮无新建 checkpoint；最近稳定 checkpoint 是 `docs/checkpoints/2026-05-05-01-i4-gemini-closeout.md`，commit `309423b checkpoint: I4 Gemini closeout`。下一步用户要求执行 `/checkpoint` 创建 I5 启动 anchor。
-- Postmortem：本轮无新增 / 命中。
+- Checkpoint：本轮无新建。最近一个相关 checkpoint 是 `docs/checkpoints/2026-05-07-01-i5-qa6-smoke.md`（QA-6 真实 claude smoke）。当前 main `c3d79b8` 视为隐式稳定锚点。
+- Postmortem：本轮无新增。考虑下次开 I6 前补一条 PM 关于"refactor 后 pre-existing 测试未回归审查"——本轮 `round → oneshots` 断言 / 4 个 -v live tail 测试 / sticky 顶栏 `tasks 0/1` ANSI grep / pty stty size 都是 I3-I5 期间累积的同类盲区，集中在 REVIEW-2 后续才被发现。
 
 # 工作区状态
 
-- 分支：`main`
-- 最近提交：`878edaf docs: refresh handoff after I4 checkpoint`
-- 当前 dirty 范围：
-  - `M .ralph/TASKS.md`（I5 PLAN 写入）
-  - `M handoff.md`（本轮刷新）
-  - `?? docs/requirements/ralph-loop/I5-design.md`（I5 设计方案）
-  - `?? ralph-sticky-poc.sh` + `?? ralph-plain-poc.sh`（视觉契约 PoC，commit 进根目录作为设计活文档）
-- 不存在需要保留的运行中后台任务。
+- 分支：main，HEAD = `c3d79b8`
+- dirty 文件（待提交，本节末尾的"建议下一步"会处理）：
+  - `M .gitignore`（加 `.claude/scheduled_tasks.lock` / `.claude/worktrees/` / `.claude/settings.local.json`）
+  - `M .ralph/README.md`（11 行 / frozen 模式 / 100ms 三处描述同步）
+  - `M .ralph/lib/sticky.sh`（用户改 `CTRL + C` → `CTRL+C` 紧凑形）
+  - `M docs/requirements/ralph-loop/I5-design.md`（新增 §0 ChangeLog 6 项）
+  - `M ralph-sticky-poc.sh`（注明 v1 contract，指向 design §0）
+  - `M scripts/integration-test.sh`（同步 `CTRL+C` 紧凑形 + 新增 frozen line count 测试）
+- 外部参考：commit `c3d79b8` 含完整提示文本/颜色互换；`docs/requirements/ralph-loop/I5-design.md` §0 ChangeLog 是 sticky 契约事实源。
 
 # 建议下一步
 
-- 执行 `/checkpoint`：创建 I5 启动 anchor checkpoint，commit 本轮 5 个产出（建议拆 commit：① 设计文档 + PLAN ② PoC 视觉契约 ③ handoff + checkpoint note），让 I5 实施有干净起点。
-- 然后按 PLAN 任务从上至下执行：先 REQ-1/REQ-2（修订 requirements.md），再 DEV-1（iter→round 改名打底）+ DEV-2（env 重命名），后续 DEV-3~9 + QA-1~6 + REVIEW-1。
-- 第一轮 ralph 长任务建议跑完 REQ-1/REQ-2 + DEV-1 后人工 checkpoint，验证 breaking change 范围可控再继续。
+1. **commit 当前 dirty 文件**：一个 commit 把 doc-drift 同步收掉（"docs(I5): sync sticky contract drift after REVIEW-2 — design §0 ChangeLog + README + PoC v1 marker + .gitignore"）。
+2. **归档 I5**（按 CLAUDE.md iteration 协议）：
+   - `cp .ralph/TASKS.md docs/requirements/ralph-loop/I5-FINAL-TASK.md`
+   - 清空 `.ralph/TASKS.md` 当前任务段，"当前迭代"改为下一个（如 I6）
+   - `docs/roadmap.md` 添加 I5 完成行 + 引用归档文件
+   - commit
+3. **可选 I6 启动议题**（用户决定主题；当前 backlog 候选）：
+   - REVIEW-1 P2 三项遗留收尾（watch SIGTERM trap / 事件过滤代码抽 `lib/events.sh` / 删 `ralph_sticky_install_traps` 死代码）
+   - P3 收尾：plain retry round-start marker 不重打、CJK locale 字宽
+   - 新议题：用户 onboarding 文档？token cost 追踪？跨 run iteration-cumulative 统计？
+4. **Postmortem 记录**："I3-I5 累积的 refactor 后测试未回归审查盲区"（多次发现同类问题，值得固化为流程检查点）。
 
 # 交接摘要
 
-- I5 设计方案 + PLAN 已对齐落档（I5-design 13 决策 + TASKS.md 18 任务 + 两个 PoC 视觉契约），下一位 agent 直接按 `.ralph/TASKS.md` 顺序执行 DEV/QA/REVIEW；sticky/plain 视觉已被用户确认；最大注意点是 I5 是无 alias 的 breaking change（iter→round + stagnation→stall + env 重命名 + 删除 RALPH_MAX_ITER + .gitignore 自包含），DEV-1/DEV-2 必须严格 grep 残留旧名。
+I5 + REVIEW-2 后续全部 landed，integration test 首次 148/0 全通过；当前 dirty 是 doc-drift 同步（5 个文件）+ `.gitignore` 收尾，**先 commit 再按 CLAUDE.md 协议归档 I5**。Sticky 契约现在以 `docs/requirements/ralph-loop/I5-design.md` §0 ChangeLog 为准，§1-§13 是历史。
