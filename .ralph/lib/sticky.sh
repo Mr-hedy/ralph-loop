@@ -218,14 +218,13 @@ _sdraw_hr() {
 
 # ── Draw: top bar (§4) ───────────────────────────────────────────────────────
 _sdraw_top() {
-  local now started tasks_color
+  local now tasks_color
   if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
     now="$_RALPH_STICKY_FROZEN_NOW"
   else
     now=$(date +%s)
   fi
   local start_ts="${_RALPH_STICKY_RUN_START_TS:-$now}"
-  started="$(date -r "$start_ts" +%H:%M:%S 2>/dev/null || date -d "@$start_ts" +%H:%M:%S)" || started="00:00:00"
 
   local done="${_RALPH_STICKY_TASKS_DONE:-0}"
   local total="${_RALPH_STICKY_TASKS_TOTAL:-0}"
@@ -241,8 +240,8 @@ _sdraw_top() {
 
   local line
   if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
-    # Frozen mode: show "finished Xago · ran H:MM:SS" instead of "elapsed H:MM:SS".
-    # "ago" updates on every frame using wall clock; "ran" stays fixed (historical duration).
+    # Frozen mode: show "finished Xago · duration H:MM:SS" instead of "elapsed H:MM:SS".
+    # "ago" updates on every frame using wall clock; "duration" stays fixed (historical).
     local wall_now ago_sec ran_sec
     wall_now=$(date +%s)
     ago_sec=$(( wall_now - now ))
@@ -252,8 +251,7 @@ _sdraw_top() {
     local ran_disp ago_disp
     ran_disp=$(_sfmt_elapsed "$ran_sec")
     ago_disp=$(_sfmt_ago "$ago_sec")
-    line=$(printf '%s[%s]%s %sralph %s%s %s· tasks%s %s%d/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· finished%s %s%s ago%s %s· ran%s %s' \
-      "$_SGRAY" "$started" "$_SRESET" \
+    line=$(printf '%sralph %s%s %s· tasks%s %s%d/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· finished%s %s%s ago%s %s· duration%s %s' \
       "$_SCYAN" "$ver" "$_SRESET" \
       "$_SGRAY" "$_SRESET" "$tasks_color" "$done" "$total" "$_SRESET" \
       "$_SGRAY" "$_SRESET" "$_SBOLD" "$oneshots" "$_SRESET" \
@@ -263,8 +261,7 @@ _sdraw_top() {
   else
     local elapsed
     elapsed=$(_sfmt_elapsed $(( now - start_ts )))
-    line=$(printf '%s[%s]%s %sralph %s%s %s· tasks%s %s%d/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· elapsed%s %s' \
-      "$_SGRAY" "$started" "$_SRESET" \
+    line=$(printf '%sralph %s%s %s· tasks%s %s%d/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· elapsed%s %s' \
       "$_SCYAN" "$ver" "$_SRESET" \
       "$_SGRAY" "$_SRESET" "$tasks_color" "$done" "$total" "$_SRESET" \
       "$_SGRAY" "$_SRESET" "$_SBOLD" "$oneshots" "$_SRESET" \
@@ -306,6 +303,15 @@ _sdraw_bottom() {
   fi
   local task_start="${_RALPH_STICKY_TASK_START_TS:-$now}"
   task_elapsed=$(_sfmt_elapsed $(( now - task_start )))
+
+  # Special case: exit_reason=done → 全部任务勾完，底栏简化为 "<health> all tasks done"
+  # round/stall/spinner/time/arrow 在此终态下都已无现实参考意义。
+  if [[ "${_RALPH_STICKY_EXIT_REASON:-}" == "done" ]]; then
+    health="$(_shealth)"
+    line=$(printf '%s %sall tasks done%s' "$health" "$_SDIM" "$_SRESET")
+    printf '%s%s\n' "$_SEL" "$line"
+    return
+  fi
   
   if [[ "${_RALPH_STICKY_RETRY_COUNT:-0}" -gt 0 ]]; then
     spin="⏳"

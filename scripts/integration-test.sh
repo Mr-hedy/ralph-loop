@@ -1501,9 +1501,11 @@ _run_diagnose_case() {
   printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
   git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "tasks" 2>/dev/null || true
   local rc=0
+  # --max-retry 0：rate_limit / network 场景下禁用 DEV-10 retry 退避（默认
+  # 60+120+300=8min 会让本测试 hang），diagnose 测试只验证 error.type 分类
   RALPH_MOCK_CLAUDE_SCENARIO="$scenario" \
     env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-    bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+    bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-retry 0 2>/dev/null || rc=$?
   local run_dir error_type
   run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
   error_type="$(get_last_error_type "$run_dir")"
@@ -2220,9 +2222,10 @@ _run_codex_diagnose_case() {
   printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
   git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "tasks" 2>/dev/null || true
   local rc=0
+  # --max-retry 0：见 _run_diagnose_case 注释
   RALPH_MOCK_CODEX_SCENARIO="$scenario" \
     env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-    bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+    bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-retry 0 2>/dev/null || rc=$?
   local run_dir error_type
   run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
   error_type="$(get_last_error_type "$run_dir")"
@@ -2540,9 +2543,10 @@ cleanup_codex_ws
 	  printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
 	  git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "tasks" 2>/dev/null || true
 	  local rc=0
+	  # --max-retry 0：见 _run_diagnose_case 注释
 	  RALPH_MOCK_GEMINI_SCENARIO="$scenario" \
 	    env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
-	    bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini 2>/dev/null || rc=$?
+	    bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini --max-retry 0 2>/dev/null || rc=$?
 	  local run_dir error_type
 	  run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
 	  error_type="$(get_last_error_type "$run_dir")"
@@ -2933,7 +2937,9 @@ EXPEOF
 	  stderr_file="$(mktemp)"
 	  cat > "$ws/run-sticky.exp" <<EXPEOF
 set timeout 30
-spawn bash "$ws/.ralph/bin/ralph" run --provider fake -v
+# expect 默认 spawn 出来的 pty 在某些 macOS 上 stty size 返回 0 0，导致 sticky.sh
+# 把 _SCOLS clamp 到 20，横线只画 20 ─ 字符。显式设 24x80 还原合理终端尺寸。
+spawn -ignore HUP bash -c "stty rows 24 cols 80 2>/dev/null; exec bash \"$ws/.ralph/bin/ralph\" run --provider fake -v"
 expect {
     timeout { puts "EXPECT_TIMEOUT"; exit 1 }
     eof { puts "EXPECT_EOF" }
@@ -2941,16 +2947,19 @@ expect {
 EXPEOF
 	  RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=1 expect -f "$ws/run-sticky.exp" > "$stderr_file" 2>/dev/null || true
 
+	  # sticky 顶栏字段间夹 ANSI 序列（如 tasks\033[0m \033[0m0/1），原始字节 grep
+	  # 匹配不到 "tasks 0/1" / "oneshots 1"，先 strip ANSI 再断言。
+	  stripped="$(_strip_ansi < "$stderr_file")"
 	  sticky_ok=0
-	  if grep -q "────────────────────────────────" "$stderr_file" \
-	     && grep -q "tasks 0/1" "$stderr_file" \
-	     && grep -q "oneshots 1" "$stderr_file"; then
+	  if grep -q "────────────────────────────────" <<< "$stripped" \
+	     && grep -q "tasks 0/1" <<< "$stripped" \
+	     && grep -q "oneshots 1" <<< "$stripped"; then
 	    sticky_ok=1
 	  fi
 	  if [[ "$sticky_ok" -eq 1 ]]; then
 	    _pass "sticky run -v: TTY shows horizontal rules and header"
 	  else
-	    _fail "sticky run -v: missing rules/header. Output: $(cat -v "$stderr_file" | head -n 5)"
+	    _fail "sticky run -v: missing rules/header. Output: $(printf '%s' "$stripped" | head -n 5)"
 	  fi
 
 	  # 6d. ralph watch sticky
@@ -2958,7 +2967,8 @@ EXPEOF
 	  echo "-- Sticky: ralph watch (expect TTY)"
 	  cat > "$ws/watch-sticky.exp" <<EXPEOF
 set timeout 10
-spawn bash "$ws/.ralph/bin/ralph" watch
+# 同 run-sticky：显式设 24x80，避免 expect pty stty size 返回 0 0 导致 _SCOLS=20。
+spawn -ignore HUP bash -c "stty rows 24 cols 80 2>/dev/null; exec bash \"$ws/.ralph/bin/ralph\" watch"
 expect "ralph"
 expect "round"
 send \003
