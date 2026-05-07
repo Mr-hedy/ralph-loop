@@ -100,6 +100,17 @@ _sfmt_elapsed() {
   printf '%02d:%02d:%02d' "$h" "$m" "$s"
 }
 
+# Coarse humanized "ago" formatter: 0~59s → "Ns" / 1~59m → "Nm" /
+# 1~23h → "Nh" / >=1d → "Nd"
+_sfmt_ago() {
+  local s=${1:-0}
+  if (( s < 60 )); then printf '%ds' "$s"
+  elif (( s < 3600 )); then printf '%dm' $(( s / 60 ))
+  elif (( s < 86400 )); then printf '%dh' $(( s / 3600 ))
+  else printf '%dd' $(( s / 86400 ))
+  fi
+}
+
 _schar_width() {
   case "$1" in
     [一-龥]|[，。！？：；、（）【】《》""'']) printf '2' ;;
@@ -207,14 +218,13 @@ _sdraw_hr() {
 
 # ── Draw: top bar (§4) ───────────────────────────────────────────────────────
 _sdraw_top() {
-  local now elapsed started tasks_color
+  local now started tasks_color
   if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
     now="$_RALPH_STICKY_FROZEN_NOW"
   else
     now=$(date +%s)
   fi
   local start_ts="${_RALPH_STICKY_RUN_START_TS:-$now}"
-  elapsed=$(_sfmt_elapsed $(( now - start_ts )))
   started="$(date -r "$start_ts" +%H:%M:%S 2>/dev/null || date -d "@$start_ts" +%H:%M:%S)" || started="00:00:00"
 
   local done="${_RALPH_STICKY_TASKS_DONE:-0}"
@@ -230,13 +240,37 @@ _sdraw_top() {
   fi
 
   local line
-  line=$(printf '%s[%s]%s %sralph %s%s %s· tasks%s %s%d/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· elapsed%s %s' \
-    "$_SGRAY" "$started" "$_SRESET" \
-    "$_SCYAN" "$ver" "$_SRESET" \
-    "$_SGRAY" "$_SRESET" "$tasks_color" "$done" "$total" "$_SRESET" \
-    "$_SGRAY" "$_SRESET" "$_SBOLD" "$oneshots" "$_SRESET" \
-    "$_SGRAY" "$_SRESET" "$provider" \
-    "$_SGRAY" "$_SRESET" "$elapsed")
+  if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
+    # Frozen mode: show "finished Xago · ran H:MM:SS" instead of "elapsed H:MM:SS".
+    # "ago" updates on every frame using wall clock; "ran" stays fixed (historical duration).
+    local wall_now ago_sec ran_sec
+    wall_now=$(date +%s)
+    ago_sec=$(( wall_now - now ))
+    (( ago_sec < 0 )) && ago_sec=0
+    ran_sec=$(( now - start_ts ))
+    (( ran_sec < 0 )) && ran_sec=0
+    local ran_disp ago_disp
+    ran_disp=$(_sfmt_elapsed "$ran_sec")
+    ago_disp=$(_sfmt_ago "$ago_sec")
+    line=$(printf '%s[%s]%s %sralph %s%s %s· tasks%s %s%d/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· finished%s %s%s ago%s %s· ran%s %s' \
+      "$_SGRAY" "$started" "$_SRESET" \
+      "$_SCYAN" "$ver" "$_SRESET" \
+      "$_SGRAY" "$_SRESET" "$tasks_color" "$done" "$total" "$_SRESET" \
+      "$_SGRAY" "$_SRESET" "$_SBOLD" "$oneshots" "$_SRESET" \
+      "$_SGRAY" "$_SRESET" "$provider" \
+      "$_SGRAY" "$_SRESET" "$_SDIM" "$ago_disp" "$_SRESET" \
+      "$_SGRAY" "$_SRESET" "$ran_disp")
+  else
+    local elapsed
+    elapsed=$(_sfmt_elapsed $(( now - start_ts )))
+    line=$(printf '%s[%s]%s %sralph %s%s %s· tasks%s %s%d/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· elapsed%s %s' \
+      "$_SGRAY" "$started" "$_SRESET" \
+      "$_SCYAN" "$ver" "$_SRESET" \
+      "$_SGRAY" "$_SRESET" "$tasks_color" "$done" "$total" "$_SRESET" \
+      "$_SGRAY" "$_SRESET" "$_SBOLD" "$oneshots" "$_SRESET" \
+      "$_SGRAY" "$_SRESET" "$provider" \
+      "$_SGRAY" "$_SRESET" "$elapsed")
+  fi
   printf '%s%s\n' "$_SEL" "$line"
 }
 
