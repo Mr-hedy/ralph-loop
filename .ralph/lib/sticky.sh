@@ -310,15 +310,16 @@ _sdraw_bottom() {
 
   local frozen_suffix="" frozen_suffix_w=0
   if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
-    frozen_suffix=$(printf ' %s· (ctrl + c) exit%s' "$_SGRAY" "$_SRESET")
-    frozen_suffix_w=20   # plain 字符数 " · (ctrl + c) exit" = 20
+    # 提示文本最弱化（_SDIM）；"all tasks done" 等状态信息用 _SGRAY（更显眼）
+    frozen_suffix=$(printf ' %s· ( CTRL + C to exit )%s' "$_SDIM" "$_SRESET")
+    frozen_suffix_w=24   # plain 列数 " · ( CTRL + C to exit )" = 23 + 1 缓冲
   fi
 
   # Special case: exit_reason=done → 全部任务勾完，底栏简化为 "<health> all tasks done"
   # round/stall/spinner/time/arrow 在此终态下都已无现实参考意义。
   if [[ "${_RALPH_STICKY_EXIT_REASON:-}" == "done" ]]; then
     health="$(_shealth)"
-    line=$(printf '%s %sall tasks done%s' "$health" "$_SDIM" "$_SRESET")
+    line=$(printf '%s %sall tasks done%s' "$health" "$_SGRAY" "$_SRESET")
     line+="$frozen_suffix"
     printf '%s%s\n' "$_SEL" "$line"
     return
@@ -374,8 +375,9 @@ _sdraw_bottom() {
 
 # ── Draw: hint line (live mode only) ─────────────────────────────────────────
 # 仅 live 模式（FROZEN_NOW 空）渲染。Frozen 态的提示走 _sdraw_bottom 末尾后缀。
+# 文本与 frozen 后缀完全一致，保证视觉一致性。
 _sdraw_hint() {
-  printf '%s%s%s(ctrl + c) to exit%s\n' "$_SEL" "$_SDIM" "$_SGRAY" "$_SRESET"
+  printf '%s%s( CTRL + C to exit )%s\n' "$_SEL" "$_SDIM" "$_SRESET"
 }
 
 # ── Public API ────────────────────────────────────────────────────────────────
