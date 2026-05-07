@@ -2740,8 +2740,8 @@ cleanup_codex_ws
 
 	# ── 1d. Hint line (live mode last line) ─────────────────────────────────
 	hint_line=$(printf '%s' "$out" | _strip_ansi | tail -1)
-	if echo "$hint_line" | grep -q "( CTRL+C to exit )"; then
-	  _pass "sticky hint (live): \"( CTRL+C to exit )\" present"
+	if echo "$hint_line" | grep -q "(Ctrl+C to exit)"; then
+	  _pass "sticky hint (live): \"(Ctrl+C to exit)\" present"
 	else
 	  _fail "sticky hint (live): missing in: $(echo "$hint_line" | head -c 120)"
 	fi
@@ -2749,8 +2749,8 @@ cleanup_codex_ws
 	# ── 1e. Frozen bottom suffix ─────────────────────────────────────────────
 	frozen_bottom=$(printf '%s' "$out_frozen" | _strip_ansi | tail -1)
 	if echo "$frozen_bottom" | grep -q "all tasks done" \
-	   && echo "$frozen_bottom" | grep -q "( CTRL+C to exit )"; then
-	  _pass "sticky bottom (frozen): \"all tasks done\" + \"( CTRL+C to exit )\" suffix"
+	   && echo "$frozen_bottom" | grep -q "(Ctrl+C to exit)"; then
+	  _pass "sticky bottom (frozen): \"all tasks done\" + \"(Ctrl+C to exit)\" suffix"
 	else
 	  _fail "sticky bottom (frozen): missing in: $(echo "$frozen_bottom" | head -c 120)"
 	fi

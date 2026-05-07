@@ -61,7 +61,7 @@
 追加式纯文本，无 ANSI 控制码，每行独立可 grep。仅打印 ralph 核心 marker（启动 banner、round 启停、60s heartbeat、退出总结）。
 
 **Sticky 模式（`-v`，仅 TTY）**：
-紧凑 sticky 块（live 11 行 / frozen 10 行）。Live：顶栏（tasks/oneshots/provider/elapsed）+ 事件区（最近 6 条 tool/chat 事件流）+ 底栏（健康灯/per-task round/stall/spinner+时间/当前任务名）+ 提示行 `( CTRL+C to exit )`。Frozen（run 跑完 / watch attach 已结束 run）：顶栏 elapsed 改为 `finished Xago · duration H:MM:SS`，done 终态底栏简化为 `✓ all tasks done · ( CTRL+C to exit )`，其它退出态在底栏末尾追加 ` · ( CTRL+C to exit )` 后缀。
+紧凑 sticky 块（live 11 行 / frozen 10 行）。Live：顶栏（tasks/oneshots/provider/elapsed）+ 事件区（最近 6 条 tool/chat 事件流）+ 底栏（健康灯/per-task round/stall/spinner+时间/当前任务名）+ 提示行 `(Ctrl+C to exit)`。Frozen（run 跑完 / watch attach 已结束 run）：顶栏 elapsed 改为 `finished Xago · duration H:MM:SS`，done 终态底栏简化为 `✓ all tasks done · ( CTRL+C to exit )`，其它退出态在底栏末尾追加 ` · ( CTRL+C to exit )` 后缀。
 
 ### `ralph status`
 

@@ -15,7 +15,7 @@
 **原**：`总块高度 = EVENT_WINDOW + 4`（默认 10）。
 
 **实**：根据 `_RALPH_STICKY_FROZEN_NOW` 是否非空决定：
-- live（FROZEN_NOW 空）：`EVENT_WINDOW + 5`（默认 11），最后 1 行是 `( CTRL+C to exit )` 提示行（dim gray）
+- live（FROZEN_NOW 空）：`EVENT_WINDOW + 5`（默认 11），最后 1 行是 `(Ctrl+C to exit)` 提示行（dim gray）
 - frozen（FROZEN_NOW 非空）：`EVENT_WINDOW + 4`（默认 10），不带提示行
 
 **收缩切换**：sticky.sh `ralph_sticky_render_frame` 跟踪 `_STICKY_LINES_LAST`，从 live 11 → frozen 10 时清残留行 + cursor 拉回，避免帧位置漂移。
@@ -44,13 +44,13 @@ ralph 0.2 · tasks N/M · oneshots N · provider X · finished Xago · duration 
 
 **frozen + exit_reason=done**（全部任务勾完）：
 ```
-✓ all tasks done · ( CTRL+C to exit )
+✓ all tasks done · (Ctrl+C to exit)
 ```
 （round/stall/spinner/time/arrow 在 done 终态下都已无现实参考意义，简化掉。）
 
-**frozen + 其它退出态（provider_failed / blocked_by_human / interrupted）**：底栏完整内容 + ` · ( CTRL+C to exit )` 后缀，task 名按 `frozen_suffix_w=24` 列预算自动截断让出空间。
+**frozen + 其它退出态（provider_failed / blocked_by_human / interrupted）**：底栏完整内容 + ` · (Ctrl+C to exit)` 后缀，task 名按 `frozen_suffix_w=24` 列预算自动截断让出空间。
 
-**颜色约定**：状态结论（`all tasks done`）用 `_SGRAY`；提示（`( CTRL+C to exit )`）用 `_SDIM`——状态主级、提示弱化。
+**颜色约定**：状态结论（`all tasks done`）用 `_SGRAY`；提示（`(Ctrl+C to exit)`）用 `_SDIM`——状态主级、提示弱化。
 
 ### 0.4 spinner 节奏：200ms → 100ms
 

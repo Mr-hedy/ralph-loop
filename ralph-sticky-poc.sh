@@ -6,10 +6,10 @@
 # **状态**：本 PoC 是 I5 启动前的视觉契约 v1，**不再跟踪实施期变更**。
 # 当前生效合约见 `docs/requirements/ralph-loop/I5-design.md` §0 ChangeLog
 # 和实际实现 `.ralph/lib/sticky.sh`。主要差异：
-#   - live 模式高度 11 行（v1: 10 行）；新增 `( CTRL+C to exit )` 提示行
+#   - live 模式高度 11 行（v1: 10 行）；新增 `(Ctrl+C to exit)` 提示行
 #   - 删除顶栏起始 `[HH:MM:SS]` 时间戳
 #   - frozen 模式（watch attach 已 finished run）顶栏改 `finished Xago · duration`
-#   - exit_reason=done 底栏简化为 `✓ all tasks done · ( CTRL+C to exit )`
+#   - exit_reason=done 底栏简化为 `✓ all tasks done · (Ctrl+C to exit)`
 #   - spinner / 渲染节奏 200ms → 100ms
 #
 # v1 PoC 默认 10 行：顶栏 + 分割线 + 6 行事件区 + 分割线 + 底栏。
