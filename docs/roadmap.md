@@ -28,7 +28,7 @@
 - **I2 已完成（2026-05-04）**：T3（Codex adapter），归档见 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`；设计方案见 `docs/requirements/ralph-loop/I2-design.md`。
 - **I3 已完成（2026-05-04）**：watch/status 观察面修复，归档见 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`；checkpoint 为 `2641605 checkpoint: watch status surface fix`。
 - **I4 已完成（2026-05-04）**：T4（Gemini adapter），归档见 `docs/requirements/ralph-loop/I4-FINAL-TASK.md`；设计方案见 `docs/requirements/ralph-loop/I4-design.md`。
-- **I5 已完成（2026-05-06）**：run/watch sticky 输出 + per-task round + env 重组，归档见 `docs/requirements/ralph-loop/I5-FINAL-TASK.md`；设计方案见 `docs/requirements/ralph-loop/I5-design.md`。
+- **I5 已完成（2026-05-07）**：run/watch sticky 输出 + per-task round + env 重组，含 REVIEW-1 + REVIEW-2 两轮 adversarial review 后续修订（DEV-12 retry × per-task TRY 守门 / watch 时钟冻结 / sticky 视觉契约调整 / 4 个 -v live tail 失效测试删除 / diagnose retry hang 修复）；归档见 `docs/requirements/ralph-loop/I5-FINAL-TASK.md`，设计方案 + 实施期 ChangeLog 见 `docs/requirements/ralph-loop/I5-design.md` §0。完成时 `bash scripts/integration-test.sh` 首次完整通过 148 PASS / 0 FAIL。
 - 协作壳已初始化，`.spec/`、`docs/` 结构稳定。
 - Ralph v0.1 需求已收敛为 22 条决策，沉淀在 `requirements.md`（REQ-001 ~ REQ-016）。
 - 架构和稳定契约沉淀在 `docs/architecture/overview.md`；provider 集成细节沉淀在 `docs/architecture/integrations.md`；安全边界沉淀在 `docs/architecture/security.md`。

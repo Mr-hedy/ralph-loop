@@ -1,12 +1,12 @@
 # 当前目标与约束
 
-- 目标：I5 已经实施完毕（含 REVIEW-1 / REVIEW-2 / DEV-12 / CHORE-1 后续修订），整套 sticky / per-task / retry / iter→round / env 重组都落地；当前 main 干净，下一步是归档 I5（cp `.ralph/TASKS.md` → `docs/requirements/ralph-loop/I5-FINAL-TASK.md` + 清空 `.ralph/TASKS.md` + commit）或开 I6。
+- 目标：I5 已实施 + 归档完毕（2026-05-07）；`.ralph/TASKS.md` 已切换到 "I6（待启动）" 中间态；下一轮启动 I6 时由用户从下方候选议题选主题 → 写 design → 拆 PLAN → 填回 TASKS.md。
 - 硬约束：中文回复；当前开发任务事实源是 `.ralph/TASKS.md`；项目最终产物是 `.ralph/` 整个目录（用户 cp -r 部署）；`.ralph/.gitignore` 自包含。
 - 用户偏好（本会话累积）：sticky UI 偏好极简——`( CTRL+C to exit )` 紧凑（无空格）+ "all tasks done" 用 `_SGRAY`/提示用 `_SDIM`/状态结论比提示更亮；视觉契约要在 design 文档同步（不接受 design vs 实现漂移）；后台任务必须用 waiter 显式等而不能轮询。
 
 # 当前阶段与范围
 
-- 阶段：I5 实施完成 + 第二轮 adversarial review 后续修复全部 landed + doc-drift 同步完成。
+- 阶段：I5 已归档（commit `<archive-commit>`），`.ralph/TASKS.md` 在 I5↔I6 之间的中间态；REVIEW-2 后续修订全部 landed + doc-drift 同步完成。
 - 影响模块（本轮）：`.ralph/lib/run.sh` / `.ralph/lib/sticky.sh` / `.ralph/lib/watch.sh` / `scripts/integration-test.sh` / `.ralph/README.md` / `docs/requirements/ralph-loop/I5-design.md` / `ralph-sticky-poc.sh` / `.ralph/TASKS.md` / `.gitignore`。
 - 变更类型：代码 fix（P1 retry × TRY 灌水 / watch 时钟冻结）+ UX 升级（live hint 行 / frozen 后缀 / `( CTRL+C to exit )` 文本与颜色）+ 测试修复（diagnose retry hang / pty stty size / ANSI grep / 删 4 个失效 -v live tail 测试）+ 文档同步（I5-design §0 ChangeLog / .ralph/README / PoC 注释）+ 工作树清理。
 
@@ -80,18 +80,16 @@
 
 # 建议下一步
 
-1. **commit 当前 dirty 文件**：一个 commit 把 doc-drift 同步收掉（"docs(I5): sync sticky contract drift after REVIEW-2 — design §0 ChangeLog + README + PoC v1 marker + .gitignore"）。
-2. **归档 I5**（按 CLAUDE.md iteration 协议）：
-   - `cp .ralph/TASKS.md docs/requirements/ralph-loop/I5-FINAL-TASK.md`
-   - 清空 `.ralph/TASKS.md` 当前任务段，"当前迭代"改为下一个（如 I6）
-   - `docs/roadmap.md` 添加 I5 完成行 + 引用归档文件
-   - commit
-3. **可选 I6 启动议题**（用户决定主题；当前 backlog 候选）：
-   - REVIEW-1 P2 三项遗留收尾（watch SIGTERM trap / 事件过滤代码抽 `lib/events.sh` / 删 `ralph_sticky_install_traps` 死代码）
-   - P3 收尾：plain retry round-start marker 不重打、CJK locale 字宽
-   - 新议题：用户 onboarding 文档？token cost 追踪？跨 run iteration-cumulative 统计？
-4. **Postmortem 记录**："I3-I5 累积的 refactor 后测试未回归审查盲区"（多次发现同类问题，值得固化为流程检查点）。
+1. **启动 I6**（用户决策主题）：从 `.ralph/TASKS.md` 中"I6 候选议题"段选定主题，然后按 dogfood 协议：
+   - 写 `docs/requirements/ralph-loop/I6-design.md`
+   - 在 `.ralph/TASKS.md` 中拆 PLAN 任务
+   - 更新 TASKS.md 顶部的"当前迭代/主题/起始/设计方案"四个字段
+   - 候选议题（详见 TASKS.md "I6 候选议题"）：
+     - REVIEW-1 P2 三项遗留（watch SIGTERM trap / 事件过滤抽 `lib/events.sh` / 删 `ralph_sticky_install_traps` 死代码）
+     - P3 收尾：plain retry round-start marker 不重打、CJK locale 字宽
+     - 新议题：用户 onboarding 文档？token cost 追踪？跨 run iteration-cumulative 统计？
+2. **可选 Postmortem**："I3-I5 累积的 refactor 后测试未回归审查盲区"——本轮 REVIEW-2 集中暴露多处同类问题（round → oneshots 断言漏改 / 4 个 -v live tail 失效用例 / sticky `tasks 0/1` ANSI grep / pty stty size），值得固化为流程检查点（"sticky/event/contract refactor commit 必须重跑完整 integration test"）。
 
 # 交接摘要
 
-I5 + REVIEW-2 后续全部 landed，integration test 首次 148/0 全通过；当前 dirty 是 doc-drift 同步（5 个文件）+ `.gitignore` 收尾，**先 commit 再按 CLAUDE.md 协议归档 I5**。Sticky 契约现在以 `docs/requirements/ralph-loop/I5-design.md` §0 ChangeLog 为准，§1-§13 是历史。
+I5 + REVIEW-1/2 + DEV-12 + CHORE-1 + doc-drift 同步全部 landed 并归档（`docs/requirements/ralph-loop/I5-FINAL-TASK.md`）；integration test 首次 148/0 全通过；`.ralph/TASKS.md` 已进入 I6 待启动中间态。下一轮先选 I6 主题再开工；sticky 契约以 `docs/requirements/ralph-loop/I5-design.md` §0 ChangeLog 为准。
