@@ -264,3 +264,34 @@
   - 验证：`bash -n` 通过；`bash scripts/check.sh` 通过；临时 workspace 验证 status.json 含 `"task_try": 1`（正常完成）和 `"task_try": 2`（stagnation 2 次后 blocked_by_human）；`git diff --check` 通过。
   - 未验证：TTY 下 `ralph watch` 实际 sticky 底栏视觉显示 task_try 递增（需真实终端 + 后台 run，QA-5/QA-6 范围）。
   - 依赖：REVIEW-1
+
+- [x] REVIEW-2: I5 第二轮 adversarial review findings
+  - 触发：用户请求对 I5 commit 整体重新做一次 adversarial review，跑完整 integration-test.sh 后发现 REVIEW-1 漏检的两个 P1 + 一类失效测试。
+  - Findings:
+    - [P1] retry × per-task TRY 计数灌水：run.sh:587-589 `round` 用 `retry_count` 守门只在非 retry 时递增，但 595-603 的 `_RALPH_CURRENT_TASK_TRY` 计数没有同样守门，每次 retry continue 回到顶端都把 TRY +1。实测：`RALPH_FAKE_SCENARIO=rate_limit` 1 round + 5 retry → `status.json.task_try=6`（应为 1）。配合 line 966 的 `max_round` 检查（也用 TRY），retry 成功后 worktree 有变更但任务没勾的场景下会假阳性触发 HUMAN-N 自动插入。→ DEV-12
+    - [P1] watch state=finished 后底栏/顶栏时钟 + spinner 不冻结：watch.sh:311-451 主循环在 `_w_finished=1` 后仍每 200ms 调一次 `ralph_sticky_render_frame`；sticky.sh 的 `_sdraw_top` (line 208) 和 `_sdraw_bottom` (line 261) 都用 `now=$(date +%s)` 实时计算 elapsed，spinner 也每帧 +1。导致 watch attach 已结束的 run 时顶栏 elapsed / 底栏 task elapsed / spinner 三者持续变化，违反 "sticky 模式 finished 后 frozen 等 Ctrl+C" 的设计契约。→ DEV-12
+    - [P2] 4 个 pre-I5 `run -v live tail` 集成测试与 I5 设计冲突：integration-test.sh:1340-1388（claude×2）+ 2131-2152（codex）+ 2450-2471（gemini）4 个用例假设 `-v` 把 stream-json filter marker 实时打到 stderr（I3 M1 milestone 旧契约），I5 已把 `-v` 改为"sticky 模式（仅 TTY），非 TTY fallback plain 不打 marker"，stdout 重定向 `/dev/null` 时这 4 个用例必然失败。覆盖已被 QA-1（sticky 渲染）+ QA-2（non-TTY 降级）替代，整段删除即可。→ CHORE-1
+    - [P2] 工作树未提交残渣 + 未提交断言修正：6 个调试残渣（test-tty.out / tests-sticky.out / ttytest.exp / tests/test-sticky-isolation.sh / tests/test-sticky-expect.exp / tests/verify-sticky-logic.sh，QA-1 期间手测遗留）；scripts/integration-test.sh 有未提交 diff 把 sticky 顶栏断言从 `round 3` 改成 `oneshots 3`（commit 4a359b4 顶栏 round→oneshots refactor 后未同步已 committed 的 QA-1 断言）。→ CHORE-1
+    - [P2] REVIEW-1 三项遗留未修：watch.sh 不 trap SIGTERM；run.sh `_ralph_filter_verbose` 与 watch.sh `_ralph_watch_filter_events` 近 100 行 jq 完全重复；`ralph_sticky_install_traps` 是死代码。本轮不修，移到下次 iteration。
+    - [P3] plain 模式 retry 期间 round-start marker 重复（每 retry 重打一行 `[ts] round N/M → task`）；本轮不修。
+    - [P3] sticky.sh `_schar_width` CJK 检测依赖 bash glob `[一-龥]` + locale；本轮不修。
+    - [建议] sticky 底栏 spinner 速度调到 100ms/frame（10fps）：现 sleep 0.2 + 每帧 +1 是 5fps，整圈 1.6s，过于沉闷。→ DEV-12
+    - [决议] 不在 sticky 加 iteration 总耗时字段：iteration 是跨 run 跨天人类 milestone，不属于 live 视图；如有需要做独立 `ralph status` / `ralph iter-summary` 子命令离线聚合 `runs/*/result.json`。
+
+- [x] DEV-12: 修复 retry × per-task TRY 灌水 + watch 时钟冻结 + spinner 提速
+  - 预期：(a) 同一 round 内多次 retry 不再让 `_RALPH_CURRENT_TASK_TRY` 多增，`status.json.task_try` 准确反映"实际 round 尝试次数"；max_round 检查不会被 retry 假阳性触发。(b) `ralph watch` 在 state 第一次进入 finished 时冻结顶栏 elapsed / 底栏 task elapsed / spinner，frozen 之后只响应终端 resize 和退出，不再随时间推移。(c) sticky polling 节奏 200ms → 100ms，spinner 整圈从 1.6s 降到 0.8s。
+  - 输入：REVIEW-2 两个 P1 + spinner 提速建议；当前 `.ralph/lib/run.sh` / `sticky.sh` / `watch.sh`。
+  - 范围：`.ralph/lib/run.sh`（TRY 递增包入 retry_count==0 守门）；`.ralph/lib/sticky.sh`（新增 `_RALPH_STICKY_FROZEN_NOW` 约定，`_sdraw_top` / `_sdraw_bottom` / `ralph_sticky_render_frame` 三处统一处理）；`.ralph/lib/watch.sh`（`_w_finished=0→1` 边沿读 status.json `updated_at` 写到 `_RALPH_STICKY_FROZEN_NOW`，run_id 切换时清空，主循环 sleep 0.2 → 0.1）；`.ralph/lib/run.sh` sticky polling sleep 0.2 → 0.1；新增集成测试 retry × max_round 共存场景（fake provider rate_limit 2 次后成功，验证 `status.json.task_try` 不会超过实际 round 数 + 不会触发 HUMAN-N）。
+  - 完成：(a) run.sh:594-606 把 `_RALPH_CURRENT_TASK_TRY` / `_RALPH_CURRENT_TASK_ID` 计数包入 `if [[ "$retry_count" -eq 0 ]]; then ... fi` 守门，与 round 同源。(b) sticky.sh 新增 `_RALPH_STICKY_FROZEN_NOW` 约定（顶部注释 + `_sdraw_top` / `_sdraw_bottom` 用它代替 `date +%s`，`ralph_sticky_render_frame` 在 frozen 时跳过 `_SSPIN_IDX` 自增）。watch.sh `_w_finished=0→1` 边沿读 `status.json.updated_at` 转 epoch 写入 `_RALPH_STICKY_FROZEN_NOW`；run_id 切换分支清空；主循环 `sleep 0.2 → 0.1`。run.sh sticky polling 也从 0.2 → 0.1。(c) integration-test.sh 新增 2 个 DEV-12 回归用例（retry 不灌水 task_try / retry × max_round=2 不假阳性触发 HUMAN-N），均 PASS。
+  - 验证：`bash -n` 三个 lib 文件 + `scripts/integration-test.sh` 通过；`bash scripts/check.sh` 通过；DEV-12 两个新回归测试隔离运行 PASS（task_try=1 而非旧版的 6，exit_reason=provider_failed 没有 HUMAN-N 插入）；完整 `bash scripts/integration-test.sh` 跑到预存挂段（Codex diagnose rate_limit）前 65 PASS / 0 FAIL（之前 100 PASS / 3 FAIL 中的 3 个 -v live tail FAIL 均消失）；FROZEN_NOW unit test：spinner 在 live 模式 0→1→2 递增、frozen 模式 spinner 保持不变；QA-1 sticky 渲染 11/11 PASS（独立运行）；`git diff --check` 通过。
+  - 未验证：TTY 下 spinner 视觉提速效果（QA-5/QA-6 范围，需真实终端人工对比 0.8s vs 1.6s 整圈节奏）；TTY 下 watch attach 已 finished run 时底栏/顶栏时钟视觉冻结（需真实终端 + 完成的 run）；frozen 后终端 resize 行为（`_srefresh_size` 仍每帧调用，理论正常但未验证）。
+  - 依赖：REVIEW-2
+
+- [x] CHORE-1: 删除 4 个 M1 live tail 旧测试 + 应用未提交断言修正 + 清理工作树残渣
+  - 预期：`scripts/integration-test.sh` 不再含 I3 M1 时期 `-v live tail` regression section；当前未提交的 round→oneshots 断言修正合入；工作树 6 个调试残渣删除。
+  - 输入：REVIEW-2 P2；`scripts/integration-test.sh` 1340-1388 / 2131-2152 / 2450-2471 三段；当前 `git status` 列出的 6 个 untracked 文件。
+  - 范围：`scripts/integration-test.sh`（删除 4 个 live tail 用例 + section header + 应用 oneshots 断言修正）；`rm` 6 个工作树文件（test-tty.out / tests-sticky.out / ttytest.exp / tests/test-sticky-isolation.sh / tests/test-sticky-expect.exp / tests/verify-sticky-logic.sh）。
+  - 完成：3 段 live tail 测试整段删除（claude×2 / codex / gemini）并替换为简短墓碑注释指向 QA-1/QA-2 替代覆盖；DEV-12 编辑顺带把未提交的 `round 3 → oneshots 3` / `round 1 → oneshots 1` 断言修正合入（commit 4a359b4 顶栏 round→oneshots refactor 的对应测试同步）；工作树 6 个调试残渣文件 `rm` 清理。
+  - 验证：`grep -n "live tail" scripts/integration-test.sh` 仅剩 3 行墓碑注释；`grep -n 'oneshots [0-9]' scripts/integration-test.sh` 显示 2 处断言已生效；`git status --short` 工作树仅含本任务的预期改动；`bash -n scripts/integration-test.sh` 通过；`bash scripts/check.sh` 通过；DEV-12 完整跑显示 65 PASS / 0 FAIL（之前 100 PASS / 3 FAIL 中的 3 个 live tail FAIL 全部消失）。
+  - 未验证：完整 integration-test.sh 跑到底（仍受预存 Codex diagnose rate_limit 挂段阻塞，非本任务引入）。
+  - 依赖：REVIEW-2

@@ -589,17 +589,20 @@ EOF
     fi
     _RALPH_ROUND="$round"
 
-    # per-task round tracking：比较当前第一个未勾 task 与上轮
-    local _first_task_text=""
-    _first_task_text="$(first_unchecked_task "$tasks_md" 2>/dev/null)" || _first_task_text=""
-    if [[ "$_first_task_text" != "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
-      _RALPH_CURRENT_TASK_ID="$_first_task_text"
-      _RALPH_CURRENT_TASK_TRY=1
-      _RALPH_TASK_START_TS="$(date -u +%s)"
-      _RALPH_TASK_STARTED_AT="$(ralph_timestamp)"
-      stall_count=0
-    else
-      _RALPH_CURRENT_TASK_TRY=$(( _RALPH_CURRENT_TASK_TRY + 1 ))
+    # per-task round tracking：仅在非 retry 时更新（retry 是同一 round 内重试，
+    # 不构成新一次 task try；同时 round 也只在 retry_count==0 时递增，二者同源）
+    if [[ "$retry_count" -eq 0 ]]; then
+      local _first_task_text=""
+      _first_task_text="$(first_unchecked_task "$tasks_md" 2>/dev/null)" || _first_task_text=""
+      if [[ "$_first_task_text" != "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
+        _RALPH_CURRENT_TASK_ID="$_first_task_text"
+        _RALPH_CURRENT_TASK_TRY=1
+        _RALPH_TASK_START_TS="$(date -u +%s)"
+        _RALPH_TASK_STARTED_AT="$(ralph_timestamp)"
+        stall_count=0
+      else
+        _RALPH_CURRENT_TASK_TRY=$(( _RALPH_CURRENT_TASK_TRY + 1 ))
+      fi
     fi
 
     # 全部完成判定（在 max_round 检查前）
@@ -709,7 +712,7 @@ EOF
       # sticky 模式：polling loop → 读事件 + render frame + 超时检测
       _RALPH_STICKY_TASK_START_TS="${_RALPH_TASK_START_TS:-$(( round_start_ts / 1000 ))}"
       while kill -0 "$pid" 2>/dev/null; do
-        sleep 0.2
+        sleep 0.1
         # 读取新事件
         if [[ -f "$_RALPH_STICKY_EVENT_FILE" ]]; then
           local _ev_size=0

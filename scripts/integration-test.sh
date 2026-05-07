@@ -217,6 +217,47 @@ fi
 cleanup_ws "$ws"
 
 # ────────────────────────────────
+# DEV-12 regression: retry × per-task TRY 计数不应灌水
+# rate_limit 场景下 retry 次数不应让 status.json.task_try 超过实际 round 数；
+# 否则配合 max_round 检查会假阳性触发 HUMAN-N 自动插入。
+# ────────────────────────────────
+echo ""
+echo "-- DEV-12: retry does not inflate task_try (1 round + 5 retry → task_try=1)"
+ws=$(setup_workspace)
+rc=0
+RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="1 1 1 1 1" \
+  bash "$ws/.ralph/bin/ralph" run --provider fake --max-retry 5 2>/dev/null || rc=$?
+status_file="$ws/.ralph/status.json"
+task_try_json=$(jq -r '.task_try' "$status_file" 2>/dev/null || echo "null")
+round_json=$(jq -r '.round' "$status_file" 2>/dev/null || echo "null")
+exit_reason_json=$(jq -r '.exit_reason' "$status_file" 2>/dev/null || echo "null")
+if [[ "$task_try_json" == "1" && "$round_json" == "1" && "$exit_reason_json" == "provider_failed" ]]; then
+  _pass "DEV-12 retry × task_try: task_try=1 (was 6 before fix), round=1, exit_reason=provider_failed"
+else
+  _fail "DEV-12 retry × task_try: task_try=$task_try_json, round=$round_json, exit_reason=$exit_reason_json (expected 1/1/provider_failed)"
+fi
+cleanup_ws "$ws"
+
+# DEV-12 (continuation): retry + max_round 共存不应假阳性触发 HUMAN-N
+# 保护 long-running ralph：rate_limit retry 多次但全 round 数 < max_round 时不应插 HUMAN。
+echo ""
+echo "-- DEV-12: retry × max_round=2 + 5 retry → exit provider_failed (NOT blocked_by_human)"
+ws=$(setup_workspace)
+rc=0
+RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="1 1 1 1 1" \
+  bash "$ws/.ralph/bin/ralph" run --provider fake --max-retry 5 --max-round 2 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+human_inserted=0
+grep -q "^- \[ \] HUMAN-" "$ws/.ralph/TASKS.md" && human_inserted=1
+if [[ "$reason" == "provider_failed" && "$rc" -eq 2 && "$human_inserted" -eq 0 ]]; then
+  _pass "DEV-12 retry × max_round: exit_reason=provider_failed (no false HUMAN-N insertion)"
+else
+  _fail "DEV-12 retry × max_round: reason=$reason rc=$rc human_inserted=$human_inserted (expected provider_failed/2/0)"
+fi
+cleanup_ws "$ws"
+
+# ────────────────────────────────
 echo ""
 echo "-- Exit reason: timeout"
 ws=$(setup_workspace)
@@ -1337,55 +1378,9 @@ else
 fi
 cleanup_claude_ws
 
-# ────────────────────────────────
-# ralph run -v live tail regression（M1）
-# ────────────────────────────────
-
-echo ""
-echo "-- ralph run -v live tail: happy stream emits filter markers"
-setup_claude_workspace
-printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
-git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
-rc=0
-stderr_file="$(mktemp)"
-RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
-  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
-  >/dev/null 2>"$stderr_file" || rc=$?
-run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
-reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
-marker_ok=0
-grep -Eq '⚙ session|💬|✓ result' "$stderr_file" 2>/dev/null && marker_ok=1
-if [[ "$rc" -eq 0 && "$reason" == "done" && "$marker_ok" -eq 1 ]]; then
-  _pass "run -v happy: output contains stream-json filter marker"
-else
-  _fail "run -v happy: expected rc=0 done + marker, got rc=$rc reason=$reason marker_ok=$marker_ok"
-fi
-rm -f "$stderr_file"
-cleanup_claude_ws
-
-echo ""
-echo "-- ralph run -v live tail: is_error_auth emits error marker"
-setup_claude_workspace
-printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
-git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "single task" 2>/dev/null || true
-rc=0
-stderr_file="$(mktemp)"
-RALPH_MOCK_CLAUDE_SCENARIO=is_error_auth RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=2 \
-  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude -v \
-  >/dev/null 2>"$stderr_file" || rc=$?
-run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
-reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
-error_marker_ok=0
-grep -Eq '❌ error|error:' "$stderr_file" 2>/dev/null && error_marker_ok=1
-if [[ "$rc" -eq 2 && "$reason" == "provider_failed" && "$error_marker_ok" -eq 1 ]]; then
-  _pass "run -v auth error: output contains error filter marker"
-else
-  _fail "run -v auth error: expected rc=2 provider_failed + error marker, got rc=$rc reason=$reason marker_ok=$error_marker_ok"
-fi
-rm -f "$stderr_file"
-cleanup_claude_ws
+# (I3 M1 "ralph run -v live tail" regression 测试已删除：I5 把 -v 改为 sticky 模式
+# 仅 TTY 输出，非 TTY fallback plain 不打 event marker；覆盖已被 QA-1 sticky 渲染
+# 测试 + QA-2 non-TTY 降级测试替代。)
 
 # ────────────────────────────────
 # Session 采集（T2.2）
@@ -2128,28 +2123,8 @@ else
 fi
 cleanup_codex_ws
 
-echo ""
-echo "-- Codex adapter: run -v live tail emits Codex event markers"
-setup_codex_workspace
-printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
-git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single task" 2>/dev/null || true
-rc=0
-stderr_file="$(mktemp)"
-RALPH_MOCK_CODEX_SCENARIO=happy RALPH_MOCK_CODEX_POST_STREAM_SLEEP=2 \
-  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex -v \
-  >/dev/null 2>"$stderr_file" || rc=$?
-run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
-reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
-marker_ok=0
-grep -Eq '⚙ session|💬|🔧|⏎ result|✓ result' "$stderr_file" 2>/dev/null && marker_ok=1
-if [[ "$rc" -eq 0 && "$reason" == "done" && "$marker_ok" -eq 1 ]]; then
-  _pass "codex run -v: stderr contains Codex JSONL filter marker"
-else
-  _fail "codex run -v: expected rc=0 done + marker, got rc=$rc reason=$reason marker_ok=$marker_ok"
-fi
-rm -f "$stderr_file"
-cleanup_codex_ws
+# (I3 M1 "codex run -v live tail" regression 测试已删除：I5 把 -v 改为 sticky 模式
+# 仅 TTY 输出，非 TTY fallback plain 不打 event marker；覆盖已被 QA-1 / QA-2 替代。)
 
 echo ""
 echo "-- SC-022-4: adapter-codex.sh translates RALPH_PROVIDER_CONFIG_DIR → CODEX_HOME"
@@ -2447,28 +2422,8 @@ cleanup_codex_ws
 	fi
 	cleanup_gemini_ws
 
-	echo ""
-	echo "-- Gemini adapter: run -v live tail emits Gemini event markers"
-	setup_gemini_workspace
-	printf '%s\n' "- [ ] Task A" > "$SETUP_GEMINI_WS/.ralph/TASKS.md"
-	git -C "$SETUP_GEMINI_WS" add . && git -C "$SETUP_GEMINI_WS" commit -q -m "single task" 2>/dev/null || true
-	rc=0
-	stderr_file="$(mktemp)"
-	RALPH_MOCK_GEMINI_SCENARIO=happy RALPH_MOCK_GEMINI_POST_STREAM_SLEEP=2 \
-	  env PATH="$SETUP_GEMINI_BIN:$PATH" HOME="$SETUP_GEMINI_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
-	  bash "$SETUP_GEMINI_WS/.ralph/bin/ralph" run --provider gemini -v \
-	  >/dev/null 2>"$stderr_file" || rc=$?
-	run_dir="$(latest_run_dir "$SETUP_GEMINI_WS")"
-	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
-	marker_ok=0
-	grep -Eq '⚙ session|💬|✓ result' "$stderr_file" 2>/dev/null && marker_ok=1
-	if [[ "$rc" -eq 0 && "$reason" == "done" && "$marker_ok" -eq 1 ]]; then
-	  _pass "gemini run -v: stderr contains Gemini event filter marker"
-	else
-	  _fail "gemini run -v: expected rc=0 done + marker, got rc=$rc reason=$reason marker_ok=$marker_ok"
-	fi
-	rm -f "$stderr_file"
-	cleanup_gemini_ws
+	# (I3 M1 "gemini run -v live tail" regression 测试已删除：I5 把 -v 改为 sticky 模式
+	# 仅 TTY 输出，非 TTY fallback plain 不打 event marker；覆盖已被 QA-1 / QA-2 替代。)
 
 	echo ""
 	echo "-- adapter-gemini.sh translates RALPH_PROVIDER_CONFIG_DIR → GEMINI_CLI_HOME"
@@ -2741,10 +2696,10 @@ cleanup_codex_ws
 	top_ok=1
 	echo "$top_line" | grep -q "ralph" || top_ok=0
 	echo "$top_line" | grep -q "tasks 2/5" || top_ok=0
-	echo "$top_line" | grep -q "round 3" || top_ok=0
+	echo "$top_line" | grep -q "oneshots 3" || top_ok=0
 	echo "$top_line" | grep -q "provider fake" || top_ok=0
 	if [[ "$top_ok" -eq 1 ]]; then
-	  _pass "sticky top: ralph/tasks/round/provider fields present"
+	  _pass "sticky top: ralph/tasks/oneshots/provider fields present"
 	else
 	  _fail "sticky top: missing fields in: $(echo "$top_line" | head -c 120)"
 	fi
@@ -2989,7 +2944,7 @@ EXPEOF
 	  sticky_ok=0
 	  if grep -q "────────────────────────────────" "$stderr_file" \
 	     && grep -q "tasks 0/1" "$stderr_file" \
-	     && grep -q "round 1" "$stderr_file"; then
+	     && grep -q "oneshots 1" "$stderr_file"; then
 	    sticky_ok=1
 	  fi
 	  if [[ "$sticky_ok" -eq 1 ]]; then

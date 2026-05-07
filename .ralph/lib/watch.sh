@@ -333,6 +333,7 @@ ralph_watch() {
       _w_prev_round="$round"
       _w_prev_task_started_at=""
       _w_finished=0
+      _RALPH_STICKY_FROZEN_NOW=""
       _SEV_TIMES=()
       _SEV_MSGS=()
       # Refresh run start ts from new started_at (elapsed restarts on each run)
@@ -439,14 +440,24 @@ ralph_watch() {
       if [[ "$_w_finished" -eq 0 ]]; then
         _w_finished=1
         _w_stop_tail
+        # Freeze displayed clock at run's last update timestamp.
+        # Prefer status.json updated_at (when ralph wrote finished); fallback to now.
+        local _w_updated_at _w_frozen_epoch=""
+        _w_updated_at="$(_ralph_status_json_val "$status_file" "updated_at")"
+        if [[ -n "$_w_updated_at" && "$_w_updated_at" != "null" ]]; then
+          _w_frozen_epoch="$(ralph_iso_to_epoch "$_w_updated_at")"
+        fi
+        [[ -z "$_w_frozen_epoch" ]] && _w_frozen_epoch="$(date +%s)"
+        _RALPH_STICKY_FROZEN_NOW="$_w_frozen_epoch"
       fi
     else
       _RALPH_STICKY_EXIT_REASON=""
+      _RALPH_STICKY_FROZEN_NOW=""
     fi
 
     # Render frame
     ralph_sticky_render_frame
 
-    sleep 0.2
+    sleep 0.1
   done
 }

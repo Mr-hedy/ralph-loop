@@ -23,6 +23,9 @@
 #   _RALPH_STICKY_RETRY_COUNT    — 当前 retry 次数
 #   _RALPH_STICKY_LOG_PATH       — provider.stdout.log 路径（健康灯用）
 #   _RALPH_STICKY_EXIT_REASON    — 退出原因（最后一次渲染用；空=运行中）
+#   _RALPH_STICKY_FROZEN_NOW     — 冻结时间戳（unix epoch）；非空时顶/底栏 elapsed
+#                                  使用此值代替实时 `date +%s`，且 spinner 不再前进。
+#                                  用途：watch attach 已 finished 的 run 时定格画面。
 #
 # 环境变量:
 #   RALPH_UI_STICKY_EVENT_LINES  — 事件区行数（默认 6）
@@ -205,7 +208,11 @@ _sdraw_hr() {
 # ── Draw: top bar (§4) ───────────────────────────────────────────────────────
 _sdraw_top() {
   local now elapsed started tasks_color
-  now=$(date +%s)
+  if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
+    now="$_RALPH_STICKY_FROZEN_NOW"
+  else
+    now=$(date +%s)
+  fi
   local start_ts="${_RALPH_STICKY_RUN_START_TS:-$now}"
   elapsed=$(_sfmt_elapsed $(( now - start_ts )))
   started="$(date -r "$start_ts" +%H:%M:%S 2>/dev/null || date -d "@$start_ts" +%H:%M:%S)" || started="00:00:00"
@@ -258,7 +265,11 @@ _sdraw_events() {
 # ── Draw: bottom bar (§4) ────────────────────────────────────────────────────
 _sdraw_bottom() {
   local now task_elapsed health spin task_short line
-  now=$(date +%s)
+  if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
+    now="$_RALPH_STICKY_FROZEN_NOW"
+  else
+    now=$(date +%s)
+  fi
   local task_start="${_RALPH_STICKY_TASK_START_TS:-$now}"
   task_elapsed=$(_sfmt_elapsed $(( now - task_start )))
   
@@ -381,8 +392,10 @@ ralph_sticky_append_event() {
 ralph_sticky_render_frame() {
   _srefresh_size
 
-  # Advance spinner
-  _SSPIN_IDX=$(( ( _SSPIN_IDX + 1 ) % 8 ))
+  # Advance spinner (frozen in finished/replay mode)
+  if [[ -z "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
+    _SSPIN_IDX=$(( ( _SSPIN_IDX + 1 ) % 8 ))
+  fi
 
   if ((_SRENDERED)); then
     printf '%s' "$_SSAVE"
