@@ -2683,16 +2683,33 @@ cleanup_codex_ws
 	  ) 2>/dev/null
 	}
 
-	# ── 1. First frame: 10 lines (top + hr + 6 events + hr + bottom) ────────
+	# ── 1. First frame: live mode = 11 lines (top + hr + 6 events + hr + bottom + hint)
+	# Frozen mode 仍是 10 行（hint 走底栏后缀，不占独立行）。
 	echo ""
-	echo "-- Sticky: first frame line count"
+	echo "-- Sticky: first frame line count (live)"
 	out="$(_sticky_unit 'ralph_sticky_enter; ralph_sticky_render_frame')"
 	# $(...) strips trailing \n, so add it back for accurate wc -l
 	line_count=$(printf '%s\n' "$out" | _strip_ansi | wc -l | tr -d ' ')
-	if [[ "$line_count" -eq 10 ]]; then
-	  _pass "sticky frame: 10 lines (top+hr+6ev+hr+bottom)"
+	if [[ "$line_count" -eq 11 ]]; then
+	  _pass "sticky frame (live): 11 lines (top+hr+6ev+hr+bottom+hint)"
 	else
-	  _fail "sticky frame: expected 10 lines, got $line_count"
+	  _fail "sticky frame (live): expected 11 lines, got $line_count"
+	fi
+
+	# Frozen 模式：FROZEN_NOW 非空 → 10 行
+	echo ""
+	echo "-- Sticky: first frame line count (frozen)"
+	out_frozen="$(_sticky_unit '
+	  _RALPH_STICKY_FROZEN_NOW=$(date +%s)
+	  _RALPH_STICKY_EXIT_REASON="done"
+	  ralph_sticky_enter
+	  ralph_sticky_render_frame
+	')"
+	frozen_line_count=$(printf '%s\n' "$out_frozen" | _strip_ansi | wc -l | tr -d ' ')
+	if [[ "$frozen_line_count" -eq 10 ]]; then
+	  _pass "sticky frame (frozen): 10 lines (no hint line, suffix in bottom)"
+	else
+	  _fail "sticky frame (frozen): expected 10 lines, got $frozen_line_count"
 	fi
 
 	# ── 1b. Top bar fields ──────────────────────────────────────────────────
@@ -2708,8 +2725,8 @@ cleanup_codex_ws
 	  _fail "sticky top: missing fields in: $(echo "$top_line" | head -c 120)"
 	fi
 
-	# ── 1c. Bottom bar fields ───────────────────────────────────────────────
-	bottom_line=$(printf '%s' "$out" | _strip_ansi | tail -1)
+	# ── 1c. Bottom bar fields (live: 倒数第二行；最后一行是 hint) ──────────
+	bottom_line=$(printf '%s' "$out" | _strip_ansi | tail -2 | head -1)
 	bot_ok=1
 	echo "$bottom_line" | grep -q "round 1/10" || bot_ok=0
 	echo "$bottom_line" | grep -q "stall 0/5" || bot_ok=0
@@ -2721,12 +2738,29 @@ cleanup_codex_ws
 	  _fail "sticky bottom: missing fields in: $(echo "$bottom_line" | head -c 120)"
 	fi
 
+	# ── 1d. Hint line (live mode last line) ─────────────────────────────────
+	hint_line=$(printf '%s' "$out" | _strip_ansi | tail -1)
+	if echo "$hint_line" | grep -q "(ctrl + c) to exit"; then
+	  _pass "sticky hint (live): \"(ctrl + c) to exit\" present"
+	else
+	  _fail "sticky hint (live): missing in: $(echo "$hint_line" | head -c 120)"
+	fi
+
+	# ── 1e. Frozen bottom suffix ─────────────────────────────────────────────
+	frozen_bottom=$(printf '%s' "$out_frozen" | _strip_ansi | tail -1)
+	if echo "$frozen_bottom" | grep -q "all tasks done" \
+	   && echo "$frozen_bottom" | grep -q "(ctrl + c) exit"; then
+	  _pass "sticky bottom (frozen): \"all tasks done\" + \"(ctrl + c) exit\" suffix"
+	else
+	  _fail "sticky bottom (frozen): missing in: $(echo "$frozen_bottom" | head -c 120)"
+	fi
+
 	# ── 2. cursor_up on second frame ────────────────────────────────────────
 	echo ""
-	echo "-- Sticky: cursor_up on redraw"
+	echo "-- Sticky: cursor_up on redraw (live = 11 lines)"
 	out2="$(_sticky_unit 'ralph_sticky_enter; ralph_sticky_render_frame; ralph_sticky_render_frame')"
-	if printf '%s' "$out2" | grep -q $'\033\[10A'; then
-	  _pass "sticky redraw: cursor_up 10 lines on second frame"
+	if printf '%s' "$out2" | grep -q $'\033\[11A'; then
+	  _pass "sticky redraw: cursor_up 11 lines on second frame"
 	else
 	  _fail "sticky redraw: cursor_up sequence not found in output"
 	fi

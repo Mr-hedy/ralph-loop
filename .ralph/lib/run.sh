@@ -295,6 +295,9 @@ _ralph_finish() {
     _RALPH_STICKY_TASKS_DONE="$tasks_checked_end"
     _RALPH_STICKY_TASKS_TOTAL="$tasks_total"
     _RALPH_STICKY_ROUND="${_RALPH_ROUND:-$rounds}"
+    # 最终帧走 frozen 视觉（顶栏 "finished 0s ago · duration"，底栏 "all tasks done"
+    # 或 frozen 后缀），与 ralph watch attach 已 finished run 的画面一致。
+    _RALPH_STICKY_FROZEN_NOW="$(date +%s)"
     ralph_sticky_render_frame
     ralph_sticky_cleanup
   fi

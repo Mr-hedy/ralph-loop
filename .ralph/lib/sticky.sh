@@ -74,6 +74,7 @@ _SSPIN_FRAMES=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧")
 _SSPIN_IDX=0
 _SLOG_LAST_SIZE=0
 _SLAST_ACTIVITY_TS=0
+_STICKY_LINES_LAST=""   # last frame's rendered height (for live↔frozen size transitions)
 
 # ── Terminal size ─────────────────────────────────────────────────────────────
 _srefresh_size() {
@@ -294,6 +295,9 @@ _sdraw_events() {
 }
 
 # ── Draw: bottom bar (§4) ────────────────────────────────────────────────────
+# Frozen 模式末尾追加 " · (ctrl + c) exit" 暗色后缀（用于 ralph watch attach
+# 已 finished run 的场景，提示用户怎么退出 watch）。Live 模式不加后缀——
+# 提示文本在独立的 _sdraw_hint 行里展示。
 _sdraw_bottom() {
   local now task_elapsed health spin task_short line
   if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
@@ -304,15 +308,22 @@ _sdraw_bottom() {
   local task_start="${_RALPH_STICKY_TASK_START_TS:-$now}"
   task_elapsed=$(_sfmt_elapsed $(( now - task_start )))
 
+  local frozen_suffix="" frozen_suffix_w=0
+  if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
+    frozen_suffix=$(printf ' %s· (ctrl + c) exit%s' "$_SGRAY" "$_SRESET")
+    frozen_suffix_w=20   # plain 字符数 " · (ctrl + c) exit" = 20
+  fi
+
   # Special case: exit_reason=done → 全部任务勾完，底栏简化为 "<health> all tasks done"
   # round/stall/spinner/time/arrow 在此终态下都已无现实参考意义。
   if [[ "${_RALPH_STICKY_EXIT_REASON:-}" == "done" ]]; then
     health="$(_shealth)"
     line=$(printf '%s %sall tasks done%s' "$health" "$_SDIM" "$_SRESET")
+    line+="$frozen_suffix"
     printf '%s%s\n' "$_SEL" "$line"
     return
   fi
-  
+
   if [[ "${_RALPH_STICKY_RETRY_COUNT:-0}" -gt 0 ]]; then
     spin="⏳"
   else
@@ -331,7 +342,7 @@ _sdraw_bottom() {
   # Task name truncation: compute visible prefix width
   local prefix_plain task_max
   prefix_plain="● round ${task_try}/${max_round_disp} · stall ${stall_count}/${stall_limit} · X HH:MM:SS · → "
-  task_max=$(( _SCOLS - ${#prefix_plain} - 1 ))
+  task_max=$(( _SCOLS - ${#prefix_plain} - 1 - frozen_suffix_w ))
   if [[ $task_max -lt 8 ]]; then task_max=8; fi
   task_short=$(_struncate_cols "${_RALPH_STICKY_CURRENT_TASK:-}" "$task_max")
 
@@ -356,8 +367,15 @@ _sdraw_bottom() {
     "$_SCYAN" "$spin" "$_SRESET" "$task_elapsed" \
     "$_SGRAY" "$_SRESET" \
     "$task_short" "$_SRESET")
+  line+="$frozen_suffix"
 
   printf '%s%s\n' "$_SEL" "$line"
+}
+
+# ── Draw: hint line (live mode only) ─────────────────────────────────────────
+# 仅 live 模式（FROZEN_NOW 空）渲染。Frozen 态的提示走 _sdraw_bottom 末尾后缀。
+_sdraw_hint() {
+  printf '%s%s%s(ctrl + c) to exit%s\n' "$_SEL" "$_SDIM" "$_SGRAY" "$_SRESET"
 }
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -382,6 +400,7 @@ ralph_sticky_enter() {
   _SRENDERED=0
   _SREDRAWING=0
   _SCLEANED=0
+  _STICKY_LINES_LAST=""
 
   # Clear event buffer
   _SEV_TIMES=()
@@ -437,10 +456,18 @@ ralph_sticky_render_frame() {
     _SSPIN_IDX=$(( ( _SSPIN_IDX + 1 ) % 8 ))
   fi
 
+  # 当前帧目标高度：live = N+5（含 hint 行），frozen = N+4
+  local target_size
+  if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
+    target_size=$(( _SEVENT_WINDOW + 4 ))
+  else
+    target_size=$(( _SEVENT_WINDOW + 5 ))
+  fi
+  local last_size="${_STICKY_LINES_LAST:-$target_size}"
+
   if ((_SRENDERED)); then
-    printf '%s' "$_SSAVE"
-    _SREDRAWING=1
-    _scursor_up "$_STICKY_LINES"
+    # Move cursor up by PREVIOUS frame's size（处理 live↔frozen 变高场景）
+    _scursor_up "$last_size"
   fi
 
   _sdraw_top
@@ -448,12 +475,23 @@ ralph_sticky_render_frame() {
   _sdraw_events
   _sdraw_hr
   _sdraw_bottom
-
-  if ((_SREDRAWING)); then
-    printf '%s' "$_SREST"
-    _SREDRAWING=0
+  if [[ -z "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
+    _sdraw_hint
   fi
+
+  # 收缩场景（live 11 → frozen 10）：清掉残留的下一行，再把 cursor 拉回到
+  # 当前帧底部，保证下一帧 cursor_up "$target_size" 能精确回到顶部。
+  if (( target_size < last_size )); then
+    local extra=$(( last_size - target_size ))
+    local i
+    for ((i=0; i<extra; i++)); do
+      printf '%s\n' "$_SEL"
+    done
+    _scursor_up "$extra"
+  fi
+
   _SRENDERED=1
+  _STICKY_LINES_LAST="$target_size"
 }
 
 # ── Trap helpers ──────────────────────────────────────────────────────────────
