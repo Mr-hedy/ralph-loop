@@ -44,7 +44,6 @@ ralph_status() {
   printf '%-15s %s\n' "started_at:"     "$(ralph_iso_to_local_display "$(_ralph_status_json_val "$f" "started_at")")"
   printf '%-15s %s\n' "updated_at:"     "$(ralph_iso_to_local_display "$(_ralph_status_json_val "$f" "updated_at")")"
   printf '%-15s %s\n' "round:"          "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "round")")"
-  printf '%-15s %s\n' "iteration_name:" "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "iteration_name")")"
   printf '%-15s %s\n' "state:"          "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "state")")"
   printf '%-15s %s / %s checked\n' "tasks:" \
     "$(_ralph_status_json_val "$f" "tasks_checked")" \

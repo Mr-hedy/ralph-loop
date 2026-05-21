@@ -25,16 +25,18 @@ Do not write a new postmortem for a one-off typo or disposable experiment.
 ## Sweep Mode
 
 Run a postmortem sweep before creating a checkpoint or when closing a coherent
-iteration. A sweep is a lightweight decision pass, not a requirement to write a
-postmortem.
+work package, release candidate, or verification pass. A sweep is a lightweight
+decision pass, not a requirement to write a postmortem.
 
-Check whether the iteration had:
+Check whether the work package had:
 
 - repeated failures or repeated fixes on the same class of issue
 - regressions introduced by a fix
 - failed or insufficient prevention checks
 - surprising boundary, contract, permission, build, or verification failures
 - user corrections that reveal a reusable agent behavior problem
+- mock/fake verification that passed while a real provider, real CLI, or real
+  workspace smoke exposed a different behavior
 
 Sweep outcomes:
 
@@ -57,6 +59,8 @@ Create or update a postmortem when:
   security defaults, permissions, build flow, or verification.
 - An existing prevention check fails or is missing.
 - The user explicitly asks to remember a pitfall.
+- Release readiness depends on external tools and a real smoke exposes a
+  product issue, missing prevention check, or blocked-but-unverified scope.
 
 ## Workflow
 

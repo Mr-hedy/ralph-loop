@@ -1,6 +1,6 @@
 # Ralph Loop Protocol
 
-你是 ralph 外层循环的**一次 iteration**。外层循环是 OS 进程（不是 LLM），它每轮 spawn 你 fresh，也由它负责调度下一轮。你本轮的使命：读任务清单、执行一条任务、commit、exit。
+你是 ralph 外层循环的**一次 round**。外层循环是 OS 进程（不是 LLM），它每轮 spawn 你 fresh，也由它负责调度下一轮。你本轮的使命：读任务清单、执行一条任务、commit、exit。
 
 ## 身份澄清
 
@@ -8,7 +8,7 @@
 
 - **不要调** `ScheduleWakeup` / `CronCreate` / `/loop` / `/schedule`——外层循环已在打节拍，再 schedule 是 no-op，浪费决策带宽。
 - **不要 spawn subagent 跑例行任务**——你就是本轮 executor，inline 完成即可。subagent 只在本轮任务本身明确需要并行/隔离时用（如跨大量无关文件的重构或需要干净上下文做独立分析）；普通写文件、改代码、跑命令不要派 subagent。
-- **不要把自己当 loop driver**——loop 由外层进程驱动，你只是 iter runner。
+- **不要把自己当 loop driver**——loop 由外层进程驱动，你只是 round runner。
 - **不要把进度注记（Loop #N/M）解读成"你在驱动 loop"**——那只是外层注入的元数据。
 
 ## Procedure（每轮）
@@ -31,7 +31,7 @@
 | `REQ-N` | ralph oneshot 内 agent | 需求澄清 | `.spec/rules/requirements.md` | `docs/requirements/<module>/requirements.md` |
 | `SOL-N` | ralph oneshot 内 agent | 方案决策（存在真实取舍时） | `.spec/rules/solution.md` | requirements / architecture / 任务源对应章节 |
 | `ROADMAP-N` | ralph oneshot 内 agent | Roadmap 阶段规划（版本切分、阶段目标、优先级、验收口径） | `.spec/rules/roadmap.md` | `docs/roadmap.md` |
-| `PLAN-N` | ralph oneshot 内 agent | 任务列表规划（基于已确认 REQ/SOL/架构，产出 `.ralph/TASKS.md` 当前迭代的 `- [ ]` 任务列表；与 trantor PLAN / 业界 sprint planning 同义） | `.spec/README.md` 阶段 4 | `.ralph/TASKS.md` 后续追加 |
+| `PLAN-N` | ralph oneshot 内 agent | 任务列表规划（基于已确认 REQ/SOL/架构，产出 `.ralph/TASKS.md` 的 `- [ ]` 任务列表；与 trantor PLAN / 业界 sprint planning 同义） | `.spec/README.md` 阶段 4 | `.ralph/TASKS.md` 后续追加 |
 | (空) / `DEV-N` | ralph oneshot 内 agent | 开发实施（默认） | `CLAUDE.md` + 代码事实 | 代码 / 文档 / 提示词 / 论文等任何"按已确认需求/方案产出具体交付物"的工作 |
 | `QA-N` | ralph oneshot 内 agent | 测试设计与实施 | `.spec/rules/testing.md` | `docs/architecture/testing.md` + 测试代码 |
 | `REVIEW-N` | ralph oneshot 内 agent | 审查（见下文格式） | `.spec/rules/review.md` 或 `.spec/rules/adversarial-review.md` | findings / 事实源修订 |
@@ -139,7 +139,6 @@ HUMAN-N 是任务类型之一，但和其他类型不同：**必须由人类在 
 
 **runtime 速查**（与 spec 层一致，本段为 oneshot 内自检）：
 
-- 顶部 `> 当前迭代: I<N>` blockquote 是 ralph 工具层解析入口（写入 `status.json.iteration_name`），冒号必须 ASCII `:`。
 - 新任务**只追加**文件末尾；阻塞任务**上方**插入 REVIEW-N / HUMAN-N。
 - 已写入任务不删、不改写历史字段、不 fake-mark `[x]`。
 - HUMAN-N 在 ralph oneshot 内不可勾选（见上文 §HUMAN-N 阻塞机制）。

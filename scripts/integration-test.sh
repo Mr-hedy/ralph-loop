@@ -653,13 +653,14 @@ round_dir="${run_dir}/rounds/round-001"
 status_round_ok=0
 grep -qE '"round":' "$ws/.ralph/status.json" 2>/dev/null && status_round_ok=1
 status_no_old_iter=1
-# Should NOT have "iteration": N (iteration_name is OK — it's the project phase name)
 grep -qE '"iteration":' "$ws/.ralph/status.json" 2>/dev/null && status_no_old_iter=0
+grep -qE '"iteration_name":' "$ws/.ralph/status.json" 2>/dev/null && status_no_old_iter=0
 
 # Check result.json for round/rounds
 result_rounds_ok=0; result_no_old_iter=1
 grep -qE '"rounds":' "$run_dir/result.json" 2>/dev/null && result_rounds_ok=1
 grep -qE '"iterations":' "$run_dir/result.json" 2>/dev/null && result_no_old_iter=0
+grep -qE '"iteration_name":' "$run_dir/result.json" 2>/dev/null && result_no_old_iter=0
 
 # Check meta.json for changed_files_round (not changed_files_iter)
 meta_round_ok=0; meta_no_bad_iter=1
@@ -830,13 +831,12 @@ fi
 cleanup_ws "$ws"
 
 # QA-4.9: grep scan — code + tests contain no old field names
-# Exclude internal variables (prefixed with _RALPH_*) and iteration_name (legitimate)
+# Exclude internal variables (prefixed with _RALPH_*).
 echo ""
 echo "-- QA-4.9: code scan — no old iter/env names in .ralph/lib and bin"
 scan_ok=1
 old_names=$(grep -rnE 'max_iterations|changed_files_iter|stagnation_count|stagnation_limit|RALPH_MAX_ITER|RALPH_STAGNATION' \
   "$REPO_ROOT/.ralph/lib/" "$REPO_ROOT/.ralph/bin/" 2>/dev/null \
-  | grep -v 'iteration_name' \
   | grep -v '#' || true)
 # Also check for old public env names (must not be preceded by _ to exclude internal vars)
 old_env_names=$(grep -rnE '(^|[^_])RALPH_MODEL[^_]|(^|[^_])RALPH_EFFORT[^_]|(^|[^_])RALPH_TIMEOUT[^_]' \
@@ -991,11 +991,36 @@ fi
 cleanup_ws "$ws"
 
 echo ""
+echo "-- QA-2: plain heartbeat cleanup leaves no orphan sleep"
+ws=$(setup_workspace)
+printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
+git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
+rc=0
+stderr_file="$(mktemp)"
+RALPH_PROGRESS_HEARTBEAT_SEC=17 RALPH_FAKE_SCENARIO=happy \
+  bash "$ws/.ralph/bin/ralph" run --provider fake \
+  >/dev/null 2>"$stderr_file" || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+script_pgid="$(ps -o pgid= -p $$ 2>/dev/null | tr -d '[:space:]')" || script_pgid=""
+sleep_pids=""
+if [[ -n "$script_pgid" ]]; then
+  sleep_pids="$(ps -Ao pid=,pgid=,command= 2>/dev/null \
+    | awk -v pg="$script_pgid" '$2 == pg && $0 ~ /(^|[[:space:]])sleep 17($|[[:space:]])/ {print $1}')" || sleep_pids=""
+fi
+rm -f "$stderr_file"
+if [[ "$rc" -eq 0 && "$reason" == "done" && -z "$sleep_pids" ]]; then
+  _pass "QA-2 heartbeat cleanup: no orphan sleep remains after fast plain run"
+else
+  [[ -n "$sleep_pids" ]] && kill $sleep_pids 2>/dev/null || true
+  _fail "QA-2 heartbeat cleanup: rc=$rc reason=$reason orphan_sleep_pids=${sleep_pids:-none}"
+fi
+cleanup_ws "$ws"
+
+echo ""
 echo "-- QA-2: summary block field completeness in exit-message.txt"
 ws=$(setup_workspace)
 cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
-> 当前迭代: I1
-
 - [ ] Task A
 TASKS_EOF
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
@@ -1006,14 +1031,13 @@ run_dir="$(latest_run_dir "$ws")"
 summary_ok=1
 grep -q 'Ralph Run Complete' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
 grep -q 'Run ID:' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
-grep -q 'Iteration:     I1' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
 grep -q 'Exit Reason:   done' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
 grep -q 'Rounds:        1' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
 grep -q 'Tasks:         1 / 1' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
 grep -q 'Duration:' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
 grep -q 'All tasks completed' "$run_dir/exit-message.txt" 2>/dev/null || summary_ok=0
 if [[ "$rc" -eq 0 && "$summary_ok" -eq 1 ]]; then
-  _pass "QA-2 summary: all 8 fields present in exit-message.txt"
+  _pass "QA-2 summary: core fields present in exit-message.txt"
 else
   _fail "QA-2 summary: rc=$rc summary_ok=$summary_ok"
 fi
@@ -1066,7 +1090,7 @@ if [[ "$rc" -eq 0 && "$reason" == "done" \
   && "$summary_ok" -eq 1 ]]; then
   _pass "dynamic task totals: result/status/meta/summary show 2/2 after appended task"
 else
-  _fail "dynamic task totals: rc=$rc reason=$reason result=$result_checked/$result_total status=$status_checked/$status_total iter1_after=$round1_after_checked/$round1_after_total summary_ok=$summary_ok"
+  _fail "dynamic task totals: rc=$rc reason=$reason result=$result_checked/$result_total status=$status_checked/$status_total round1_after=$round1_after_checked/$round1_after_total summary_ok=$summary_ok"
 fi
 cleanup_ws "$ws"
 
@@ -1718,7 +1742,7 @@ fi
 # ────────────────────────────────
 
 echo ""
-echo "-- SC-023-1: ralph status plain text — all 15 field labels + checked progress"
+echo "-- SC-023-1: ralph status plain text — field labels + checked progress"
 ws=$(setup_workspace)
 cat > "$ws/.ralph/status.json" <<'SJEOF'
 {
@@ -1731,7 +1755,6 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
   "started_at": "2026-05-01T12:00:00Z",
   "updated_at": "2026-05-01T12:01:00Z",
   "round": 3,
-  "iteration_name": "I1",
   "state": "running",
   "tasks_total": 5,
   "tasks_checked": 2,
@@ -1742,7 +1765,7 @@ SJEOF
 rc=0
 status_out=$(bash "$ws/.ralph/bin/ralph" status 2>/dev/null) || rc=$?
 fields_ok=1
-for f in run_id: run_dir: workspace: provider: model: effort: started_at: updated_at: round: iteration_name: state: tasks: exit_reason: last_error:; do
+for f in run_id: run_dir: workspace: provider: model: effort: started_at: updated_at: round: state: tasks: exit_reason: last_error:; do
   if [[ "$status_out" != *"$f"* ]]; then
     fields_ok=0
     break
@@ -1775,7 +1798,6 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
   "started_at": "2026-05-01T12:00:00Z",
   "updated_at": "2026-05-01T12:01:00Z",
   "round": 3,
-  "iteration_name": "I1",
   "state": "running",
   "tasks_total": 5,
   "tasks_checked": 2,
@@ -1843,7 +1865,6 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
   "started_at": "2026-05-01T12:00:00Z",
   "updated_at": "2026-05-01T12:01:00Z",
   "round": 3,
-  "iteration_name": "I1",
   "state": "running",
   "tasks_total": 5,
   "tasks_checked": 2,
@@ -1858,7 +1879,6 @@ line_count="$(printf '%s\n' "$watch_out" | wc -l | tr -d ' ')"
 [[ "$line_count" -eq 1 ]] && one_line=1
 has_bar=0
 if printf '%s\n' "$watch_out" | grep -q "run: 20260501-120..." \
-  && printf '%s\n' "$watch_out" | grep -q "iter_name: I1" \
   && printf '%s\n' "$watch_out" | grep -q "round 3" \
   && printf '%s\n' "$watch_out" | grep -q "2/5 tasks" \
   && printf '%s\n' "$watch_out" | grep -q "state: running" \
@@ -1922,11 +1942,11 @@ else
 fi
 
 echo ""
-echo "-- iteration_name parsed from TASKS.md top-level declaration"
+echo "-- legacy current-iteration declaration ignored by runtime JSON"
 ws=$(setup_workspace)
 cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
 > 当前迭代: I1
-> 主题: 测试 iteration name 解析
+> 主题: legacy metadata should not enter runtime JSON
 
 - [ ] Task A
 - [ ] Task B
@@ -1934,17 +1954,15 @@ TASKS_EOF
 rc=0
 bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
 run_dir=$(latest_run_dir "$ws")
-iter_name=""
-if command -v jq >/dev/null 2>&1 && [[ -f "$run_dir/result.json" ]]; then
-  iter_name="$(jq -r '.iteration_name // ""' "$run_dir/result.json")"
-else
-  iter_name="$(grep '"iteration_name"' "$run_dir/result.json" 2>/dev/null \
-    | sed 's/.*"iteration_name":[[:space:]]*"\([^"]*\)".*/\1/' | head -1)"
+has_iter_field=0
+if grep -q '"iteration_name"' "$run_dir/result.json" 2>/dev/null \
+  || grep -q '"iteration_name"' "$ws/.ralph/status.json" 2>/dev/null; then
+  has_iter_field=1
 fi
-if [[ "$iter_name" == "I1" ]]; then
-  _pass "iteration_name parsed: I1"
+if [[ "$rc" -eq 0 && "$has_iter_field" -eq 0 ]]; then
+  _pass "legacy current-iteration declaration ignored: no iteration_name in status/result"
 else
-  _fail "iteration_name expected I1, got '$iter_name'"
+  _fail "legacy current-iteration declaration leaked into runtime JSON (rc=$rc has_iter_field=$has_iter_field)"
 fi
 
 echo ""
@@ -2039,11 +2057,9 @@ else
 fi
 
 echo ""
-echo "-- exit-message.txt generated with iteration + exit_reason context"
+echo "-- exit-message.txt generated with exit_reason context"
 ws=$(setup_workspace)
 cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
-> 当前迭代: I1
-
 - [ ] HUMAN-1: 测试
 - [ ] DEV-1: foo
 TASKS_EOF
@@ -2051,11 +2067,10 @@ rc=0
 bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
 run_dir=$(latest_run_dir "$ws")
 if [[ -f "$run_dir/exit-message.txt" ]] \
-   && grep -q "blocked_by_human" "$run_dir/exit-message.txt" \
-   && grep -q "I1" "$run_dir/exit-message.txt"; then
-  _pass "exit-message.txt: contains blocked_by_human + I1"
+   && grep -q "blocked_by_human" "$run_dir/exit-message.txt"; then
+  _pass "exit-message.txt: contains blocked_by_human"
 else
-  _fail "exit-message.txt: missing or wrong content (expected blocked_by_human + I1)"
+  _fail "exit-message.txt: missing or wrong content (expected blocked_by_human)"
 fi
 
 # ────────────────────────────────
@@ -2117,11 +2132,16 @@ history_ok=0
   grep -q '\[assistant\]' "$round_dir/session.history.log" && \
   grep -q '\[tool-use name=Bash\]' "$round_dir/session.history.log" && \
   grep -q '\[tool-result name=Bash\]' "$round_dir/session.history.log" && history_ok=1
+codex_sandbox_ok=0
+received_sandbox="$(grep -E '^[[:space:]]*\{' "$round_dir/provider.stdout.log" 2>/dev/null \
+  | jq -r 'select(.type == "thread.started") | ._received_sandbox // empty' 2>/dev/null \
+  | head -1)" || received_sandbox=""
+[[ "$received_sandbox" == "danger-full-access" ]] && codex_sandbox_ok=1
 if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_id_ok" -eq 1 \
-   && "$session_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
-  _pass "codex happy: exit 0, done, thread.started, session_id, session.codex.jsonl, capture_status=ok, history.log derived"
+   && "$session_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 && "$codex_sandbox_ok" -eq 1 ]]; then
+  _pass "codex happy: exit 0, done, thread.started, danger-full-access sandbox, session_id, session.codex.jsonl, capture_status=ok, history.log derived"
 else
-  _fail "codex happy: rc=$rc reason=$reason stdout_ok=$stdout_ok session_id_ok=$session_id_ok session_ok=$session_ok capture_ok=$capture_ok history_ok=$history_ok"
+  _fail "codex happy: rc=$rc reason=$reason stdout_ok=$stdout_ok session_id_ok=$session_id_ok session_ok=$session_ok capture_ok=$capture_ok history_ok=$history_ok codex_sandbox_ok=$codex_sandbox_ok received_sandbox='$received_sandbox'"
 fi
 cleanup_codex_ws
 
@@ -2410,26 +2430,53 @@ cleanup_codex_ws
 	[[ -f "$round_dir/session.gemini.json" ]] && session_ok=1
 	capture_ok=0
 	grep -q '"capture_status": "ok"' "$round_dir/meta.json" 2>/dev/null && capture_ok=1
-	history_ok=0
-	# session.history.log 含 [assistant] / [tool-use] / [tool-result] / [result]（从 provider.stdout.log 事件流派生）
-	[[ -f "$round_dir/session.history.log" ]] && \
-	  grep -q '\[assistant\]' "$round_dir/session.history.log" && \
-	  grep -q '\[tool-use Bash\]' "$round_dir/session.history.log" && \
-	  grep -q '\[tool-result\]' "$round_dir/session.history.log" && \
-	  grep -q '\[result\]' "$round_dir/session.history.log" && history_ok=1
-	if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_id_ok" -eq 1 \
-	   && "$session_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 ]]; then
-	  _pass "gemini happy: exit 0, done, stream-json events, session_id, session.gemini.json, capture_status=ok, history.log derived"
-	else
-	  _fail "gemini happy: rc=$rc reason=$reason stdout_ok=$stdout_ok session_id_ok=$session_id_ok session_ok=$session_ok capture_ok=$capture_ok history_ok=$history_ok"
-	fi
+history_ok=0
+# session.history.log 含 [assistant] / [tool-use] / [tool-result] / [result]（从 provider.stdout.log 事件流派生）
+[[ -f "$round_dir/session.history.log" ]] && \
+  grep -q '\[assistant\]' "$round_dir/session.history.log" && \
+  grep -q '\[tool-use Bash\]' "$round_dir/session.history.log" && \
+  grep -q '\[tool-result\]' "$round_dir/session.history.log" && \
+  grep -q '\[result\]' "$round_dir/session.history.log" && history_ok=1
+skip_trust_ok=0
+received_skip_trust="$(grep -E '^[[:space:]]*\{' "$round_dir/provider.stdout.log" 2>/dev/null \
+  | jq -r 'select(.type == "init") | ._received_skip_trust // empty' 2>/dev/null \
+  | head -1)" || received_skip_trust=""
+[[ "$received_skip_trust" == "true" ]] && skip_trust_ok=1
+if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_id_ok" -eq 1 \
+   && "$session_ok" -eq 1 && "$capture_ok" -eq 1 && "$history_ok" -eq 1 && "$skip_trust_ok" -eq 1 ]]; then
+  _pass "gemini happy: exit 0, done, stream-json events, skip-trust, session_id, session.gemini.json, capture_status=ok, history.log derived"
+else
+  _fail "gemini happy: rc=$rc reason=$reason stdout_ok=$stdout_ok session_id_ok=$session_id_ok session_ok=$session_ok capture_ok=$capture_ok history_ok=$history_ok skip_trust_ok=$skip_trust_ok received_skip_trust='$received_skip_trust'"
+fi
 	cleanup_gemini_ws
 
-	# (I3 M1 "gemini run -v live tail" regression 测试已删除：I5 把 -v 改为 sticky 模式
-	# 仅 TTY 输出，非 TTY fallback plain 不打 event marker；覆盖已被 QA-1 / QA-2 替代。)
+		# (I3 M1 "gemini run -v live tail" regression 测试已删除：I5 把 -v 改为 sticky 模式
+		# 仅 TTY 输出，非 TTY fallback plain 不打 event marker；覆盖已被 QA-1 / QA-2 替代。)
 
-	echo ""
-	echo "-- adapter-gemini.sh translates RALPH_PROVIDER_CONFIG_DIR → GEMINI_CLI_HOME"
+		echo ""
+		echo "-- Gemini verbose filters: assistant delta message surfaces"
+		gemini_events="$(mktemp)"
+		cat > "$gemini_events" <<'EOF'
+{"type":"init","session_id":"gemini-session-123456"}
+{"type":"message","role":"assistant","delta":true,"content":"gemini delta visible"}
+{"type":"tool_use","name":"Bash","input":{"command":"echo gemini"}}
+{"type":"tool_result","content":"gemini ok"}
+{"type":"result","text":"Done."}
+EOF
+		run_filter_out="$(bash -c "source '$REPO_ROOT/.ralph/lib/run.sh'; _ralph_filter_verbose < '$gemini_events'")" || run_filter_out=""
+		watch_filter_out="$(bash -c "source '$REPO_ROOT/.ralph/lib/common.sh'; source '$REPO_ROOT/.ralph/lib/status.sh'; source '$REPO_ROOT/.ralph/lib/sticky.sh'; source '$REPO_ROOT/.ralph/lib/watch.sh'; _ralph_watch_filter_events < '$gemini_events'")" || watch_filter_out=""
+		rm -f "$gemini_events"
+		if [[ "$run_filter_out" == *"💬 gemini delta visible"* \
+		   && "$watch_filter_out" == *"💬 gemini delta visible"* \
+		   && "$run_filter_out" == *"🔧 Bash"* \
+		   && "$watch_filter_out" == *"⏎ result gemini ok"* ]]; then
+		  _pass "gemini verbose filters: run/watch surface assistant delta + tool/result markers"
+		else
+		  _fail "gemini verbose filters: missing marker(s). run=[$run_filter_out] watch=[$watch_filter_out]"
+		fi
+
+		echo ""
+		echo "-- adapter-gemini.sh translates RALPH_PROVIDER_CONFIG_DIR → GEMINI_CLI_HOME"
 	out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
 	  export RALPH_PROVIDER_CONFIG_DIR=/tmp/ralph-test-gemini-cfg
 	  source '$REPO_ROOT/.ralph/lib/common.sh'

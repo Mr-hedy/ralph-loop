@@ -37,6 +37,7 @@ prevention_checks:
   - "处理'无输出/卡住'反馈时，先列出并验证观察面矩阵：ralph run、ralph run -v、ralph watch、ralph watch -v、background log/pid、provider.stdout.log；确认哪个 surface 为空再改代码"
   - "成对观察命令共享数据源时，测试必须同时断言目标输出存在和相邻命令的详情字段不存在（例如 watch 不应输出 status 的 workspace/run_dir/last_error 字段）"
   - "修改 timeout/signal/process cleanup 时，必须有外部 child pid fixture，并断言 timeout 后 child pid 不再存活"
+  - "新增或修改后台 helper（heartbeat、tail、watch/filter 等）时，必须断言主流程结束后不会留下同进程组 orphan sleep/tail/filter"
   - "用户要求'后台执行'、'不要杀任务'或'无 timeout'时，启动 Ralph 前必须显式选择后台 wrapper（log + pid + lock/status 观察面），并在启动后回报 log/pid 路径；若误启为前台且 run 已拿锁，只能继续观察自然结束，不得强切或重启"
 ---
 
@@ -108,6 +109,19 @@ I4 Gemini adapter 执行时，用户明确要求“使用 ralph-loop 的能力�
 - 启动 Ralph 长任务前，若用户提到“后台执行 / background / 不要杀 / 没有 timeout”，必须先复述执行策略并使用后台 wrapper，至少产出 log path、pid path、lock/status 观察方式。
 - 若已经误启为前台且 run 已拿锁，不要二次启动、不强杀、不强切；说明当前状态，继续观察自然结束，结束后在 handoff/checkpoint 记录该偏差。
 - 后续实现专用后台 wrapper 或脚本时，需把 `ralph-background-*.log`、pid 文件、`.ralph/lock` 和 `.ralph/status.json` 的关系写入 `.ralph/README.md` 或对应 runbook，避免“后台文件是什么”只能靠口头解释。
+
+## 2026-05-20 再次命中：plain heartbeat 后台 sleep 清理不完整
+
+发布回归时完整集成测试 PASS，但运行过程观察到多个 `sleep 60` 进程短暂残留，且 `ralph run | cat` 这类非 TTY pipe 用例会等接近 heartbeat interval 才收尾。根因是 plain 模式 heartbeat 子 shell 被 kill 后，正在执行的 `sleep` 子进程没有一起终止，成为同进程组 orphan，并继续持有 stderr fd。
+
+这属于本 PM 已覆盖的“外部 child / 后台 helper 未建模”同类问题：退出码和最终 PASS 不足以证明进程清理正确，必须观察主流程结束后的进程面。
+
+本轮修复：
+
+- heartbeat 子 shell 增加 TERM/INT/EXIT trap，终止当前 `sleep` 后退出。
+- `scripts/integration-test.sh` 新增 `QA-2: plain heartbeat cleanup leaves no orphan sleep`，在快速 plain run 后按进程组断言没有 `sleep 17` 残留。
+
+后续凡是新增 heartbeat、tail、filter、watch 等后台 helper，测试必须证明主流程结束后 helper 及其子进程已收干净；仅断言 UI 输出或 `result.json` 不够。
 
 ## 根因
 

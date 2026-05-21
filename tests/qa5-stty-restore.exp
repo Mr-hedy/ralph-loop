@@ -17,9 +17,7 @@ catch { exec cp $project_dir/.ralph/.gitignore $ws/.ralph/.gitignore }
 
 proc reset_tasks {ws} {
     set fd [open "$ws/.ralph/TASKS.md" w]
-    puts $fd {> 当前迭代: I5
-
-- [ ] DEV-1: test task one
+    puts $fd {- [ ] DEV-1: test task one
 - [ ] DEV-2: test task two
 }
     close $fd

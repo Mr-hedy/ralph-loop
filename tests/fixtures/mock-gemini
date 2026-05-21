@@ -10,6 +10,7 @@ received_model=""
 received_approval_mode=""
 received_output_format=""
 received_prompt=""
+received_skip_trust="false"
 
 # 解析 gemini flags（-p/--prompt 接收 prompt 正文；其余 flag 记录用于断言）
 # 支持 --flag value 和 --flag=value 两种形式
@@ -23,6 +24,7 @@ while [[ $# -gt 0 ]]; do
     --output-format)        received_output_format="$2";     shift 2 ;;
     --output-format=*)      received_output_format="${1#--output-format=}"; shift ;;
     --sandbox)              shift 2 ;;  # ignore for now
+    --skip-trust)           received_skip_trust="true"; shift ;;
     --yolo)                 received_approval_mode="yolo";   shift   ;;
     *)                      shift ;;
   esac
@@ -37,9 +39,10 @@ _emit_init() {
     --arg model "$received_model" \
     --arg approval_mode "$received_approval_mode" \
     --arg output_format "$received_output_format" \
+    --arg skip_trust "$received_skip_trust" \
     --arg prompt_preview "${received_prompt:0:100}" \
     --arg session_id "$_sid" \
-    '{type:"init",session_id:$session_id,_received_model:$model,_received_approval_mode:$approval_mode,_received_output_format:$output_format,_received_prompt_preview:$prompt_preview}'
+    '{type:"init",session_id:$session_id,_received_model:$model,_received_approval_mode:$approval_mode,_received_output_format:$output_format,_received_skip_trust:$skip_trust,_received_prompt_preview:$prompt_preview}'
 }
 
 # 真实 CLI 事件类型（QA-2 验证）

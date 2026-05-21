@@ -10,14 +10,14 @@
 - **项目最终产物 = `.ralph/` 整个目录**。使用者通过 `cp -r .ralph/ <workspace>/.ralph/` 部署到自己的 project，单一目录单元，不依赖外部安装器。
 - 本仓库是 ralph-loop 工具的开发工程；当前专项从需求澄清、run loop、provider adapter、status/watch 和 session capture 逐步推进。
 - 项目事实沉淀在 `README.md`、`docs/requirements.md`、`docs/requirements/`、`docs/architecture/`、`.ralph/TASKS.md` 和邻近代码中。
-- 本仓库自 v0.1 后**自用 ralph 驱动开发**（dogfood）：以 `.ralph/TASKS.md` 作为开发任务事实源，按 iteration 推进；root `task.md` 已封版作为 v0.1 历史归档。
+- 本仓库自 v0.1 后可用 ralph dogfood 推进开发；release 分支中的 `.ralph/TASKS.md` 是可部署首跑样例，真实开发任务以用户请求、handoff、项目文档和显式任务清单为准。root `task.md` 已封版作为 v0.1 历史归档。
 
 ## Top Rules
 
 - 保持 `.spec/`、`docs/`、`.ralph/` 和 `.agents/skills/` 的职责分离。
 - `.spec/` 承载协作模型、事实源边界、文档结构、非动作方法、流程质量门和模板。
 - `docs/` 承载项目事实、专题设计和运行过程文档。
-- `.ralph/TASKS.md` 是**当前开发任务事实源**（dogfood 模式）；root `task.md` 已封版作为 v0.1 历史归档，不再更新；`.ralph/TASKS.bak` 是 hello world 部署样例参考，不被 ralph 识别。
+- `.ralph/TASKS.md` 随 `.ralph/` 作为部署首跑样例入仓；root `task.md` 已封版作为 v0.1 历史归档，不再更新；`.ralph/TASKS.bak` 是 hello world 部署样例参考，不被 ralph 识别。
 - `.ralph/` 是部署单元 + 本仓库自用工作目录。入仓边界：`bin/` + `lib/` + `PROMPT.md` + `TASKS.md` + `TASKS.bak` 入仓；`runs/` + `lock` + `status.json` + `.env` 是运行期产物或私有配置，**gitignore**。
 - `.agents/skills/` 承载带明确运行产物或状态迁移的动作 workflow。
 - 不要把模板占位当成已确认项目事实。
@@ -25,9 +25,9 @@
 ## Default Orientation
 
 - 进入项目先读 `README.md` 和 `.spec/README.md`，确认项目地图、协作阶段和事实源边界。
-- 执行当前开发任务时读 `.ralph/TASKS.md`（dogfood 任务源）；需要续接上下文时再读 `handoff.md`；查询 v0.1 历史读 root `task.md`（已封版）。
+- 执行当前开发任务时先读用户请求、`handoff.md` 和相关项目事实源；只有明确在 dogfood/ralph 任务循环中工作时，才把 `.ralph/TASKS.md` 当作当前任务清单。查询 v0.1 历史读 root `task.md`（已封版）。
 - 做 Ralph harness 需求相关工作时读 `docs/requirements/ralph-loop/requirements.md`；做设计或实现时读 `docs/architecture/`（`overview.md` 起步，provider 集成看 `integrations.md`，安全边界看 `security.md`）。
-- 当前 iteration 设计方案放在 `docs/requirements/ralph-loop/I<N>-design.md`；完成后归档为 `I<N>-FINAL-TASK.md`（cp 自 `.ralph/TASKS.md`）。
+- 历史 I<N> 设计方案和归档保留在 `docs/requirements/ralph-loop/`；这些编号是项目文档索引，不属于 ralph runtime 契约。
 - 写或移动项目文档时同步 `README.md` 和 `docs/README.md`。
 - 遇到失败、回归、重复错误、校验异常或预防机制问题时，先读 `docs/postmortems/README.md`，再判断是否需要记录 postmortem。
 - 续接、回滚、创建 checkpoint 或判断稳定锚点时，先读 `docs/checkpoints/README.md`。
@@ -47,13 +47,10 @@
 | `REVIEW-N` | `.spec/rules/review.md` 或 `.spec/rules/adversarial-review.md`（任务描述明确） |
 | `HUMAN-N` | 等人类决策 — ralph oneshot 内不可勾选不可执行；普通对话里和人类协作回答 |
 
-## Iteration 归档约定
+## Runtime 命名边界
 
-- 当前迭代名声明在 `.ralph/TASKS.md` 顶部 `> 当前迭代: I<N>` 行。
-- iteration 完成（`ralph run` 退出 `exit_reason=done`）时执行归档：
-  - `cp .ralph/TASKS.md docs/requirements/ralph-loop/I<N>-FINAL-TASK.md`
-  - 清空 `.ralph/TASKS.md` 当前任务段，"当前迭代"改为下一个，commit
-  - `docs/roadmap.md` 添加完成行 + 引用归档文件
+- ralph runtime 使用 `round` / `rounds` 描述循环轮次，不解析、不展示、不写入迭代元数据。
+- `I<N>-design.md` / `I<N>-FINAL-TASK.md` 只作为历史项目文档编号保留，不进入 `.ralph/` 发布单元运行契约。
 
 ## Boundaries
 

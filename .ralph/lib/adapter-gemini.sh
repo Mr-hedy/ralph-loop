@@ -46,6 +46,8 @@ provider_oneshot() {
   # Gemini oneshot 命令构造（I4 DEV-1 校准后契约）
   # -p <prompt>: inline prompt（non-interactive，与 Claude -p / Codex exec 等价）
   # --approval-mode=yolo: auto-approve（替代已废弃的 --yolo，见 integrations.md §Gemini CLI）
+  # --skip-trust: release smoke shows untrusted fresh workspaces downgrade yolo
+  # to default unless the workspace is trusted for this invocation.
   # --output-format stream-json: JSONL events 流（与 Claude/Codex 对齐）
   # --model <value>: model selection（空 → 不拼 flag）
   # 不传 --thinking-budget（不是 CLI flag；thinkingBudget 仅在 settings.json 的 modelConfigs 内）
@@ -56,6 +58,7 @@ provider_oneshot() {
   gemini_cmd=(
     gemini -p "$(cat "$prompt_file")"
     --approval-mode yolo
+    --skip-trust
     --output-format stream-json
   )
   if [[ -n "$model" ]]; then

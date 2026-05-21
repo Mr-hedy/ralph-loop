@@ -56,27 +56,6 @@ is_blocked_by_human() {
   return 1
 }
 
-# parse_current_iteration <tasks_file>
-# 解析 TASKS.md 顶部 "> 当前迭代: <name>" 声明，输出 <name>
-# 找不到则输出空字符串
-# 注意：冒号必须是 ASCII ":"；中文全角冒号 "：" 不识别（启动校验会报错）
-parse_current_iteration() {
-  local tasks_file="$1"
-  [[ -f "$tasks_file" ]] || return 0
-  local line
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" =~ ^\>[[:space:]]*当前迭代:[[:space:]]*([^[:space:]]+) ]]; then
-      printf '%s\n' "${BASH_REMATCH[1]}"
-      return 0
-    fi
-    # 英文兼容：> Current iteration: <name>
-    if [[ "$line" =~ ^\>[[:space:]]*[Cc]urrent[[:space:]]+iteration:[[:space:]]*([^[:space:]]+) ]]; then
-      printf '%s\n' "${BASH_REMATCH[1]}"
-      return 0
-    fi
-  done < "$tasks_file"
-}
-
 # validate_task_prefixes <tasks_file>
 # 扫描所有顶层任务（含 [x]），检查任务前缀（满足 <字母>-<数字>: 模式）必须全大写英文。
 # 失败时向 stderr 输出违规清单，返回 1；通过返回 0。

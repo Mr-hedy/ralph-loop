@@ -31,7 +31,8 @@ Create a checkpoint when:
 
 - The user explicitly asks to save progress, create a checkpoint, or create a
   rollback anchor.
-- The current iteration has reached a useful state and the next work is risky.
+- The current work package or release candidate has reached a useful state and
+  the next work is risky.
 - Several fixes have converged to a stable point.
 
 Do not create a checkpoint when:
@@ -47,9 +48,9 @@ Do not create a checkpoint when:
    the new checkpoint does not duplicate or contradict the previous anchor.
 3. Run a postmortem sweep:
    - Read `docs/postmortems/README.md`.
-   - Review the current iteration for repeated failures, regressions, failed
-     prevention checks, surprising boundary issues, and user corrections that
-     reveal reusable agent behavior problems.
+   - Review the current work package for repeated failures, regressions, failed
+     prevention checks, surprising boundary issues, mock-vs-real verification
+     gaps, and user corrections that reveal reusable agent behavior problems.
    - If a reusable failure pattern exists, pause checkpoint creation and handle
      the postmortem as a separate action before continuing.
    - If no postmortem is needed, record that outcome in the checkpoint note.
@@ -62,6 +63,9 @@ Do not create a checkpoint when:
 6. Create `docs/checkpoints/YYYY-MM-DD-NN-slug.md` from
    `.agents/skills/checkpoint/TEMPLATE.md`.
 7. Run `git diff --check` and any scope-specific verification.
+   - For release checkpoints or provider adapter changes, record which real
+     provider smoke tests passed, failed, were blocked by local auth, or were
+     intentionally not run.
 8. Stage only the coherent checkpoint scope and the checkpoint note.
 9. Create a non-interactive commit whose body contains
    `Checkpoint-Note: docs/checkpoints/<file>.md`.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RALPH_VERSION="0.1.1-dev"
+RALPH_VERSION="0.1.1"
 
 RALPH_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 RALPH_ROOT="$(cd "$RALPH_BIN_DIR/.." && pwd -P)"
@@ -80,6 +80,7 @@ Exit reasons:
   locked          Another ralph run is already active in this workspace.
   blocked_by_human First unchecked task is HUMAN-* (automatic on max-round/stall).
   interrupted     SIGTERM/SIGINT received.
+  startup_failed  Startup validation failed before the run loop began.
 
 Run directory layout (.ralph/runs/<run-id>/):
   result.json                Run summary (exit_reason, timestamps, last_error).

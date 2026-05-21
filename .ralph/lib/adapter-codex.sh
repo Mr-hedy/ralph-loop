@@ -47,7 +47,8 @@ provider_oneshot() {
   # --json: JSONL events to stdout (thread.started / turn.started / item.started /
   #         item.completed / turn.completed / turn.failed / error)
   # -C <workspace>: workspace root
-  # --sandbox workspace-write: sandbox mode（替代已废弃的 --full_auto）
+  # --sandbox danger-full-access: ralph oneshot protocol requires git add/commit;
+  # workspace-write cannot create .git/index.lock in real Codex CLI runs.
   # -c model_reasoning_effort=<value>: effort（none/空 → 不拼 flag）
   # --model <value>: model selection（空 → 不拼 flag）
   local effort="${RALPH_PROVIDER_EFFORT:-}"
@@ -56,7 +57,7 @@ provider_oneshot() {
   codex_cmd=(
     codex exec --json
     -C "${RALPH_WORKSPACE:-.}"
-    --sandbox workspace-write
+    --sandbox danger-full-access
   )
   if [[ -n "$model" ]]; then
     codex_cmd+=(--model "$model")

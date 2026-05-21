@@ -103,7 +103,7 @@ provider_oneshot() {
           done < "$tasks_file"
           mv "$tmpout" "$tasks_file"
         fi
-        printf 'partial-progress-iter1\n' > "${RALPH_WORKSPACE:-.}/pp-test-file.txt"
+        printf 'partial-progress-round1\n' > "${RALPH_WORKSPACE:-.}/pp-test-file.txt"
         touch "$state_file"
       fi
       echo "fake: partial_progress scenario" >> "$log_path"

@@ -168,7 +168,7 @@ Codex 文档还说明：
 - `codex exec --json` 会把运行事件输出为 JSONL（到 stdout），事件类型包括 `thread.started`、`turn.started`、`item.started`、`item.completed`、`turn.completed`、`turn.failed` 和 `error`。
 - `thread.started` 事件含 `thread_id` 字段（与 rollout 文件名中的 session ID 一致）。
 - `codex exec --ephemeral` 会跳过 session rollout 文件持久化。
-- `--full-auto` 已废弃，推荐 `--sandbox workspace-write`（CLI 会打印弃用警告）。
+- `--full-auto` 已废弃。ralph 使用 `--sandbox danger-full-access`，因为 ralph oneshot 协议要求 agent 执行 `git add -A && git commit`，真实 Codex CLI 的 `workspace-write` 会禁止写 `.git/index.lock`。
 - session ID 可从 picker、`/status` 或 `~/.codex/sessions/` 下的文件获取。
 - `CODEX_API_KEY` 环境变量仅在 `codex exec` 中支持，用于 CI 认证。
 - effort 通过 config key `model_reasoning_effort` 控制（值：`minimal | low | medium | high | xhigh`），CLI 传递方式为 `-c model_reasoning_effort=<value>`；不存在 `--reasoning-effort` flag。
@@ -188,7 +188,7 @@ Rollout 文件首行是 `session_meta` 类型，其中包含 `payload.id`、`pay
 ```bash
 codex exec --json \
   -C "$workspace" \
-  --sandbox workspace-write \
+  --sandbox danger-full-access \
   "$prompt"
 ```
 
@@ -196,7 +196,7 @@ codex exec --json \
 
 - 使用 `-C "$workspace"` 明确 workspace root。
 - 使用 `--json` 获取 JSONL 事件流（到 stdout）。
-- 使用 `--sandbox workspace-write` 让 Codex 在自带 sandbox 下写 workspace。
+- 使用 `--sandbox danger-full-access`，确保 Codex 能完成 `.git/` 写入和本轮 commit；外层仍由 ralph 固定 workspace、任务清单和运行目录边界。
 - 不传 `--ephemeral`。
 - 不使用 `codex exec resume`；resume 是明确非目标（见需求文档非目标段）。
 - 不传 `--full-auto`（已废弃）。
@@ -237,6 +237,7 @@ gemini -p "query"
 I4 DEV-1（2026-05-04）本机 Gemini CLI `0.39.1` 校准结果：
 
 - `--yolo` 已被官方 CLI reference 标记为 deprecated，推荐使用 `--approval-mode=yolo`（二者行为等价，`--yolo` 仍可用但不建议新代码使用）。
+- 新 workspace 必须带 `--skip-trust`，否则真实 Gemini CLI 会把 `--approval-mode yolo` 降回 `default`。
 - `--thinking-budget` 不是 CLI flag；`thinkingBudget` 是 `settings.json` 中 `modelConfigs` 的内部配置，不暴露命令行入口。Ralph `--effort` 无法翻译为 Gemini CLI flag，暂不传递。
 - `--output-format stream-json` 支持，可用于结构化错误诊断和 live tail（与 Claude/Codex 对齐）。
 
@@ -263,7 +264,7 @@ JSON 内容包含 `sessionId`、`projectHash`、`startTime`、`lastUpdated`、`m
 推荐执行策略：
 
 ```bash
-gemini -p "$prompt" --approval-mode=yolo --output-format stream-json
+gemini -p "$prompt" --approval-mode yolo --skip-trust --output-format stream-json
 ```
 
 采集步骤：

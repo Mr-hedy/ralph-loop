@@ -12,7 +12,6 @@ _RALPH_LOCK_ACQUIRED=0
 _RALPH_RUN_DIR=""
 _RALPH_WORKSPACE=""
 _RALPH_START_TIME=0
-_RALPH_CURRENT_ITERATION=""
 _RALPH_TAIL_PID=""
 _RALPH_TAIL_FILTER_PID=""
 _RALPH_TAIL_FIFO=""
@@ -141,8 +140,13 @@ _ralph_start_provider_heartbeat() {
 
   (
     local elapsed=0
+    local sleep_pid=""
+    trap 'trap - TERM INT EXIT; [[ -n "${sleep_pid:-}" ]] && kill "$sleep_pid" 2>/dev/null || true; exit 0' TERM INT EXIT
     while :; do
-      sleep "$interval" || exit 0
+      sleep "$interval" &
+      sleep_pid=$!
+      wait "$sleep_pid" || exit 0
+      sleep_pid=""
       elapsed=$(( elapsed + interval ))
       local bytes=0 lines=0 now_local
       if [[ -f "$log_path" ]]; then
@@ -175,7 +179,6 @@ _ralph_write_result() {
 {
   "run_id": "$(ralph_json_escape "${_RALPH_RUN_DIR##*/}")",
   "exit_reason": "$(ralph_json_escape "$exit_reason")",
-  "iteration_name": $(ralph_json_str "$_RALPH_CURRENT_ITERATION"),
   "rounds": ${rounds},
   "tasks_total": ${tasks_total},
   "tasks_checked_start": ${tasks_checked_start},
@@ -196,7 +199,6 @@ _ralph_print_summary() {
   local tasks_checked_end="$4"
 
   local run_id="${_RALPH_RUN_DIR##*/}"
-  local iter_label="${_RALPH_CURRENT_ITERATION:-(unspecified)}"
   local first_unchecked=""
   local tasks_md="$_RALPH_WORKSPACE/.ralph/TASKS.md"
   if [[ -f "$tasks_md" ]] && declare -f first_unchecked_task >/dev/null 2>&1; then
@@ -217,7 +219,6 @@ _ralph_print_summary() {
   lines+=("Ralph Run Complete")
   lines+=("$sep")
   lines+=("Run ID:        $run_id")
-  lines+=("Iteration:     $iter_label")
   lines+=("Exit Reason:   $exit_reason")
   lines+=("Rounds:        $rounds")
   lines+=("Tasks:         $tasks_checked_end / $tasks_total")
@@ -230,8 +231,7 @@ _ralph_print_summary() {
       lines+=("All tasks completed.")
       lines+=("")
       lines+=("Next step:")
-      lines+=("  归档动作：cp .ralph/TASKS.md docs/requirements/<module>/${iter_label}-FINAL-TASK.md")
-      lines+=("  清空 .ralph/TASKS.md 当前任务段，'当前迭代' 改为下一个；commit。")
+      lines+=("  Review .ralph/runs/$run_id/ for run evidence, then commit or archive any workspace changes as needed.")
       ;;
     blocked_by_human)
       lines+=("")
@@ -366,7 +366,6 @@ _ralph_write_status() {
   "updated_at": "$(ralph_json_escape "$(ralph_timestamp)")",
   "round": ${round},
   "task_try": ${task_try},
-  "iteration_name": $(ralph_json_str "$_RALPH_CURRENT_ITERATION"),
   "state": "$(ralph_json_escape "$state")",
   "tasks_total": ${tasks_total},
   "tasks_checked": ${tasks_checked},
@@ -538,17 +537,11 @@ EOF
   _RALPH_MODEL="$model"
   _RALPH_EFFORT="$effort"
 
-  # 解析 TASKS.md 顶部 "当前迭代" 声明（如有），用于 status.json / result.json / 退出打印
-  _RALPH_CURRENT_ITERATION="$(parse_current_iteration "$tasks_md")"
-
   # 启动 banner（D-2 进度 marker，stderr）
-  local _banner_iter="${_RALPH_CURRENT_ITERATION:-}"
-  [[ -z "$_banner_iter" || "$_banner_iter" == "null" ]] && _banner_iter="(no-iter)"
-  printf '[%s] ralph %s | run %s | %s | tasks %d/%d done | provider %s\n' \
+  printf '[%s] ralph %s | run %s | tasks %d/%d done | provider %s\n' \
     "$(date +"%H:%M:%S")" \
     "$RALPH_VERSION" \
     "$run_id" \
-    "$_banner_iter" \
     "$tasks_checked_start" \
     "$tasks_total" \
     "$provider" >&2
@@ -662,7 +655,7 @@ EOF
     init_meta "$round_dir" "$round" "$provider" 0 0
     update_meta_jq "$round_dir" '.runtime_block = $rb' --arg rb "$runtime_block"
 
-    # status 必须在 provider_oneshot 前指向当前 round；watch -v 依赖它定位
+    # status 必须在 provider_oneshot 前指向当前 round；watch 依赖它定位
     # 当前正在写入的 provider.stdout.log。
     _ralph_update_status "running" "" "$round" "$tasks_total" "$checked_before" "null" "$retry_count"
 
@@ -1044,8 +1037,7 @@ _ralph_filter_verbose() {
       elif .type == "init" then
         "  ⚙ session " + ((.session_id // "") | .[0:12])
       elif .type == "message" and (.role // "") == "assistant" then
-        if (.delta // false) then empty
-        else "  💬 " + ((.content // .text // "") | trunc(120)) end
+        "  💬 " + ((.content // .text // "") | trunc(120))
       elif .type == "tool_use" then
         "  🔧 " + ((.tool_name // .name // "?") | trunc(40)) + " " + (((.parameters // .input // {}) | tostring) | trunc(60))
       elif .type == "tool_result" then

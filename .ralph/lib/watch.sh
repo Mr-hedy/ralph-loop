@@ -45,10 +45,9 @@ _ralph_watch_bar_text() {
     return 0
   fi
 
-  local run_id round iter_name checked total state exit_reason provider short_id bar
+  local run_id round checked total state exit_reason provider short_id bar
   run_id="$(_ralph_status_json_val "$f" "run_id")"
   round="$(_ralph_status_json_val "$f" "round")"
-  iter_name="$(_ralph_status_json_val "$f" "iteration_name")"
   checked="$(_ralph_status_json_val "$f" "tasks_checked")"
   total="$(_ralph_status_json_val "$f" "tasks_total")"
   state="$(_ralph_status_json_val "$f" "state")"
@@ -75,9 +74,6 @@ _ralph_watch_bar_text() {
   esac
 
   bar="${dim}run:${reset} ${short_id}"
-  if [[ -n "$iter_name" && "$iter_name" != "null" ]]; then
-    bar+="  ${dim}iter_name:${reset} ${iter_name}"
-  fi
   bar+="  ${dim}round${reset} ${round}"
   bar+="  ${checked}/${total} ${dim}tasks${reset}"
   bar+="  ${dim}state:${reset} ${status_color}${state:-}${reset}"
@@ -134,8 +130,7 @@ _ralph_watch_filter_events() {
       elif .type == "init" then
         "  ⚙ session " + ((.session_id // "") | .[0:12])
       elif .type == "message" and (.role // "") == "assistant" then
-        if (.delta // false) then empty
-        else "  💬 " + ((.content // .text // "") | trunc(120)) end
+        "  💬 " + ((.content // .text // "") | trunc(120))
       elif .type == "tool_use" then
         "  🔧 " + ((.tool_name // .name // "?") | trunc(40)) + " " + (((.parameters // .input // {}) | tostring) | trunc(60))
       elif .type == "tool_result" then

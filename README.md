@@ -18,8 +18,8 @@
 | git | workspace 变更追踪 |
 | jq | meta.json 写入 |
 | Claude CLI (`claude`) | Claude provider CLI —— 参考 [安装文档](https://docs.anthropic.com/en/docs/claude-code) |
-| Codex CLI (`codex`) | Codex provider CLI（I2 / T3 已落地） |
-| Gemini CLI (`gemini`) | Gemini provider CLI（I4 / T4 已落地） |
+| Codex CLI (`codex`) | Codex provider CLI |
+| Gemini CLI (`gemini`) | Gemini provider CLI |
 
 ### 1. 部署到 workspace
 
@@ -36,11 +36,11 @@ cp -r <ralph-loop-repo>/.ralph/ <your-workspace>/.ralph/
 ```bash
 RALPH_PROVIDER=claude                         # claude / codex / gemini
 # 可选：
-# RALPH_EFFORT=low                       # low / medium / high / none（默认不传）
-# RALPH_MAX_ITER=20                      # 最大轮数，0 = 无限（默认 0）
-# RALPH_TIMEOUT=3600                     # 超时秒数，0 = 无限（默认 0）
-# RALPH_STAGNATION_LIMIT=5               # 连续无进展轮数（默认 5）
-# RALPH_MODEL=<name>                     # 覆盖 provider 默认模型
+# RALPH_PROVIDER_EFFORT=low              # low / medium / high / none（默认不传）
+# RALPH_LOOP_MAX_ROUND=20                # 单任务最大 round 数，0 = 无限（默认 0）
+# RALPH_LOOP_ROUND_TIMEOUT=3600          # 单 round 超时秒数，0 = 无限（默认 0）
+# RALPH_LOOP_STALL_LIMIT=5               # 单任务连续无进展 round 数（默认 5）
+# RALPH_PROVIDER_MODEL=<name>            # 覆盖 provider 默认模型
 # RALPH_PROVIDER_CONFIG_DIR=~/.claude-x  # 用独立账号 / API 配置跑 ralph
                                          # ralph 自动翻译为 provider 原生变量：
                                          # Claude → CLAUDE_CONFIG_DIR；Codex → CODEX_HOME；Gemini → GEMINI_CLI_HOME
@@ -70,23 +70,22 @@ cd <your-workspace>
 ### 4. 观察运行
 
 ```bash
-ralph status                  # plain text：run_id / iter / tasks 进度 / state / exit_reason 等
+ralph status                  # plain text：run_id / round / tasks 进度 / state / exit_reason 等
 ralph status --json           # 透传 .ralph/status.json 原始 JSON
-ralph watch                   # 实时监控：底部 sticky bar（2 秒刷新，Ctrl-C 退出）
-ralph watch -v                # sticky bar + 上方 iter log live tail
-ralph run -v                  # 重跑时直接把 provider stream 过滤到 stderr
+ralph watch                   # 实时监控：sticky TUI（Ctrl+C 退出）
+ralph run -v                  # TTY 下显示 sticky TUI；非 TTY 自动降级 plain
 ```
 
-无 `-v` 的 `ralph run` 默认仍保持 stdout silent；stderr 会打印 iter 启停 marker。长 provider oneshot 未返回时，每 60 秒打印 heartbeat，包含 elapsed、当前 `provider.stdout.log` 大小和可直接 `tail -f` 的路径。
+无 `-v` 的 `ralph run` 默认仍保持 stdout silent；stderr 会打印 round 启停 marker。长 provider oneshot 未返回时，每 60 秒打印 heartbeat，包含 elapsed、当前 `provider.stdout.log` 大小和可直接 `tail -f` 的路径。
 
-`ralph watch -v` 通过 `.ralph/status.json` 的当前 `run_id` / `iteration` tail 对应 `provider.stdout.log`；v0.1.1 起 run 会在 provider oneshot 启动前更新 status 到当前 iter，避免 watch 盯到 `iter-000` 或上一轮。
+`ralph watch` 通过 `.ralph/status.json` 的当前 `run_id` / `round` tail 对应 `provider.stdout.log`；run 会在 provider oneshot 启动前更新 status 到当前 round，避免 watch 盯到上一轮日志。
 
 底层文件仍可直接读取：
 
 ```bash
 cat .ralph/runs/<run_id>/result.json            # 运行总结
-ls  .ralph/runs/<run_id>/iterations/            # 每轮明细
-cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
+ls  .ralph/runs/<run_id>/rounds/                # 每轮明细
+cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 ```
 
 ### 退出原因速查
@@ -96,25 +95,22 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 | `done` | 0 | 全部任务完成 |
 | `provider_failed` | 2 | provider CLI 报错或崩溃 |
 | `timeout` | 3 | 单轮执行超时 |
-| `max_iterations` | 4 | 达到最大轮数 |
-| `stagnated` | 5 | 连续 N 轮无进展 |
 | `locked` | 6 | workspace 已有 ralph 在跑（lock） |
 | `blocked_by_human` | 7 | 第一个未勾选任务前缀是 `HUMAN-`（等人类决策；不调 provider） |
 | `interrupted` | 130 | SIGINT 中断 |
 | `startup_failed` | 1 | 依赖缺失或初始化失败 |
 
-退出时 ralph 会向 stderr 打印格式化总结（含 exit_reason / iteration / 完成任务 / 阻塞点 / 接力提示），同时落到 `.ralph/runs/<run_id>/exit-message.txt` 方便复制粘贴给 main agent。
+退出时 ralph 会向 stderr 打印格式化总结（含 exit_reason / rounds / 完成任务 / 阻塞点 / 接力提示），同时落到 `.ralph/runs/<run_id>/exit-message.txt` 方便复制粘贴给 main agent。
 
 ### v0.1 行为说明
 
-- `provider_failed` 一次即终止整 run，不自动重试。transient API 抖动建议重新跑 `ralph run`（lock 已自动释放）。
+- `provider_failed` 会按 `RALPH_LOOP_MAX_RETRY` / `RALPH_LOOP_RETRY_SCHEDULE` 对暂时性错误重试；不可重试或超重试次数后终止 run。
 - 详细架构见 `docs/architecture/overview.md`；provider 集成见 `docs/architecture/integrations.md`。
 
 ## 当前状态
 
-- 版本：v0.1.1-dev（v0.1.0 已发布于 2026-04-28；I1/I2/I3/I4 已完成）
+- 版本：v0.1.1
 - 当前开发任务：`.ralph/TASKS.md`（dogfood 模式，root `task.md` 已封版）
-- 当前 iteration 设计方案：等待 I5 启动（I4 已归档为 `docs/requirements/ralph-loop/I4-FINAL-TASK.md`）
 - 续接状态：`handoff.md`
 - 工具入口：`.ralph/bin/ralph`
 
@@ -125,8 +121,8 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 | 查看协作与规格规范 | `.spec/README.md` |
 | 查看当前开发任务（dogfood） | `.ralph/TASKS.md` |
 | 查看 v0.1 历史任务 | `task.md`（已封版） |
-| 查看当前 iteration 设计方案 | `docs/requirements/ralph-loop/I<N>-design.md` |
-| 查看 iteration 完成归档 | `docs/requirements/ralph-loop/I<N>-FINAL-TASK.md` |
+| 查看历史设计方案 | `docs/requirements/ralph-loop/I<N>-design.md` |
+| 查看历史任务归档 | `docs/requirements/ralph-loop/I<N>-FINAL-TASK.md` |
 | 查看项目文档地图 | `docs/README.md` |
 | 查看项目级需求 | `docs/requirements.md` |
 | 查看 Ralph 需求 | `docs/requirements/ralph-loop/requirements.md` |
@@ -140,9 +136,9 @@ cat .ralph/runs/<run_id>/iterations/iter-001/meta.json
 
 ## 项目边界
 
-- 本仓库是 ralph-loop 工具的**开发工程**。**v0.1 后切换为 dogfood 模式** — 自用 ralph 驱动后续开发；`.ralph/TASKS.md` 是当前任务源（按 iteration 推进）。
+- 本仓库是 ralph-loop 工具的**开发工程**。**v0.1 后切换为 dogfood 模式** — 自用 ralph 驱动后续开发；`.ralph/TASKS.md` 是当前任务源。
 - 工具代码位于 `.ralph/bin/`、`.ralph/lib/`；`.ralph/PROMPT.md` + `.ralph/TASKS.md` + `.ralph/TASKS.bak` 入仓；运行时产物 `.ralph/runs/` + `.ralph/lock` + `.ralph/status.json` + `.ralph/.env` gitignore。
 - Ralph 需求沉淀在 `docs/requirements.md`（项目级）和 `docs/requirements/ralph-loop/requirements.md`（模块级）；架构和外部集成沉淀在 `docs/architecture/`。
-- 当前 iteration 设计方案放 `docs/requirements/ralph-loop/I<N>-design.md`；完成后归档为 `I<N>-FINAL-TASK.md`（cp 自 `.ralph/TASKS.md`）。
+- 历史设计方案放 `docs/requirements/ralph-loop/I<N>-design.md`；历史任务归档放 `I<N>-FINAL-TASK.md`。
 - 长期事实写入 `README.md` 或 `docs/`。
 - 新增、移动、重命名或删除项目文档时，同步更新 `docs/README.md` 和本入口。

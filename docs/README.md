@@ -6,10 +6,9 @@
 |---|---|---|---|
 | 项目入口 | `../README.md` | 已确认 | 项目定位、入口地图和项目边界 |
 | 协作规范 | `../.spec/README.md` | 已确认 | 协作模型、阶段和事实源边界 |
-| 当前开发任务 | `../.ralph/TASKS.md` | 已确认 | 当前工程的开发任务事实源（dogfood 模式，按 iteration 推进） |
+| 部署样例任务 | `../.ralph/TASKS.md` | 已确认 | `.ralph/` 发布单元内的最小首跑样例；真实开发任务以用户请求、handoff 和显式任务清单为准 |
 | v0.1 历史任务 | `../task.md` | 已封版 | T0–T6 历史任务史 + 22 条决策追溯（v0.1.0 发布于 2026-04-28） |
-| 当前 iteration 设计 | 等待 I5 启动 | — | I4 已归档为 `requirements/ralph-loop/I4-FINAL-TASK.md` |
-| Iteration 归档 | `requirements/ralph-loop/I1-FINAL-TASK.md` / `requirements/ralph-loop/I2-FINAL-TASK.md` / `requirements/ralph-loop/I3-FINAL-TASK.md` / `requirements/ralph-loop/I4-FINAL-TASK.md` / `requirements/ralph-loop/I<N>-FINAL-TASK.md` | 历史 | iteration 完成后的不可变任务快照（cp 自 `.ralph/TASKS.md`） |
+| 历史 I<N> 归档 | `requirements/ralph-loop/I1-FINAL-TASK.md` / `requirements/ralph-loop/I2-FINAL-TASK.md` / `requirements/ralph-loop/I3-FINAL-TASK.md` / `requirements/ralph-loop/I4-FINAL-TASK.md` / `requirements/ralph-loop/I5-FINAL-TASK.md` | 历史 | 已完成项目阶段的不可变任务快照；I<N> 是文档索引，不属于 runtime 契约 |
 | 项目级需求 | `requirements.md` | 已确认 | 项目全局目标、跨模块边界和模块索引 |
 | 模块需求 | `requirements/ralph-loop/requirements.md` | 已确认 | Ralph harness 模块 REQ-001 ~ REQ-026，22 条决策和 I1 扩展需求完整追踪 |
 | 架构 Overview | `architecture/overview.md` | 已确认 | 系统上下文、CLI 契约、运行目录 schema、adapter 函数签名、退出原因、stagnation、lock、错误诊断类别 |
@@ -36,7 +35,7 @@
 | Database | `architecture/database.md` | 当前不适用 | 无持久化业务实体；运行期状态在 `.ralph/runs/` |
 | UI | `architecture/ui.md` | 当前不适用 | 仅 `ralph watch` 的终端 UI，细节已由 REQ-024 与 `architecture/overview.md` 覆盖 |
 | Security | `architecture/security.md` | 已确认 | approval / sandbox、secrets、allowedTools 白名单 |
-| Testing | `architecture/testing.md` | 已建立（I2 完成后持续维护） | 测试入口、基础设施、隔离规则、单一来源、运行平台、当前覆盖范围 |
+| Testing | `architecture/testing.md` | 已建立（持续维护） | 测试入口、基础设施、隔离规则、单一来源、运行平台、当前覆盖范围 |
 | Deployment | `architecture/deployment.md` | 当前不适用 | per-workspace 部署在 `overview.md#部署形态` 覆盖 |
 | Integrations | `architecture/integrations.md` | 已确认 | Provider CLI 原生 session、oneshot 命令、错误诊断关键字 |
 
@@ -53,8 +52,8 @@
 |---|---|
 | 项目是什么、当前状态 | `../README.md` |
 | 当前协作规范和文档结构 | `../.spec/README.md` |
-| 当前要执行什么 | `../.ralph/TASKS.md`（dogfood 任务源） |
-| 当前 iteration 设计方案 | 等待 I5 启动 |
+| 当前要执行什么 | 用户请求、`../handoff.md`、显式任务清单 |
+| `.ralph/` 首跑样例 | `../.ralph/TASKS.md` |
 | v0.1 历史任务 | `../task.md`（已封版） |
 | 项目级需求和跨模块约束 | `requirements.md` |
 | Ralph harness 模块需求 | `requirements/ralph-loop/requirements.md` |

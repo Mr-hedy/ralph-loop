@@ -388,35 +388,11 @@ provider_diagnose <round_dir>
 
 **已于 I5 移除**：`max_iterations`（由 per-task `max_round` 熔断替代）和 `stagnated`（由 per-task `stall_limit` 触发 `blocked_by_human` 替代）。
 
-**接力打印**：所有 exit_reason 下，ralph 退出时向 stderr 打印格式化总结，并写入 `.ralph/runs/<run_id>/exit-message.txt`。打印内容含 `run_id` / `iteration_name` / `exit_reason` / `rounds` / 任务进度 / 阻塞点（如有）/ 接力提示。
+**接力打印**：所有 exit_reason 下，ralph 退出时向 stderr 打印格式化总结，并写入 `.ralph/runs/<run_id>/exit-message.txt`。打印内容含 `run_id` / `exit_reason` / `rounds` / 任务进度 / 阻塞点（如有）/ 接力提示。
 
-## Iteration 协议
+## 协作协议
 
 v0.1.1 引入的协作协议层约定，承载 ralph + 人类 + main agent 三方协作的稳定契约。
-
-### 命名
-
-- **Iteration**（迭代）= roadmap 的最小规划单位 = 一次完整闭环（设计 → 实施 → 验证 → 归档）。
-- 编号格式 `I<N>`（如 `I1` / `I2`），单调递增，不与 release 编号混淆。
-- v0.1 历史 `T0-T7` 命名保留作为已发布 release 范围内的历史 phase 编号，新阶段统一用 `I` 前缀。
-- Release / version（如 `v0.1` / `v0.1.1`）= 多个 iteration 组成的发布单元，与 iteration 是多对多关系。
-
-### 当前迭代声明
-
-`.ralph/TASKS.md` 顶部用 markdown blockquote 声明：
-
-```markdown
-> 当前迭代: I1
-> 主题: <一句话主题>
-> 关联 roadmap: <对应 roadmap 项，可选>
-```
-
-ralph 启动时调用 `parse_current_iteration()`（`.ralph/lib/tasks.sh`）解析该行，写入：
-- `.ralph/status.json.iteration_name`
-- `.ralph/runs/<run_id>/result.json.iteration_name`
-- 退出打印的 `Iteration:` 行
-
-未声明时字段为空字符串，不影响 ralph 运行。
 
 ### 任务类型路由（PROMPT 层约定）
 
@@ -460,18 +436,6 @@ ralph 启动时调用 `parse_current_iteration()`（`.ralph/lib/tasks.sh`）解�
 - Claude Code 对话里和 agent 协作得出共识；落地到对应 docs（requirements / architecture）。
 - HUMAN-N 任务描述末尾追加 `答（<日期>）: <答案摘要>，落地: <docs 路径>`。
 - HUMAN-N 改 `[x]` + commit；重跑 `ralph run`，agent 回到原阻塞任务按答案继续。
-
-### Iteration 归档动作
-
-iteration 完成（`exit_reason=done` + 所有任务 `[x]`）时执行（人类操作）：
-
-```bash
-cp .ralph/TASKS.md docs/requirements/<module>/I<N>-FINAL-TASK.md
-# 清空 .ralph/TASKS.md 的"当前任务"段，更新顶部"当前迭代"为下一个
-git commit
-```
-
-归档文件不可变，归档后不再修改。详见 `.spec/rules/roadmap.md` "Phase / Iteration 完成动作" 段。
 
 ## Stall 判定 (I5: Per-task)
 
@@ -580,7 +544,7 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
                           └──→ tail 当前活跃 round log ──→ 事件区
 ```
 
-- `status`：单次读取 status.json，渲染 15 字段 plain text（`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `round` / `iteration_name` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`），任务进度渲染为 `<checked> / <total> checked`。status.json 不存在时输出提示文案，exit 0。
+- `status`：单次读取 status.json，渲染 plain text（`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `round` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`），任务进度渲染为 `<checked> / <total> checked`。status.json 不存在时输出提示文案，exit 0。
 - `watch`：每 200ms (sticky 渲染循环) 重读 status.json，默认渲染 sticky TUI；非 TTY 环境输出一次 one-line watch bar 后退出。
 
 ### Sticky TUI 布局 (I5)

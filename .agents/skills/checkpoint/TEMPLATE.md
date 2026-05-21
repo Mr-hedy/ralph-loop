@@ -23,6 +23,7 @@
 - 命令：`<command>`
 - 结果：<通过 | 失败 | 未运行 | 阻塞>
 - 诊断：<关键结果、失败类型或阻塞原因>
+- 真实 smoke：<涉及 release/provider adapter 时填写 provider -> 通过/失败/阻塞/未运行；不涉及则写不适用>
 
 # Postmortem Sweep
 

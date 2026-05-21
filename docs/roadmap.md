@@ -3,36 +3,37 @@
 > Ralph Loop 专项开发阶段目标、优先级、验收口径和风险。
 > 权威需求：`docs/requirements/ralph-loop/requirements.md`。
 
-## 编号约定（2026-04-30 起生效）
+## 历史编号约定
 
 - **T0–T7 是 v0.1 历史 phase 命名**（已发布 release 范围内的阶段），保留不动作为历史。
-- **新阶段统一用 `I` 前缀**（Iteration）：`I1` / `I2` / `I3` ...，每个 iteration 对应一次完整迭代闭环（设计 → 实施 → 验证 → 归档）。
-- **第一个新 iteration 是 I1**（dogfood T5），不延续 T0-T7 编号。
+- 2026-04-30 后的历史阶段曾用 `I` 前缀：`I1` / `I2` / `I3` ...；这些编号保留为项目文档索引，不属于 ralph runtime 契约。
+- **第一个 I 编号是 I1**（dogfood T5），不延续 T0-T7 编号。
 - 命名映射：
   - v0.1 release = T0+T1+T2+T6 历史集合（已完成）
-  - v0.1.x / v0.2+ release = I1+I2+... 新 iteration 集合（dogfood 模式推进）
-- **未实施的历史 phase（T3 / T4 / T5 / T7）后续作为新 iteration 推进，编号与 T 不绑定**：
+  - I1-I5 = v0.1.x 开发阶段的历史归档集合
+- **未实施的历史 phase（T3 / T4 / T5）已按 I 编号推进，编号与 T 不绑定**：
   - I1 = dogfood T5（status + watch 真实功能）+ HUMAN-N 阻塞机制 + 任务类型路由（已完成，归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`）
   - I2 = T3（Codex adapter）（已完成，归档见 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`）
   - I3 = watch/status 观察面 bugfix（已完成，归档见 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`）
   - I4 = T4（Gemini adapter）（已完成，归档见 `docs/requirements/ralph-loop/I4-FINAL-TASK.md`；设计见 `docs/requirements/ralph-loop/I4-design.md`）
   - I5 = run/watch sticky 输出 + per-task round + env 重组（已完成，归档见 `docs/requirements/ralph-loop/I5-FINAL-TASK.md`；设计见 `docs/requirements/ralph-loop/I5-design.md`）
-  - I6 等 = T7 或新议题，由用户在下一轮启动前排序
-  - 历史 T 编号仅作为"该 iteration 关联的 v0.1 规划项"出现在 iteration 主题里，不再是 phase 单位
+  - 后续新议题由用户在下一轮启动前排序；runtime 统一使用 `round`，不暴露迭代元数据
+  - 历史 T 编号仅作为"该文档阶段关联的 v0.1 规划项"保留
 
 ## Current State
 
 - **v0.1 已发布（2026-04-28）**。T6 全部子任务闭环，版本号 `0.1.0`。
-- **进入 dogfood 模式（2026-04-30）**：本仓库切换到 `.ralph/TASKS.md` 作为开发任务事实源；root `task.md` 已封版作为 v0.1 历史归档。
+- **dogfood 历史（2026-04-30 起）**：本仓库曾使用 `.ralph/TASKS.md` 推进开发；release cleanup 后 `.ralph/TASKS.md` 恢复为部署首跑样例，root `task.md` 已封版作为 v0.1 历史归档。
 - **I1 已完成（2026-05-03）**：dogfood T5（status + watch 真实功能），归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`。
 - **I2 已完成（2026-05-04）**：T3（Codex adapter），归档见 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`；设计方案见 `docs/requirements/ralph-loop/I2-design.md`。
 - **I3 已完成（2026-05-04）**：watch/status 观察面修复，归档见 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`；checkpoint 为 `2641605 checkpoint: watch status surface fix`。
 - **I4 已完成（2026-05-04）**：T4（Gemini adapter），归档见 `docs/requirements/ralph-loop/I4-FINAL-TASK.md`；设计方案见 `docs/requirements/ralph-loop/I4-design.md`。
-- **I5 已完成（2026-05-07）**：run/watch sticky 输出 + per-task round + env 重组，含 REVIEW-1 + REVIEW-2 两轮 adversarial review 后续修订（DEV-12 retry × per-task TRY 守门 / watch 时钟冻结 / sticky 视觉契约调整 / 4 个 -v live tail 失效测试删除 / diagnose retry hang 修复）；归档见 `docs/requirements/ralph-loop/I5-FINAL-TASK.md`，设计方案 + 实施期 ChangeLog 见 `docs/requirements/ralph-loop/I5-design.md` §0。完成时 `bash scripts/integration-test.sh` 首次完整通过 148 PASS / 0 FAIL。
+- **I5 已完成（2026-05-07）**：run/watch sticky 输出 + per-task round + env 重组，含 REVIEW-1 + REVIEW-2 两轮 adversarial review 后续修订（DEV-12 retry × per-task TRY 守门 / watch 时钟冻结 / sticky 视觉契约调整 / 4 个 -v live tail 失效测试删除 / diagnose retry hang 修复）；归档见 `docs/requirements/ralph-loop/I5-FINAL-TASK.md`，设计方案 + 实施期 ChangeLog 见 `docs/requirements/ralph-loop/I5-design.md` §0。
+- **Release cleanup（2026-05-20）**：runtime 不再解析、展示或写入迭代元数据；`.ralph/` 发布单元复扫无 `iteration`/`iter` 残留；`bash scripts/integration-test.sh` 完整通过 149 PASS / 0 FAIL。
 - 协作壳已初始化，`.spec/`、`docs/` 结构稳定。
 - Ralph v0.1 需求已收敛为 22 条决策，沉淀在 `requirements.md`（REQ-001 ~ REQ-016）。
 - 架构和稳定契约沉淀在 `docs/architecture/overview.md`；provider 集成细节沉淀在 `docs/architecture/integrations.md`；安全边界沉淀在 `docs/architecture/security.md`。
-- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude,adapter-codex,adapter-gemini}.sh`；部署单元 `.ralph/PROMPT.md` + `.ralph/TASKS.md`（dogfood 任务源）+ `.ralph/TASKS.bak`（hello world 样例）。
+- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude,adapter-codex,adapter-gemini}.sh`；部署单元 `.ralph/PROMPT.md` + `.ralph/TASKS.md`（首跑样例）+ `.ralph/TASKS.bak`（hello world 样例）。
 - T1（fake 闭环）、T2（Claude adapter + 单轮真实 smoke）、T6（v0.1 闭环 + 使用指南）均已完成。
 
 ## Phased Delivery

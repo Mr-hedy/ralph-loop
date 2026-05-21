@@ -1,27 +1,26 @@
 # 任务事实源（TASKS.md）规则
 
-本规则规范当前任务事实源（本仓库 = `.ralph/TASKS.md`，使用者 workspace = 同名）的**结构、模板、自修改规则、归档约定**。目标是让 agent 在 ralph oneshot 内能稳定按规则执行，让 reviewer 能快速读出每个任务的契约和验证状态。
+本规则规范任务事实源（本仓库在 dogfood 时可使用 `.ralph/TASKS.md`，使用者 workspace = 同名）的**结构、模板、自修改规则、归档约定**。目标是让 agent 在 ralph oneshot 内能稳定按规则执行，让 reviewer 能快速读出每个任务的契约和验证状态。
 
 ## 边界
 
-- 任务事实源是**当前迭代**的可执行任务集合 + 关键稳定结论 + 历史索引；不是 changelog、不是设计文档、不是 review findings 容器。
-- 历史完成细节归档到 `docs/checkpoints/`；本文件只保留当前有效结论、历史索引和当前迭代任务。
-- 模块级最终任务包归档到 `docs/requirements/<module>/I<N>-FINAL-TASK.md`（iteration 完成后由人类执行 cp 动作）。
+- 任务事实源是当前工作包的可执行任务集合 + 关键稳定结论 + 历史索引；不是 changelog、不是设计文档、不是 review findings 容器。
+- 历史完成细节归档到 `docs/checkpoints/`；本文件只保留当前有效结论、历史索引和当前任务。
+- 模块级最终任务包可归档到 `docs/requirements/<module>/<name>-FINAL-TASK.md`（工作包完成后由人类执行 cp 动作）。
 
 ## 文件结构（4 段）
 
 ```markdown
 # Tasks
 
-> 当前迭代: I<N>
 > 主题: <一句话主题>
 > 关联 roadmap: <对应 roadmap 项，可选>
 > 起始: <YYYY-MM-DD>
-> 设计方案: `docs/requirements/<module>/I<N>-design.md`（可选）
+> 设计方案: `docs/requirements/<module>/<name>-design.md`（可选）
 
 ## 当前有效结论
 
-- (本迭代关键决策、含 HUMAN 任务最终答案摘要)
+- (本工作包关键决策、含 HUMAN 任务最终答案摘要)
 
 ## 历史索引
 
@@ -39,16 +38,14 @@
 - 阻塞时保持未勾选，并写明 `→ BLOCKED by HUMAN-N` 或 `→ BLOCKED by REVIEW-N`。
 - HUMAN-N 任务在 ralph oneshot 内不可勾选（人类在 Claude Code 对话里勾）。
 - 不创建根 `task.md` 或其他并行任务板。
-- 历史完成细节进入 checkpoint；本文件只保留当前有效结论、历史索引和当前迭代任务。
+- 历史完成细节进入 checkpoint；本文件只保留当前有效结论、历史索引和当前任务。
 
 ## 当前任务
 
 (具体任务列表，按下文模板填写)
 ```
 
-顶部 blockquote 声明：
-- 冒号必须 ASCII `:`（不接受全角 `：`）
-- "当前迭代"行被 ralph 工具解析写入 `status.json.iteration_name` / `result.json.iteration_name`
+顶部 blockquote 声明仅供人类和 agent 阅读；ralph runtime 不解析、不展示、不写入这些元数据。
 
 ## 任务前缀（8 类）
 
@@ -59,7 +56,7 @@
 | `REQ-N` | ralph oneshot 内 agent | 需求澄清 | `.spec/rules/requirements.md` | `docs/requirements/<module>/requirements.md` |
 | `SOL-N` | ralph oneshot 内 agent | 方案决策（存在真实取舍时） | `.spec/rules/solution.md` | requirements / architecture / 任务源对应章节 |
 | `ROADMAP-N` | ralph oneshot 内 agent | Roadmap 阶段规划（版本切分、阶段目标、优先级、验收口径） | `.spec/rules/roadmap.md` | `docs/roadmap.md` |
-| `PLAN-N` | ralph oneshot 内 agent | 任务列表规划（基于已确认 REQ/SOL/架构，产出当前迭代任务列表；与 trantor PLAN / 业界 sprint planning 同义） | `.spec/README.md` 阶段 4 + 本文件 | TASKS.md 后续追加 |
+| `PLAN-N` | ralph oneshot 内 agent | 任务列表规划（基于已确认 REQ/SOL/架构，产出任务列表；与 trantor PLAN / 业界 sprint planning 同义） | `.spec/README.md` 阶段 4 + 本文件 | TASKS.md 后续追加 |
 | (空) / `DEV-N` | ralph oneshot 内 agent | 开发实施（默认） | 项目入口 + 代码事实 | 代码 / 文档 / 提示词 / 论文等任何"按已确认需求/方案产出具体交付物"的工作 |
 | `QA-N` | ralph oneshot 内 agent | 测试设计与实施 | `.spec/rules/testing.md` | `docs/architecture/testing.md` + 测试代码 |
 | `REVIEW-N` | ralph oneshot 内 agent | 审查（见 §REVIEW-N 两种用法） | `.spec/rules/review.md` 或 `.spec/rules/adversarial-review.md` | findings / 事实源修订 |
@@ -167,19 +164,19 @@ ralph oneshot 内 agent 触发 HUMAN-N 阻塞时，在阻塞任务**上方**插�
 - **禁止勾选 HUMAN-N**——见上文强约束（ralph oneshot 内）
 - **禁止违反前缀全大写约束**——启动校验会拦住，但你写新任务时也要遵守
 
-## 归档约定（iteration 完成时）
+## 归档约定（工作包完成时）
 
-iteration 完成（`ralph run` 退出 `exit_reason=done` + 所有任务 `[x]`）：
+工作包完成（`ralph run` 退出 `exit_reason=done` + 所有任务 `[x]`）：
 
 ```bash
-cp .ralph/TASKS.md docs/requirements/<module>/I<N>-FINAL-TASK.md
-# 清空 .ralph/TASKS.md 当前任务段，"当前迭代"改为下一个 iteration
+cp .ralph/TASKS.md docs/requirements/<module>/<name>-FINAL-TASK.md
+# 按需要重置或替换任务源，准备下一个工作包
 git commit
 ```
 
 归档原则：
 - 归档物 = `.ralph/TASKS.md` 本身（含所有 `[x]` 状态、预期/输入/范围/验证计划/完成/验证/未验证 全字段、HUMAN 任务最终答案、决策记录），自包含
-- I<N>-FINAL-TASK.md **不可变**，归档后不再修改
+- `<name>-FINAL-TASK.md` **不可变**，归档后不再修改
 - roadmap.md 添加完成行 + 引用归档文件
 
 ## 与 .ralph/PROMPT.md 的边界

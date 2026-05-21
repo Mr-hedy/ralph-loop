@@ -74,16 +74,16 @@
 - 当前执行什么、验证什么：写入当前任务事实源。
 - Roadmap 只负责阶段化表达“先做什么、后做什么、怎么判断一个阶段结束”。
 
-## Phase / Iteration 完成动作（归档约定）
+## Phase 完成动作（归档约定）
 
-每个 phase / iteration 完成时（验收口径满足、当前任务源全部勾选 `[x]`）执行归档动作，把当前任务源的最终态作为不可变快照沉淀：
+每个 phase 完成时（验收口径满足、当前任务源全部勾选 `[x]`）执行归档动作，把当前任务源的最终态作为不可变快照沉淀：
 
-1. `cp <当前任务源> docs/requirements/<module>/<phase>-FINAL-TASK.md`，例如 `cp .ralph/TASKS.md docs/requirements/ralph-loop/I1-FINAL-TASK.md`
-2. 清空当前任务源的“当前任务”段，准备下一个 phase / iteration（保留四段结构骨架，更新顶部声明）
+1. `cp <当前任务源> docs/requirements/<module>/<phase>-FINAL-TASK.md`
+2. 清空或替换当前任务源的“当前任务”段，准备下一个 phase（保留必要结构骨架，更新顶部声明）
 3. `docs/roadmap.md` 添加完成行，引用归档文件
 4. 同 commit 提交三个动作
 
-归档文件不可变，归档后不再修改；后续如需修订相关结论，写入新 phase / iteration，不回改历史归档。
+归档文件不可变，归档后不再修改；后续如需修订相关结论，写入新 phase，不回改历史归档。
 
 ## 完成标准
 
