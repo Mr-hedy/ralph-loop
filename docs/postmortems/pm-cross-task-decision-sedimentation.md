@@ -75,7 +75,7 @@ T2 任务拆解阶段，adversarial review 发现 4 类问题，根因都是"决
 ## 知识沉淀
 
 - 保留在本记录：根因机制（task.md 是阶段性事实源不承载稳定约定 + 沉淀目标文档归属边界易混淆）、典型表现 5 类
-- 需要提炼到 skill：可考虑在 task-loop 或 adversarial-review skill 加"沉淀检查"步骤；本期暂不动 skill，靠 task.md 规则段 + 本 PM 引用兜底
+- 需要提炼到 skill：可考虑在 ralph 或 adversarial-review skill 加"沉淀检查"步骤；本期暂不动 skill，靠 task.md 规则段 + 本 PM 引用兜底
 - 需要提炼到 `.spec/`：无（`.spec/rules/testing.md` 保持纯方法论；项目级测试规范应进 `docs/architecture/testing.md`，详见沉淀边界条款）
 - 需要提炼到 `docs/`：本 PM 触发了 `docs/architecture/integrations.md` 新增 Session 文件命名约定段，并触发新建 `docs/architecture/testing.md` 承载项目级测试规范
 - 需要提炼到脚本或测试：暂无（属流程类问题，不靠脚本预防）

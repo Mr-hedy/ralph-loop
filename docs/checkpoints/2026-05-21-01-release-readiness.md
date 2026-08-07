@@ -9,7 +9,7 @@
 - `.ralph/` runtime：iteration runtime 字段清理、Codex/Gemini adapter 参数、plain heartbeat cleanup、CLI help、部署 README、TASKS 样例。
 - 测试：`scripts/integration-test.sh`、`tests/fixtures/mock-gemini`、QA5 expect 文本。
 - 文档：`README.md`、`docs/README.md`、`docs/architecture/*`、`docs/requirements/ralph-loop/requirements.md`、`docs/roadmap.md`、`.spec/rules/*` 中与 runtime round/release cleanup 相关内容。
-- workflow：`.agents/skills/checkpoint` / `postmortem` / `task-loop`，以及本次 `handoff.md`。
+- workflow：`.agents/skills/checkpoint` / `postmortem` / `ralph`，以及本次 `handoff.md`。
 - postmortem：PM-0004 新增，PM-0003 更新。
 
 # 核心变更
@@ -40,7 +40,7 @@
 - `tests/fixtures/mock-gemini`
 - `.agents/skills/checkpoint/*`
 - `.agents/skills/postmortem/SKILL.md`
-- `.agents/skills/task-loop/SKILL.md`
+- `.agents/skills/ralph/SKILL.md`
 - `docs/postmortems/README.md`
 - `docs/postmortems/pm-real-provider-smoke-permission-gap.md`
 - `docs/postmortems/pm-task-closure-req-traceability.md`

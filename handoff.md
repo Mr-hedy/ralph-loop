@@ -31,7 +31,7 @@
 - skills 沉淀：
   - `checkpoint`：release/provider adapter checkpoint 必须记录真实 smoke 状态。
   - `postmortem`：sweep 覆盖 mock-vs-real 验证差异和 release smoke 阻塞。
-  - `task-loop`：任务源改为 `.ralph/TASKS.md`，并把真实 provider smoke 状态纳入 exit gate。
+  - `ralph`：任务源改为 `.ralph/TASKS.md`，并把真实 provider smoke 状态纳入 exit gate。
 - postmortem：
   - 新增 `docs/postmortems/pm-real-provider-smoke-permission-gap.md`（PM-0004）。
   - 更新 `docs/postmortems/pm-task-closure-req-traceability.md`（PM-0003）记录 heartbeat orphan sleep 失败模式。

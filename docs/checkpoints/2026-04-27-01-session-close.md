@@ -5,20 +5,20 @@
 
 # 范围
 
-- `.agents/skills/task-loop/SKILL.md`（入库）
+- `.agents/skills/ralph/SKILL.md`（入库）
 - `docs/collaboration/rules/TASK.md`（入库）
 - `handoff.md`（刷新为 T2 开始前状态）
 - `docs/checkpoints/2026-04-27-01-session-close.md`（本 note）
 
 # 核心变更
 
-- `ccc03ac`：将两个长期未追踪文件（task-loop skill + task protocol）提交入库，工作区变干净。
+- `ccc03ac`：将两个长期未追踪文件（ralph skill + task protocol）提交入库，工作区变干净。
 - `.claude/worktrees/romantic-blackwell` worktree 及 `claude/romantic-blackwell` 分支已删除（该分支与 main 完全一致，无未合并内容）。
 - `handoff.md` 刷新：指向 T2，保留所有冻结决策，标注工作区干净。
 
 # 影响文件或模块
 
-- 新增：`.agents/skills/task-loop/SKILL.md` / `docs/collaboration/rules/TASK.md` / 本 checkpoint note
+- 新增：`.agents/skills/ralph/SKILL.md` / `docs/collaboration/rules/TASK.md` / 本 checkpoint note
 - 修改：`handoff.md`
 - 删除：`.claude/worktrees/romantic-blackwell/`（worktree）/ `claude/romantic-blackwell`（分支）
 

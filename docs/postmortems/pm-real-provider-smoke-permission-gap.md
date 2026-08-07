@@ -72,7 +72,7 @@ prevention_checks:
 ## 知识沉淀
 
 - 保留在本记录：真实 provider smoke 与 mock 集成测试之间的能力边界。
-- 需要提炼到 skill：有，checkpoint/postmortem/task-loop 类收口流程必须区分 mock pass 与真实 release smoke；涉及 provider adapter 的 release 结论必须声明真实 smoke 状态。
+- 需要提炼到 skill：有，checkpoint/postmortem/ralph 类收口流程必须区分 mock pass 与真实 release smoke；涉及 provider adapter 的 release 结论必须声明真实 smoke 状态。
 - 需要提炼到 `.spec/`：暂不新增；当前 `.spec/rules/adversarial-review.md` 已要求不要把退出码 0 或日志误当端到端成功。
 - 需要提炼到 `docs/`：已更新 integrations / requirements；`.ralph/README.md` 增加 provider 认证与命令使用说明。
 - 需要提炼到脚本或测试：已更新 `scripts/integration-test.sh` 的关键参数断言；真实 smoke 仍保留为手工 release gate。

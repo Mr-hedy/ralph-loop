@@ -55,12 +55,12 @@ coverage does not exist yet, keep the task unchecked and record `阻塞` or
 
 # Execution Driver
 
-Use `.agents/skills/task-loop/SKILL.md` only when the user explicitly asks to
-execute the current task list in a loop. The skill drives `task.md`; it does not
-change this protocol, create another task source, or use `handoff.md` as a task
-source. If a task is too broad to execute in loop slices, split it during the
-planning or task-breakdown stage instead of using the loop as a substitute for
-decomposition.
+Use `.agents/skills/ralph/SKILL.md` only when the user explicitly asks to
+execute the current task list through Ralph. The skill operates
+`.ralph/bin/ralph`; Ralph loads the project-declared task source, currently
+`.ralph/TASKS.md`. The skill does not change this protocol, create another task
+source, or use `handoff.md` as a task source. If a task is too broad for Ralph
+to make progress safely, split it during the planning or task-breakdown stage.
 
 # Format
 
