@@ -2,6 +2,10 @@
 
 `ralph-loop` 是一个 shell-first CLI harness，用 provider CLI 的 fresh oneshot 能力驱动长任务循环执行。它把任务状态、运行日志、退出原因和 provider 原生 session 证据保存在使用者 workspace 的 `.ralph/runs/` 下，让长任务可观察、可恢复、可复盘。
 
+![ralph-loop 运行演示：两轮任务执行、Provider 事件流和最终完成状态](./ralph-loop-demo.gif)
+
+> 演示使用隔离的 Mock Provider，界面与状态流来自当前 `v0.1.1` 正式实现，不会调用真实模型或消耗 Token。
+
 ## 定位
 
 - 做什么：提供 `ralph run`、`ralph status`、`ralph watch` 等 CLI 能力，围绕使用者 workspace 的 `.ralph/TASKS.md` 组织多轮 agent oneshot 执行。
