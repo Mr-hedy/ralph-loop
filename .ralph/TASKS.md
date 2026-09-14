@@ -20,7 +20,10 @@
   - 验证: `od -An -tx1c hello.txt` 确认仅含 `hello ralph` 及单个文件结尾换行。
   - 未验证: None
 
-- [ ] DEV-2: 在 README.md 末尾追加 `<!-- setup complete -->`，完成后 commit。
+- [x] DEV-2: 在 README.md 末尾追加 `<!-- setup complete -->`，完成后 commit。
+  - 完成: README.md 末尾（空行后）追加了 `<!-- setup complete -->`。
+  - 验证: `tail -3 README.md` 确认末行为 `<!-- setup complete -->`；`git diff --check` 无输出（exit 0）。
+  - 未验证: None
 
 ## 当前工作包（2026-09-14）
 

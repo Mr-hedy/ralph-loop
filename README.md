@@ -145,3 +145,5 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 - 历史设计方案放 `docs/requirements/ralph-loop/I<N>-design.md`；历史任务归档放 `I<N>-FINAL-TASK.md`。
 - 长期事实写入 `README.md` 或 `docs/`。
 - 新增、移动、重命名或删除项目文档时，同步更新 `docs/README.md` 和本入口。
+
+<!-- setup complete -->
