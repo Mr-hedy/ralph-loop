@@ -82,6 +82,21 @@ provider_oneshot() {
     update_meta_jq "$round_dir" '.session_id = $sid' --arg sid "$thread_id"
   fi
 
+  # Preserve the structured terminal event separately from the raw log. The
+  # raw provider.stdout.log remains the source of truth if the stream is cut.
+  local terminal_event terminal_status
+  terminal_event="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
+    | jq -r 'select(.type == "turn.completed" or .type == "turn.failed" or .type == "error") | .type' 2>/dev/null | tail -1)" || terminal_event=""
+  case "$terminal_event" in
+    turn.completed) terminal_status="success" ;;
+    turn.failed|error) terminal_status="error" ;;
+    *) terminal_status="" ;;
+  esac
+  if [[ -n "$terminal_event" ]]; then
+    update_meta_jq "$round_dir" '.terminal_event = $e | .terminal_status = $s' \
+      --arg e "$terminal_event" --arg s "$terminal_status"
+  fi
+
   # Codex turn.failed 事件检测（相当于 Claude 的 result.is_error）
   # turn.failed 是最终权威失败事件（integrations.md §错误诊断）
   if [[ "$rc" -eq 0 && -f "$log_path" ]]; then
@@ -123,6 +138,22 @@ provider_collect_session() {
   local found_file=""
   if [[ -d "$codex_session_root" ]]; then
     found_file="$(find "$codex_session_root" -type f -name "rollout-*-${session_id}.jsonl" 2>/dev/null | head -1)" || found_file=""
+  fi
+
+  # Also inspect archived rollouts and validate the embedded id. Newer Codex
+  # builds maintain additional metadata layers, so filename-only matching is
+  # intentionally not the sole capture strategy.
+  if [[ -z "$found_file" ]]; then
+    local codex_root="${CODEX_HOME:-$HOME/.codex}"
+    while IFS= read -r candidate; do
+      [[ -n "$candidate" ]] || continue
+      local embedded_id
+      embedded_id="$(head -1 "$candidate" 2>/dev/null | jq -r '.payload.id // .payload.thread_id // empty' 2>/dev/null)" || embedded_id=""
+      if [[ "$embedded_id" == "$session_id" ]]; then
+        found_file="$candidate"
+        break
+      fi
+    done < <(find "$codex_root/sessions" "$codex_root/archived_sessions" -type f -name 'rollout-*.jsonl' 2>/dev/null)
   fi
 
   if [[ -n "$found_file" && -f "$found_file" ]]; then

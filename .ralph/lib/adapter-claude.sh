@@ -71,12 +71,19 @@ provider_oneshot() {
   # stdout + stderr 合并写入 provider.stdout.log（stderr 罕见；diagnose 用 ^{ 前缀过滤）
   "${claude_cmd[@]}" > "$log_path" 2>>"$log_path" || rc=$?
 
-  # 从 stream-json events 末尾找 result 事件，is_error=true 视为 provider 失败
-  if [[ "$rc" -eq 0 && -f "$log_path" ]]; then
+  # 从 stream-json events 末尾找 result 事件，is_error=true 视为 provider 失败。
+  # 终态字段即使 provider 返回非零也要记录，便于区分失败类型。
+  if [[ -f "$log_path" ]]; then
     local _is_err
     _is_err="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
       | jq -r 'select(.type == "result") | .is_error // false' 2>/dev/null \
       | tail -1)"
+    if [[ -n "$_is_err" ]]; then
+      local _terminal_status="success"
+      [[ "$_is_err" == "true" ]] && _terminal_status="error"
+      update_meta_jq "$round_dir" '.terminal_event = "result" | .terminal_status = $s' \
+        --arg s "$_terminal_status"
+    fi
     [[ "$_is_err" == "true" ]] && rc=1
   fi
 

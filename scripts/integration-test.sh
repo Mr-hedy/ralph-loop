@@ -1385,6 +1385,9 @@ stdout_ok=0
 session_ok=0
 grep -qE '"session_id":[[:space:]]*"[0-9a-f-]{36}"' "$round_dir/meta.json" 2>/dev/null && session_ok=1
 history_ok=0
+terminal_ok=0
+[[ "$(jq -r '.terminal_event // empty' "$round_dir/meta.json" 2>/dev/null)" == "result" \
+   && "$(jq -r '.terminal_status // empty' "$round_dir/meta.json" 2>/dev/null)" == "success" ]] && terminal_ok=1
 # session.history.log 取代 chat.log + tools.log，含 user / assistant / thinking / tool-use / tool-result
 [[ -f "$round_dir/session.history.log" ]] && \
   grep -q '\[user\]' "$round_dir/session.history.log" && \
@@ -1395,10 +1398,10 @@ history_ok=0
   grep -q '"content":"xxxxxxxx' "$round_dir/session.claude.jsonl" && \
   grep -q '\[tool-result name=' "$round_dir/session.history.log" && history_ok=1
 if [[ "$rc" -eq 0 && "$reason" == "done" && "$stdout_ok" -eq 1 && "$session_ok" -eq 1 \
-   && "$history_ok" -eq 1 ]]; then
+   && "$history_ok" -eq 1 && "$terminal_ok" -eq 1 ]]; then
   _pass "claude happy: exit 0, done, stream-json result event, session_id UUID, session.history.log derived"
 else
-  _fail "claude happy: rc=$rc reason=$reason stdout_ok=$stdout_ok session_ok=$session_ok history_ok=$history_ok"
+  _fail "claude happy: rc=$rc reason=$reason stdout_ok=$stdout_ok session_ok=$session_ok history_ok=$history_ok terminal_ok=$terminal_ok"
 fi
 cleanup_claude_ws
 
@@ -2380,6 +2383,10 @@ cleanup_codex_ws
 	# ────────────────────────────────
 	# Gemini adapter（I4 QA-1）
 	# ────────────────────────────────
+	# Gemini is currently disabled at the public entry point. Keep the historical
+	# fixtures below for future re-integration, but do not run them in the current
+	# release gate.
+	if false; then
 
 	SETUP_GEMINI_WS=""
 	SETUP_GEMINI_BIN=""
@@ -2695,6 +2702,9 @@ EOF
 	  _fail "gemini+jq both missing: rc=$rc runs=$runs_count stderr=$stderr_out"
 	fi
 	cleanup_gemini_ws
+	else
+	  echo "  [SKIP] Gemini adapter tests: provider temporarily disabled"
+	fi
 
 	# ── Sticky UI (I5 QA-1) ───────────────────────────────────────────────────
 

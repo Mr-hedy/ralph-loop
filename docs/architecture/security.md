@@ -18,8 +18,8 @@ Ralph 是无人值守的 oneshot harness，每轮都必须跑到 provider 自然
 | provider | 绕过 approval 的 flag | 额外约束 |
 |---|---|---|
 | Claude | `--dangerously-skip-permissions` + `--allowedTools "Bash,Read,Edit,Write,Glob,Grep"` | 白名单固定，不做开关 |
-| Codex  | `codex exec` + `--sandbox workspace-write`（等价 `--full-auto`） | 保留 Codex 自带 sandbox；禁止升级到 `danger-full-access` |
-| Gemini | `--approval-mode=yolo`（等价旧 `--yolo`，已 deprecated） | `yolo` 会跳过所有工具确认 |
+| Codex  | `codex exec` + `--sandbox danger-full-access` | 为允许 oneshot 完成 `git add/commit`；Ralph 外层固定 workspace、lock、timeout 和进程树清理 |
+| Gemini | 暂停支持 | adapter 保留，公共入口不接受该 provider |
 
 稳定契约（NFR-SEC-002）：
 
@@ -73,7 +73,7 @@ Ralph 工具本身不对 session 文件做脱敏，因为 provider 的 transcrip
 | 面 | 风险 | 缓解 |
 |---|---|---|
 | `.ralph/.env` | 注入 shell 代码 | 逐行解析 + `RALPH_` 前缀白名单（TC-STK-003） |
-| `.ralph/PROMPT.md` | 恶意 prompt 驱动 agent 做越权操作 | workspace 信任域 + provider sandbox（Codex `workspace-write`） |
+| `.ralph/PROMPT.md` | 恶意 prompt 驱动 agent 做越权操作 | workspace 信任域 + Ralph 运行边界（Codex 使用 `danger-full-access`，风险由使用者承担） |
 | provider CLI | 升级改变 flag 或 session 路径 | adapter 版本锚点 + session 采集降级为 warning（REQ-006） |
 | session 文件泄露 | 提交到公共仓库 | `.ralph/.gitignore` 建议 + 本条文档显式声明不入仓 |
 | 并发破坏 | 多个 `ralph run` 同时写 `runs/` | `flock` 独占 `.ralph/lock`，冲突快速退出 `locked`（REQ-012） |

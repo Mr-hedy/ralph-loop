@@ -461,6 +461,20 @@ ralph_run() {
   max_retry="${RALPH_LOOP_MAX_RETRY:-$max_retry}"
   retry_schedule="${RALPH_LOOP_RETRY_SCHEDULE:-$retry_schedule}"
 
+  # Gemini is retained for later re-integration, but is intentionally disabled
+  # at the public entry point until a current real-provider smoke pass exists.
+  case "$provider" in
+    claude|codex|fake) ;;
+    gemini)
+      echo "${_STARTUP_FAIL_PREFIX} provider 'gemini' is temporarily disabled; use claude or codex" >&2
+      exit 1
+      ;;
+    *)
+      echo "${_STARTUP_FAIL_PREFIX} unsupported provider: ${provider:-<empty>} (choices: claude, codex, fake)" >&2
+      exit 1
+      ;;
+  esac
+
   # 载入 adapter（设置 RALPH_PROVIDER_CLI）
   local adapter_file="$workspace/.ralph/lib/adapter-${provider:-fake}.sh"
   if [[ -f "$adapter_file" ]]; then

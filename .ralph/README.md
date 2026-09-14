@@ -1,8 +1,10 @@
 # `.ralph/` 新手使用手册
 
 `.ralph/` 是 ralph-loop 的完整部署单元。你把这个目录复制到自己的 git
-workspace 里，就可以让 Claude / Codex / Gemini CLI 按 `.ralph/TASKS.md`
+workspace 里，就可以让 Claude / Codex CLI 按 `.ralph/TASKS.md`
 里的任务一轮一轮工作。
+
+> 当前正式支持的 provider 只有 Claude Code 和 Codex CLI。Gemini adapter 暂时保留但公共入口已禁用，文中相关段落仅作历史参考。
 
 最短路径：
 
@@ -442,7 +444,7 @@ provider 临时失败时最多重试 5 次：
 
 | 参数 | `.env` 变量 | 默认 | 说明 |
 |---|---|---|---|
-| `--provider <name>` | `RALPH_PROVIDER` | 无 | 必填，`claude` / `codex` / `gemini` / `fake` |
+| `--provider <name>` | `RALPH_PROVIDER` | 无 | 必填，`claude` / `codex` / `fake`；Gemini 暂停支持 |
 | `--model <name>` | `RALPH_PROVIDER_MODEL` | 无 | 传给 provider 的模型名 |
 | `--effort <level>` | `RALPH_PROVIDER_EFFORT` | 无 | `low` / `medium` / `high` / `none` |
 | `--max-round <n>` | `RALPH_LOOP_MAX_ROUND` | `0` | 单个 task 最多 round 数，0 表示无限 |
@@ -457,7 +459,7 @@ provider 临时失败时最多重试 5 次：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `RALPH_PROVIDER_CONFIG_DIR` | 无 | 隔离 provider 配置目录，Claude/Codex/Gemini adapter 会翻译成对应原生目录 |
+| `RALPH_PROVIDER_CONFIG_DIR` | 无 | 隔离 provider 配置目录，Claude/Codex adapter 会翻译成对应原生目录 |
 | `RALPH_PROGRESS_HEARTBEAT_SEC` | `60` | 普通文本模式 heartbeat 间隔，设成 `0` 关闭 |
 | `RALPH_UI_STICKY_EVENT_LINES` | `6` | sticky 事件区行数 |
 | `RALPH_UI_HEALTH_GREEN_SEC` | `60` | provider 日志静默超过该秒数后健康灯变黄 |

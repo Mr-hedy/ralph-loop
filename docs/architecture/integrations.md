@@ -13,7 +13,7 @@
 
 - Claude Code：`2.1.114`
 - Codex CLI：`0.125.0`（CLI）；Desktop app 内核 `0.128.0-alpha.1`
-- Gemini CLI：`0.39.1`
+- Gemini CLI：当前未纳入支持矩阵（adapter 保留，入口暂时禁用）
 
 参考资料：
 

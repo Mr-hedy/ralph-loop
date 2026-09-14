@@ -23,7 +23,6 @@
 | jq | meta.json 写入 |
 | Claude CLI (`claude`) | Claude provider CLI —— 参考 [安装文档](https://docs.anthropic.com/en/docs/claude-code) |
 | Codex CLI (`codex`) | Codex provider CLI |
-| Gemini CLI (`gemini`) | Gemini provider CLI |
 
 ### 1. 部署到 workspace
 
@@ -38,7 +37,7 @@ cp -r <ralph-loop-repo>/.ralph/ <your-workspace>/.ralph/
 在 workspace 根创建 `.ralph/.env`（最小配置）：
 
 ```bash
-RALPH_PROVIDER=claude                         # claude / codex / gemini
+RALPH_PROVIDER=claude                         # claude / codex
 # 可选：
 # RALPH_PROVIDER_EFFORT=low              # low / medium / high / none（默认不传）
 # RALPH_LOOP_MAX_ROUND=20                # 单任务最大 round 数，0 = 无限（默认 0）

@@ -81,7 +81,7 @@ ralph help    # 帮助
 
 | Flag | 值 | 环境变量 | `.env` 字段 | 默认 | 说明 |
 |---|---|---|---|---|---|
-| `--provider` | `claude\|codex\|gemini\|fake` | `RALPH_PROVIDER` | `RALPH_PROVIDER` | **无默认**（必需） | provider 绑定；run 生命周期内不变 |
+| `--provider` | `claude\|codex\|fake` | `RALPH_PROVIDER` | `RALPH_PROVIDER` | **无默认**（必需） | provider 绑定；run 生命周期内不变；Gemini 暂停支持 |
 | `--model` | provider 原生 model 名 | `RALPH_PROVIDER_MODEL` | `RALPH_PROVIDER_MODEL` | 空 → 不传 | 留空由 provider CLI 走自身默认 |
 | `--effort` | `low\|medium\|high\|none` | `RALPH_PROVIDER_EFFORT` | `RALPH_PROVIDER_EFFORT` | 空或 `none` → 不传 | adapter 翻译到原生 flag |
 | `--max-round` | 整数 | `RALPH_LOOP_MAX_ROUND` | `RALPH_LOOP_MAX_ROUND` | `0`（不限） | **Per-task** 上限；0 表示不限 |
@@ -228,6 +228,8 @@ round dir **4 文件契约** —— 详细命名约定见 [`integrations.md#roun
   "provider": "codex",
   "session_id": "abc-...",
   "provider_started_at": "2026-04-24T10:03:12Z",
+  "terminal_event": "turn.completed",
+  "terminal_status": "success",
   "runtime_block": "run_id: ...\nround: 3\nstart_sha: ...\nworkspace: ...",
   "session_source_path": "/home/.../rollout-...jsonl",
   "session_copied_path": ".ralph/runs/.../round-003/session.codex.jsonl",

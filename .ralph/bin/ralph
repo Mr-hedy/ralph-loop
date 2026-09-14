@@ -50,7 +50,7 @@ until a stop condition is reached.
 
 Options:
   --provider <name>        Provider to use (env: RALPH_PROVIDER)
-                           Required. Choices: claude, codex, gemini, fake.
+                           Required. Choices: claude, codex, fake.
   --model <name>           Model name passed to provider (env: RALPH_PROVIDER_MODEL)
   --effort <level>         Effort level: low|medium|high|none (env: RALPH_PROVIDER_EFFORT)
   --max-round <n>          Max rounds per task; 0 = unlimited
