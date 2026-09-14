@@ -266,7 +266,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 - 关联流程：BPF-001、BPF-002
 - 用户故事：作为维护者，我希望用 `.ralph/bin/ralph run` 驱动一轮长任务循环，以便让 agent 按 TASKS.md 顺序处理任务并沉淀证据。
 - 输入：
-  - CLI flag：`--provider=<claude|codex|gemini|fake>`、`--model=<name>`、`--effort=<low|medium|high|none>`、`--max-round=N`、`--round-timeout=SEC`（flag 均可选；provider 必须最终由 CLI/env/.env 之一提供；Gemini adapter 已由 I4 实现）
+  - CLI flag：`--provider=<claude|codex|fake>`、`--model=<name>`、`--effort=<low|medium|high|none>`、`--max-round=N`、`--round-timeout=SEC`（flag 均可选；provider 必须最终由 CLI/env/.env 之一提供。Gemini adapter 已由 I4 实现但**暂停接入**，当前取值不含 `gemini`——入口在启动校验阶段拒绝，见 REQ-028）
   - 环境变量：`RALPH_PROVIDER` / `RALPH_PROVIDER_MODEL` / `RALPH_PROVIDER_EFFORT` / `RALPH_LOOP_MAX_ROUND` / `RALPH_LOOP_ROUND_TIMEOUT`
   - 文件：`.ralph/.env`（`RALPH_*` 字段）
 - 输出：
@@ -356,7 +356,9 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
   - session 定位：从 stdout JSONL 取 `thread.started.thread_id`，在 `${CODEX_HOME:-$HOME/.codex}/sessions/` 下递归匹配 `rollout-*-<thread_id>.jsonl`
   - 错误诊断：`turn.failed.error.message` 优先，`error` 事件和 stderr 非 JSON 行作为回退；关键字匹配 `auth` / `rate_limit` / `quota` / `network` / `api` / `unknown`
 
-### FR-007：Gemini adapter
+### FR-007：Gemini adapter（暂停接入）
+
+> REQ-028 之后 `gemini` 不再是公开入口的合法取值，本节描述的 adapter 行为当前不可达，保留作为未来重新接入时的设计记录。
 
 - 来源需求：REQ-004、REQ-005、REQ-006、REQ-014
 - 关联流程：BPF-001

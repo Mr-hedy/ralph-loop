@@ -24,6 +24,11 @@
 | Claude CLI (`claude`) | Claude provider CLI —— 参考 [安装文档](https://docs.anthropic.com/en/docs/claude-code) |
 | Codex CLI (`codex`) | Codex provider CLI |
 
+这是当前生效的 provider 支持矩阵：公共入口只接受 `claude` / `codex` / `fake`，
+`gemini` 在启动校验阶段即被拒绝（exit 1，不产生 run 目录）。权限边界
+（Codex 固定 `--sandbox danger-full-access`，不限于 workspace 内）与审计路径见
+`.ralph/README.md` §Provider 权限边界与审计证据 和 `docs/architecture/security.md`。
+
 ### 1. 部署到 workspace
 
 ```bash
@@ -46,8 +51,9 @@ RALPH_PROVIDER=claude                         # claude / codex
 # RALPH_PROVIDER_MODEL=<name>            # 覆盖 provider 默认模型
 # RALPH_PROVIDER_CONFIG_DIR=~/.claude-x  # 用独立账号 / API 配置跑 ralph
                                          # ralph 自动翻译为 provider 原生变量：
-                                         # Claude → CLAUDE_CONFIG_DIR；Codex → CODEX_HOME；Gemini → GEMINI_CLI_HOME
+                                         # Claude → CLAUDE_CONFIG_DIR；Codex → CODEX_HOME
                                          # 该目录必须已包含对应 provider 登录态 / 配置
+                                         # 只改变凭据/配置来源，不改变权限或沙箱模式
 ```
 
 按需裁剪 `.ralph/TASKS.md`（样板含 hello-world 示例；ralph 只识别顶层 `- [ ]` / `- [x]`，子 bullet 供 agent 读）。

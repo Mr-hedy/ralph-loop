@@ -4,7 +4,10 @@
 workspace 里，就可以让 Claude / Codex CLI 按 `.ralph/TASKS.md`
 里的任务一轮一轮工作。
 
-> 当前正式支持的 provider 只有 Claude Code 和 Codex CLI。Gemini adapter 暂时保留但公共入口已禁用，文中相关段落仅作历史参考。
+> 当前正式支持的 provider 只有 Claude Code 和 Codex CLI（测试另可用 `fake`）。
+> Gemini adapter 保留在 `lib/` 供未来重新接入，但公共入口已禁用：传
+> `--provider gemini` 会在启动校验阶段失败（exit 1）且不产生任何 run 目录。
+> 文中相关段落均标注为暂停接入，仅作历史参考。
 
 最短路径：
 
@@ -34,8 +37,20 @@ Ralph 只做一件事：反复启动 provider CLI 的 fresh oneshot，让 agent 
 
 - Provider CLI 会读取你的 workspace，并按任务修改文件。
 - Ralph 协议要求 agent 每轮完成后执行 `git add -A && git commit`。
-- Codex adapter 为了允许 `.git/` 写入，会使用 `--sandbox danger-full-access`。
-- 不要在含有未提交秘密、生产凭据或不想让 AI 读取的目录里直接运行 Ralph。
+- **Codex 的权限范围不止 workspace**：Codex adapter 为了允许 `.git/` 写入，固定使用
+  `--sandbox danger-full-access`。该取值移除本地沙箱限制，模型生成的 shell 命令以你
+  当前用户身份执行，不受 workspace 边界约束。Ralph 外层固定的是"哪个 workspace、
+  哪份任务清单、写到哪个 run 目录"，不是 agent 的文件系统可达范围。
+- **Claude 的权限范围同样不止 workspace**：adapter 固定使用
+  `--dangerously-skip-permissions`，即绕过全部 permission 检查（等价
+  `--permission-mode bypassPermissions`），所有工具调用都会直接执行。同一命令行里的
+  `--allowedTools "Bash,Read,Edit,Write,Glob,Grep"` 只是"无需询问"清单，在该模式下
+  **不生效**，所以它不是能力边界——请不要把那个 6 项清单当作 Claude 的权限收敛。
+- 不要在含有未提交秘密、生产凭据或不想让 AI 读取的目录里直接运行 Ralph；也不要在
+  "agent 越界写入会造成不可接受损失"的机器状态下运行。
+
+这些权限参数写死在 adapter 源码里，`.env` 和 CLI flag 都改不了。审计方式见下文
+[Provider 权限边界与审计证据](#provider-权限边界与审计证据)。
 
 ## 目录里有什么
 
@@ -105,7 +120,6 @@ ls .ralph/runs .ralph/status.json .ralph/lock .ralph/.env 2>/dev/null
 ```bash
 claude --version
 codex --version
-gemini --version
 ```
 
 只用其中一个也可以。你打算用哪个 provider，就保证哪个命令能在当前终端正常
@@ -115,8 +129,10 @@ Provider 认证提示：
 
 - Claude: 先按 Claude Code CLI 自己的方式登录。
 - Codex: 先按 Codex CLI 自己的方式登录，或在 CI 里配置 `CODEX_API_KEY`。
-- Gemini: 需要 `~/.gemini/settings.json` 里有 auth method，或配置
-  `GEMINI_API_KEY` / `GOOGLE_GENAI_USE_VERTEXAI` / `GOOGLE_GENAI_USE_GCA`。
+- Gemini: **暂停接入**（见下文 FAQ）。adapter 仍在 `lib/` 里，但公共入口不接受
+  `--provider gemini`，因此现在不需要为 Gemini 配认证。历史要求是
+  `~/.gemini/settings.json` 里有 auth method，或配置 `GEMINI_API_KEY` /
+  `GOOGLE_GENAI_USE_VERTEXAI` / `GOOGLE_GENAI_USE_GCA`。
 
 ### 4. 创建 `.ralph/.env`
 
@@ -148,17 +164,6 @@ RALPH_LOOP_STALL_LIMIT=5
 EOF
 ```
 
-Gemini 示例：
-
-```bash
-cat > .ralph/.env <<'EOF'
-RALPH_PROVIDER=gemini
-RALPH_LOOP_MAX_ROUND=0
-RALPH_LOOP_ROUND_TIMEOUT=0
-RALPH_LOOP_STALL_LIMIT=5
-EOF
-```
-
 Fake 示例，只用于测试 Ralph 本身，不会调用真实 AI：
 
 ```bash
@@ -167,8 +172,10 @@ RALPH_PROVIDER=fake
 EOF
 ```
 
-Fake provider 只适合检查 Ralph 的循环和状态文件，不代表 Claude / Codex /
-Gemini 真实可用。准备 release 或验证真实项目时，必须跑真实 provider。
+Fake provider 只适合检查 Ralph 的循环和状态文件，不代表 Claude / Codex 真实可用。
+准备 release 或验证真实项目时，必须跑真实 provider。
+
+Gemini 暂停接入，写 `RALPH_PROVIDER=gemini` 会在启动阶段直接失败，不产生 run。
 
 `.env` 规则：
 
@@ -229,7 +236,6 @@ Ralph 只识别顶层 checkbox：
 ```bash
 ./.ralph/bin/ralph run --provider claude
 ./.ralph/bin/ralph run --provider codex
-./.ralph/bin/ralph run --provider gemini
 ```
 
 启动后不要急着改 `.ralph/TASKS.md`。等当前 round 结束，再看结果。
@@ -337,16 +343,17 @@ cat .ralph/runs/<run_id>/rounds/round-001/session.history.log
 ```bash
 ./.ralph/bin/ralph run --provider claude
 ./.ralph/bin/ralph run --provider codex
-./.ralph/bin/ralph run --provider gemini
 ./.ralph/bin/ralph run --provider fake
 ```
+
+`--provider` 只接受这三个值；其他取值（含 `gemini`）会在启动校验阶段被拒绝，
+exit 1，且不创建 run 目录。
 
 带模型：
 
 ```bash
 ./.ralph/bin/ralph run --provider claude --model sonnet
 ./.ralph/bin/ralph run --provider codex --model gpt-5.2
-./.ralph/bin/ralph run --provider gemini --model gemini-2.5-pro
 ```
 
 带推理强度：
@@ -444,7 +451,7 @@ provider 临时失败时最多重试 5 次：
 
 | 参数 | `.env` 变量 | 默认 | 说明 |
 |---|---|---|---|
-| `--provider <name>` | `RALPH_PROVIDER` | 无 | 必填，`claude` / `codex` / `fake`；Gemini 暂停支持 |
+| `--provider <name>` | `RALPH_PROVIDER` | 无 | 必填，只接受 `claude` / `codex` / `fake`；其他取值（含 `gemini`）启动即失败，exit 1 |
 | `--model <name>` | `RALPH_PROVIDER_MODEL` | 无 | 传给 provider 的模型名 |
 | `--effort <level>` | `RALPH_PROVIDER_EFFORT` | 无 | `low` / `medium` / `high` / `none` |
 | `--max-round <n>` | `RALPH_LOOP_MAX_ROUND` | `0` | 单个 task 最多 round 数，0 表示无限 |
@@ -459,11 +466,47 @@ provider 临时失败时最多重试 5 次：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `RALPH_PROVIDER_CONFIG_DIR` | 无 | 隔离 provider 配置目录，Claude/Codex adapter 会翻译成对应原生目录 |
+| `RALPH_PROVIDER_CONFIG_DIR` | 无 | 隔离 provider 配置目录；Claude → `CLAUDE_CONFIG_DIR`，Codex → `CODEX_HOME`。只改变凭据/配置来源，**不改变权限或沙箱模式** |
 | `RALPH_PROGRESS_HEARTBEAT_SEC` | `60` | 普通文本模式 heartbeat 间隔，设成 `0` 关闭 |
 | `RALPH_UI_STICKY_EVENT_LINES` | `6` | sticky 事件区行数 |
 | `RALPH_UI_HEALTH_GREEN_SEC` | `60` | provider 日志静默超过该秒数后健康灯变黄 |
 | `RALPH_UI_HEALTH_RED_SEC` | `300` | provider 日志静默超过该秒数后健康灯变红 |
+
+## Provider 权限边界与审计证据
+
+Ralph 是无人值守循环，所以 provider 不允许弹交互式 approval。各 provider 的
+自动批准/沙箱参数**写死在 adapter 源码里**，`.env`、环境变量和 CLI flag 都无法
+修改或扩大（也没有 `--approval` / `--sandbox` / `--allowedTools` 这类入口）。
+
+| provider | 固定参数 | 权限含义 |
+|---|---|---|
+| Claude | `--dangerously-skip-permissions` + `--allowedTools "Bash,Read,Edit,Write,Glob,Grep"` | 绕过全部 permission 检查，所有工具直接执行。`--allowedTools` 只是免询问清单，在该模式下不生效，**不构成工具限制** |
+| Codex | `codex exec --sandbox danger-full-access` | 移除本地沙箱限制，shell 命令以当前用户身份执行，**不受 workspace 边界约束** |
+| Gemini | 无（暂停接入） | 入口拒绝，不会执行 |
+
+一句话总结：**两条真实路径都等于"以你的用户身份无限制执行"，Ralph 没有 provider 侧
+的能力收窄层。**
+
+Codex 为什么用 `danger-full-access`：ralph 协议要求 agent 每轮执行
+`git add -A && git commit`，而 `workspace-write` 会禁止写 `.git/index.lock`。
+
+审计时需要看什么：
+
+```bash
+# 1. 实际生效的权限参数（确认部署副本没有被改动）
+grep -n 'danger-full-access\|dangerously-skip-permissions\|allowedTools' .ralph/lib/adapter-*.sh
+
+# 2. 本次 run 用的是哪一版 provider CLI、哪些配置来源
+cat .ralph/runs/<run_id>/context.json
+
+# 3. 单轮发生了什么（退出码、终态、错误类别、采集状态）
+cat .ralph/runs/<run_id>/rounds/round-001/meta.json
+```
+
+权限参数本身**不会**写进 `meta.json`——它们是静态常量，不随 run 变化。若你需要
+"每次 run 都带权限指纹"，当前只能靠第 1 步的源码检查 + 部署副本的 git 版本。
+权威表述见 `docs/architecture/security.md` §Approval / Sandbox 固定策略与
+§权限参数的审计路径。
 
 ## 退出原因怎么处理
 
@@ -556,9 +599,18 @@ printf 'RALPH_PROVIDER=claude\n' > .ralph/.env
 - [ ] 写代码并提交。
 ```
 
-### Gemini 提示没有 auth method
+### `--provider gemini` 直接失败
 
-先配置 Gemini CLI 认证。常见错误会提到：
+Gemini 暂停接入。你现在会看到：
+
+```text
+ralph: startup check failed: provider 'gemini' is temporarily disabled; use claude, codex or fake
+```
+
+这是预期行为，进程 exit 1，且不会创建 `.ralph/runs/`、`.ralph/lock`、
+`.ralph/status.json`。改回 `--provider claude` 或 `--provider codex` 即可。
+
+下面的内容只在未来重新接入 Gemini 后才适用（历史记录）：Gemini CLI 认证失败时常见错误是
 
 ```text
 Please set an Auth method in your ~/.gemini/settings.json

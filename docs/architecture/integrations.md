@@ -1,8 +1,8 @@
 # Integrations
 
-- 状态：已确认（I2 DEV-1 校准 2026-05-03 / I4 DEV-1 校准 2026-05-04）
-- 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-005 / REQ-006 / REQ-011 / FR-006 / FR-008 / NFR-SEC-002）、2026-04-20 三家官方文档、I2 DEV-1 本机 CLI help 与会话目录观测（2026-05-03）、I4 DEV-1 本机 Gemini CLI help 与会话目录观测（2026-05-04）、OpenAI 官方 non-interactive mode / command line options / config reference 文档。
-- 范围：本文定义 Ralph harness 与三个外部 provider CLI（Claude Code / Codex CLI / Gemini CLI）的集成契约：命令构造、session 采集、错误诊断关键字、UUID 依赖和降级策略。跨 provider 的公共主循环、运行目录 schema 在 [`overview.md`](./overview.md)；approval/sandbox 的安全边界在 [`security.md`](./security.md)。本文不重写需求正文、不描述 adapter 之外的命令封装形式。
+- 状态：已确认（I2 DEV-1 校准 2026-05-03 / I4 DEV-1 校准 2026-05-04）；**支持矩阵只有 Claude Code 与 Codex CLI 两家**，Gemini 段落标记为暂停接入的历史记录（REQ-028）。
+- 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-005 / REQ-006 / REQ-011 / FR-006 / FR-008 / NFR-SEC-002 / REQ-028 / REQ-029 / REQ-030 / REQ-031）、2026-04-20 三家官方文档、I2 DEV-1 本机 CLI help 与会话目录观测（2026-05-03）、I4 DEV-1 本机 Gemini CLI help 与会话目录观测（2026-05-04）、OpenAI 官方 non-interactive mode / command line options / config reference 文档。
+- 范围：本文定义 Ralph harness 与外部 provider CLI 的集成契约：命令构造、session 采集、错误诊断关键字、UUID 依赖和降级策略。**当前生效范围是 Claude Code 与 Codex CLI**；Gemini CLI 的内容只作为"adapter 保留、入口禁用"的历史契约存在，不构成当前支持声明。跨 provider 的公共主循环、运行目录 schema 在 [`overview.md`](./overview.md)；approval/sandbox 的安全边界在 [`security.md`](./security.md)。本文不重写需求正文、不描述 adapter 之外的命令封装形式。
 - 变更条件：任一 provider CLI 升级改变 session 路径、事件格式或 flag 语义；新增第四个 provider；NFR-SEC-002 变更导致 approval 策略调整；`.ralph/runs/` 布局变化影响 session 拷贝位置。
 
 ## 证据范围
@@ -38,9 +38,8 @@
 
 各 provider native session 文件实例：
 - Claude：`session.claude.jsonl`（从 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/<cwd_hash>/<session_id>.jsonl` 复制；stream-json 模式下与 stdout 事件流内容相同，但保留独立副本作为 30 天后回看 anchor）
-- Codex（T3 落地）：`session.codex.jsonl`（从 `~/.codex/sessions/rollout-*-<thread_id>.jsonl` 复制）
-- Gemini（T4 落地）：`session.gemini.json`（从 `${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/*/chats/*.json` 复制；native session 为 JSON 格式，与其他 provider 的 JSONL 不同；与 `provider.stdout.log` 事件流互补，不可替代）
-- native session 为 JSON 格式，与其他 provider 的 JSONL 不同；与 `provider.stdout.log` 事件流互补，不可替代）
+- Codex（T3 落地）：`session.codex.jsonl`（从 `~/.codex/sessions/rollout-*-<thread_id>.jsonl` 复制；另有归档目录兼容与 id 校验路径，见 REQ-030）
+- Gemini（T4 落地，**暂停接入**）：`session.gemini.json`（从 `${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/*/chats/*.json` 复制；native session 为 JSON 格式，与其他 provider 的 JSONL 不同；与 `provider.stdout.log` 事件流互补，不可替代）
 
 不再保留：
 - `session.<provider>.stdout.<ext>`（与 `provider.stdout.log` 字节相同，重复）
@@ -125,7 +124,7 @@ claude -p "$prompt" \
   --verbose
 ```
 
-`ALLOWED_TOOLS` 固定值：`"Bash,Read,Edit,Write,Glob,Grep"`（NFR-SEC-002 写死，不做开关）。
+`ALLOWED_TOOLS` 固定值：`"Bash,Read,Edit,Write,Glob,Grep"`（NFR-SEC-002 写死，不做开关）。**注意该参数不是工具限制**：`--allowedTools` 是 pre-approve（allow）规则，官方明确 "Allow rules have no effect in `bypassPermissions`"，而本命令同时传了 `--dangerously-skip-permissions`，因此这 6 项清单不构成 Claude 的能力边界（详见 [`security.md` §Approval / Sandbox 固定策略](./security.md#approval--sandbox-固定策略)）。要收窄可用工具需改用 `--tools`（需新 REQ）。
 
 采集步骤：
 
@@ -169,6 +168,7 @@ Codex 文档还说明：
 - `thread.started` 事件含 `thread_id` 字段（与 rollout 文件名中的 session ID 一致）。
 - `codex exec --ephemeral` 会跳过 session rollout 文件持久化。
 - `--full-auto` 已废弃。ralph 使用 `--sandbox danger-full-access`，因为 ralph oneshot 协议要求 agent 执行 `git add -A && git commit`，真实 Codex CLI 的 `workspace-write` 会禁止写 `.git/index.lock`。
+- **`danger-full-access` 的权限含义**：移除本地沙箱限制，模型生成的 shell 命令不再受 workspace 边界约束，以当前用户身份在整机可达范围内执行；REQ-031 的"等同于 workspace 内任意写入权限"是这条的下界。该取值写死在 `adapter-codex.sh`，不随 `.env` / CLI flag 变化。权限语义、风险承担和审计路径的权威表述在 [`security.md` §Approval / Sandbox 固定策略](./security.md#approval--sandbox-固定策略) 与 §权限参数的审计路径；配置目录翻译（`RALPH_PROVIDER_CONFIG_DIR` → `CODEX_HOME`）只影响凭据/配置来源，不影响沙箱模式。`--sandbox` 取值清单来自本机 `codex exec --help`（`read-only` / `workspace-write` / `danger-full-access`）。
 - session ID 可从 picker、`/status` 或 `~/.codex/sessions/` 下的文件获取。
 - `CODEX_API_KEY` 环境变量仅在 `codex exec` 中支持，用于 CI 认证。
 - effort 通过 config key `model_reasoning_effort` 控制（值：`minimal | low | medium | high | xhigh`），CLI 传递方式为 `-c model_reasoning_effort=<value>`；不存在 `--reasoning-effort` flag。
@@ -212,7 +212,9 @@ Ralph 不额外保存 `session.codex.stdout.jsonl`：`--json` stdout 事件流�
 
 Ralph `--effort=low|medium|high` 映射为 `-c model_reasoning_effort=<value>`。`none` 或留空不传。Codex 原生支持 `minimal | low | medium | high | xhigh`，Ralph 不暴露 `minimal` 和 `xhigh`。
 
-## Gemini CLI
+## Gemini CLI（暂停接入）
+
+> 本节是 adapter 保留阶段的历史契约记录。REQ-028 之后 `gemini` 在启动校验阶段即被拒绝（exit 1，不产生 run 目录），公共入口只接受 `claude` / `codex` / `fake`。以下内容描述**若重新接入**时需要满足的采集与诊断契约，不代表当前支持。
 
 ### Session 机制
 
@@ -299,7 +301,7 @@ Gemini `session.history.log` 从 `provider.stdout.log`（`--output-format stream
 - `tool_result`：含 `tool_id` + `status` + `output` 字段，标记为 `[tool-result]`，output 截断 2000 字符
 - `result`：含 `status` + `stats`（total_tokens / tool_calls / duration_ms 等）字段，标记为 `[result]`，无独立 text 字段
 
-## 错误诊断（续 Gemini）
+### 错误诊断（Gemini，暂停接入）
 
 - **Gemini**（I4 DEV-1 校准）：`--output-format stream-json` 模式下，stdout 为 JSONL 事件流，可解析结构化错误事件。退化模式（`text` 或无 `stream-json`）依赖 exit code + stderr 关键字。按以下互斥优先级（case-insensitive）匹配，命中第一条即止：
   1. `401` / `unauthor` / `not logged in` → `auth`
@@ -322,7 +324,7 @@ provider exit code 0 不等于 agent 成功。Ralph 需要按 provider 协议做
   3. `quota` / `credits exhausted` / `billing` → `quota`
   4. `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `fetch failed` / `connection refused` / `network error` → `network`
   5. 其他 provider 明确错误（含 5xx） → `api`
-- **Gemini**：`--output-format stream-json` 模式下从 stdout 事件流诊断；退化时依赖 exit code + stderr 关键字。详细规则见下文 §Gemini CLI 错误诊断。
+- **Gemini**（暂停接入）：`--output-format stream-json` 模式下从 stdout 事件流诊断；退化时依赖 exit code + stderr 关键字。详细规则见上文 §Gemini CLI（暂停接入）→ 错误诊断。真实 `gemini` 入口当前在启动校验即被拒绝，该分支不可达。
 
 诊断结果写入 `rounds/round-NNN/meta.json`，并作为 `result.json` 的聚合错误摘要。
 
@@ -343,7 +345,7 @@ REQ-029 契约（SC-029-1 / SC-029-2）：**进程退出码不等于 provider �
 - `terminal_status=error` 时 adapter 返回非零，run 层按 `provider_failed` 处理；即终态事件可以推翻 CLI 的退出码，反之亦然（exit 0 + 无终态事件仍是 `unknown`）。
 
 证据保留（SC-029-1）：`provider.stdout.log` 是唯一事实源，adapter 只读不写——解析、诊断、派生 `session.history.log` 都不截断、不重写、不删除该文件。截断行（timeout 杀进程、stderr 交错写入、CLI 崩溃）按原文保留；解析时先经 `ralph_json_lines`（`common.sh`）过滤掉结构不完整的行，避免 jq 在非法行上提前退出而丢掉其后的合法事件（jq 1.7 实测行为）。`fake` adapter 无事件流，保持三字段为 `null`。
-...
+
 ## 统一采集输出
 
 每轮目录（每轮只有一个 provider，按 provider 出现对应 session 文件）：

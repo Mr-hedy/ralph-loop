@@ -11,7 +11,7 @@
 ## 全局目标
 
 - 提供一个可被 coding agent 或维护者调用的 shell 工具，让长任务在多轮 fresh oneshot 中可观察、可恢复、可复盘。
-- 覆盖 Claude Code、Codex CLI、Gemini CLI 三家 provider，通过统一 adapter 抽象解耦 provider 差异。
+- 覆盖 Claude Code、Codex CLI 两家 provider（Gemini CLI adapter 保留但暂停接入，公共入口禁用，见 REQ-028），通过统一 adapter 抽象解耦 provider 差异。
 - 工具本身以 shell 实现,降低部署和运行环境成本；不引入包管理器、编译步骤或额外 runtime。
 - 项目文档、方案取舍和实现任务按 `.spec/` 规范沉淀，让后续迭代有稳定事实源。
 
@@ -59,7 +59,7 @@
 ## 架构与专题
 
 - 系统总体架构与稳定契约：[`architecture/overview.md`](./architecture/overview.md)。
-- 外部系统集成（Claude / Codex / Gemini session 采集）：[`architecture/integrations.md`](./architecture/integrations.md)。
+- 外部系统集成（Claude / Codex session 采集；Gemini 为暂停接入的历史契约）：[`architecture/integrations.md`](./architecture/integrations.md)。
 - 安全边界（approval / sandbox 策略）：[`architecture/security.md`](./architecture/security.md)。
 - 阶段规划：[`roadmap.md`](./roadmap.md)。
 

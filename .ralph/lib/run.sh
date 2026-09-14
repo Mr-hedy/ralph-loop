@@ -461,12 +461,13 @@ ralph_run() {
   max_retry="${RALPH_LOOP_MAX_RETRY:-$max_retry}"
   retry_schedule="${RALPH_LOOP_RETRY_SCHEDULE:-$retry_schedule}"
 
-  # Gemini is retained for later re-integration, but is intentionally disabled
-  # at the public entry point until a current real-provider smoke pass exists.
+  # REQ-028：公开入口只接受 claude / codex / fake。Gemini adapter 保留在 lib/
+  # 供未来重新接入，但在拿到当前真实 provider smoke 结论之前，入口一律拒绝：
+  # 该分支位于 lock / run 目录创建之前，因此拒绝时不产生任何 run 产物。
   case "$provider" in
     claude|codex|fake) ;;
     gemini)
-      echo "${_STARTUP_FAIL_PREFIX} provider 'gemini' is temporarily disabled; use claude or codex" >&2
+      echo "${_STARTUP_FAIL_PREFIX} provider 'gemini' is temporarily disabled; use claude, codex or fake" >&2
       exit 1
       ;;
     *)

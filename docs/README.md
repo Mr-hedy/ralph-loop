@@ -12,7 +12,7 @@
 | 项目级需求 | `requirements.md` | 已确认 | 项目全局目标、跨模块边界和模块索引 |
 | 模块需求 | `requirements/ralph-loop/requirements.md` | 已确认 | Ralph harness 模块 REQ-001 ~ REQ-026，22 条决策和 I1 扩展需求完整追踪 |
 | 架构 Overview | `architecture/overview.md` | 已确认 | 系统上下文、CLI 契约、运行目录 schema、adapter 函数签名、退出原因、stagnation、lock、错误诊断类别 |
-| 架构 Integrations | `architecture/integrations.md` | 已确认 | Claude / Codex / Gemini 原生 session 路径、采集命令、退化策略、UUID 依赖 |
+| 架构 Integrations | `architecture/integrations.md` | 已确认 | Claude / Codex 原生 session 路径、采集命令、退化策略、UUID 依赖（Gemini 段落为暂停接入的历史契约） |
 | 架构 Security | `architecture/security.md` | 已确认 | approval/sandbox 固定策略、`.env` 解析约束、secrets 禁入规则、攻击面 |
 | Roadmap | `roadmap.md` | 已确认 | T1→T7 阶段目标、验收口径和风险 |
 | 部署单元 | `../.ralph/PROMPT.md` / `../.ralph/TASKS.md` / `../.ralph/TASKS.bak` | 已确认 | 部署单元 `.ralph/`（bin/ + lib/ + PROMPT.md + TASKS.md + TASKS.bak）通过 `cp -r .ralph/ <workspace>/.ralph/` 一次性部署；TASKS.bak 是 hello world 样例参考 |
