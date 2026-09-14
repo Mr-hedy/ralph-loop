@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RALPH_VERSION="0.1.1"
+
+RALPH_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+RALPH_ROOT="$(cd "$RALPH_BIN_DIR/.." && pwd -P)"
+
+# shellcheck source=../lib/common.sh
+source "$RALPH_ROOT/lib/common.sh"
+
+ralph_version() {
+  local sha
+  sha="$(git rev-parse --short HEAD 2>/dev/null)" || sha="unknown"
+  printf 'ralph %s (%s)\n' "$RALPH_VERSION" "$sha"
+}
+
+ralph_usage() {
+  cat <<'EOF'
+ralph — AI agent loop harness
+
+Usage:
+  ralph <command> [options]
+  ralph --version
+  ralph --help
+
+Commands:
+  run     Start the agent run loop in the current workspace.
+  help    Show this help or help for a subcommand.
+  status  Show current or last run state.
+  watch   Watch run state with a sticky status bar.
+
+Examples:
+  ralph run --provider claude
+  ralph run --provider claude --max-round 5 --round-timeout 120
+  ralph run --help
+
+Run `ralph help <command>` or `ralph <command> --help` for subcommand details.
+EOF
+}
+
+ralph_run_help() {
+  cat <<'EOF'
+Usage:
+  ralph run [options]
+
+Start the agent run loop: reads .ralph/PROMPT.md and .ralph/TASKS.md,
+calls the provider CLI once per round (fresh oneshot), and loops
+until a stop condition is reached.
+
+Options:
+  --provider <name>        Provider to use (env: RALPH_PROVIDER)
+                           Required. Choices: claude, codex, fake.
+                           Any other value is rejected at startup with
+                           exit 1 and no run directory. In particular
+                           `gemini` is temporarily unavailable (its
+                           adapter is kept in lib/ for future
+                           re-integration).
+  --model <name>           Model name passed to provider (env: RALPH_PROVIDER_MODEL)
+  --effort <level>         Effort level: low|medium|high|none (env: RALPH_PROVIDER_EFFORT)
+  --max-round <n>          Max rounds per task; 0 = unlimited
+                           (env: RALPH_LOOP_MAX_ROUND). Default: 0
+  --round-timeout <sec>    Per-round timeout in seconds; 0 = unlimited
+                           (env: RALPH_LOOP_ROUND_TIMEOUT). Default: 0
+  --stall-limit <n>        Consecutive no-progress rounds per task before stall
+                           (env: RALPH_LOOP_STALL_LIMIT). Default: 5
+  --max-retry <n>          Max provider retries on transient errors (env: RALPH_LOOP_MAX_RETRY).
+                           Default: 3. Transient = rate_limit, network.
+  --retry-schedule <"s1 s2 ...">
+                           Backoff schedule in seconds (env: RALPH_LOOP_RETRY_SCHEDULE).
+                           Default: "60 120 300"
+  --verbose, -v            Live-tail provider events to stderr (env: RALPH_VERBOSE=1)
+  --help                   Show this help and exit.
+
+Default progress output goes to stderr. While a provider oneshot is still
+running, ralph prints a heartbeat every 60s with elapsed time and the current
+provider.stdout.log path. Set RALPH_PROGRESS_HEARTBEAT_SEC=0 to disable.
+
+Option priority (highest to lowest): CLI flag > process env > .ralph/.env > default
+
+Exit reasons:
+  done            All tasks completed successfully.
+  provider_failed Provider CLI returned error or is_error=true.
+  timeout         Round exceeded --round-timeout.
+  locked          Another ralph run is already active in this workspace.
+  blocked_by_human First unchecked task is HUMAN-* (automatic on max-round/stall).
+  interrupted     SIGTERM/SIGINT received.
+  startup_failed  Startup validation failed before the run loop began.
+
+Run directory layout (.ralph/runs/<run-id>/):
+  result.json                Run summary (exit_reason, timestamps, last_error).
+  context.json               Startup context snapshot.
+  rounds/round-NNN/          Per-round artifacts:
+    meta.json                Round metadata (session_id, exit_code, timing).
+    provider.stdout.log     Provider stdout + stderr raw stream.
+    session.<prov>.jsonl    Native session transcript (when captured).
+    session.history.log     Human-readable cross-provider view.
+
+Examples:
+  ralph run --provider claude
+  ralph run --provider codex
+  ralph run --provider claude --max-round 3
+  ralph run --provider fake --round-timeout 60 --max-round 10
+EOF
+}
+
+ralph_status_help() {
+  cat <<'EOF'
+Usage:
+  ralph status [options]
+
+Show current or last run state from .ralph/status.json.
+
+Options:
+  --json    Output raw JSON (byte-for-byte from status.json).
+  --help    Show this help and exit.
+
+Output (default):
+  Plain text with all status fields. If no status.json exists,
+  prints "无运行中/已结束的 run" and exits 0.
+
+Examples:
+  ralph status
+  ralph status --json
+EOF
+}
+
+ralph_watch_help() {
+  cat <<'EOF'
+Usage:
+  ralph watch [options]
+
+Watch the current or last run with a sticky status bar.
+
+The display refreshes periodically. Press Ctrl-C to exit watch.
+Ctrl-C only exits watch — it does not affect the running ralph process.
+
+Options:
+  --help           Show this help and exit.
+
+Output:
+  TTY:    Three-section sticky display (top bar + event area + bottom bar),
+          sourced from status.json and provider stdout log.
+          When the run finishes, the final frame stays on screen until Ctrl-C.
+  Non-TTY: One-line status bar snapshot, then exit 0.
+          Use `ralph status` for detailed status fields.
+
+When no status.json exists, prints "no active run" and exits.
+
+Examples:
+  ralph watch
+EOF
+}
+
+ralph_watch_cmd() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --help | -h)         ralph_watch_help; exit 0 ;;
+      --verbose | -v)      ralph_usage_error "unknown flag: $1 (watch uses sticky mode by default in TTY; no -v flag)" ;;
+      --*)                 ralph_usage_error "unknown flag: $1" ;;
+      *)                   ralph_usage_error "unexpected argument: $1" ;;
+    esac
+  done
+
+  # Non-TTY fallback: print one-line watch bar once and exit (SC-024-4).
+  if [[ ! -t 1 ]]; then
+    # shellcheck source=../lib/watch.sh
+    source "$RALPH_ROOT/lib/watch.sh"
+    ralph_watch_once
+    return 0
+  fi
+
+  # shellcheck source=../lib/watch.sh
+  source "$RALPH_ROOT/lib/watch.sh"
+  ralph_watch
+}
+
+ralph_status_cmd() {
+  local json_mode=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --help | -h) ralph_status_help; exit 0 ;;
+      --json)      json_mode=1; shift ;;
+      --*)         ralph_usage_error "unknown flag: $1" ;;
+      *)           ralph_usage_error "unexpected argument: $1" ;;
+    esac
+  done
+
+  local status_file
+  status_file="$(ralph_workspace_root)/.ralph/status.json"
+
+  if [[ "$json_mode" -eq 1 ]]; then
+    if [[ ! -f "$status_file" ]]; then
+      echo "无运行中/已结束的 run"
+      return 0
+    fi
+    cat "$status_file"
+    return 0
+  fi
+
+  # shellcheck source=../lib/status.sh
+  source "$RALPH_ROOT/lib/status.sh"
+  ralph_status
+}
+
+ralph_run_cmd() {
+  # flag 解析：CLI flag > 进程 env > .env > 默认
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --help | -h)         ralph_run_help; exit 0 ;;
+      --verbose | -v)      export RALPH_VERBOSE=1; shift ;;
+      --provider)          export RALPH_PROVIDER="$2"; shift 2 ;;
+      --model)             export RALPH_PROVIDER_MODEL="$2";  shift 2 ;;
+      --effort)            export RALPH_PROVIDER_EFFORT="$2"; shift 2 ;;
+      --max-round)         export RALPH_LOOP_MAX_ROUND="$2";       shift 2 ;;
+      --round-timeout)     export RALPH_LOOP_ROUND_TIMEOUT="$2";  shift 2 ;;
+      --stall-limit)       export RALPH_LOOP_STALL_LIMIT="$2";    shift 2 ;;
+      --max-retry)         export RALPH_LOOP_MAX_RETRY="$2";      shift 2 ;;
+      --retry-schedule)    export RALPH_LOOP_RETRY_SCHEDULE="$2"; shift 2 ;;
+      --*)                 ralph_usage_error "unknown flag: $1" ;;
+      *)                   ralph_usage_error "unexpected argument: $1" ;;
+    esac
+  done
+
+  # shellcheck source=../lib/run.sh
+  source "$RALPH_ROOT/lib/run.sh"
+  ralph_run
+}
+
+ralph_main() {
+  local command="${1:-help}"
+  shift || true
+
+  case "$command" in
+    --version | -v)
+      ralph_version
+      ;;
+    --help | -h)
+      ralph_usage
+      ;;
+    run)
+      ralph_run_cmd "$@"
+      ;;
+    help)
+      local sub="${1:-}"
+      case "$sub" in
+        run)    ralph_run_help ;;
+        status) ralph_status_help ;;
+        watch)  ralph_watch_help ;;
+        "")     ralph_usage ;;
+        *)      ralph_usage >&2; ralph_usage_error "unknown subcommand: $sub" ;;
+      esac
+      ;;
+    status)
+      ralph_status_cmd "$@"
+      ;;
+    watch)
+      ralph_watch_cmd "$@"
+      ;;
+    *)
+      ralph_usage >&2
+      ralph_usage_error "unknown command: $command"
+      ;;
+  esac
+}
+
+ralph_main "$@"

@@ -33,7 +33,7 @@
 - 协作壳已初始化，`.spec/`、`docs/` 结构稳定。
 - Ralph v0.1 需求已收敛为 22 条决策，沉淀在 `requirements.md`（REQ-001 ~ REQ-016）。
 - 架构和稳定契约沉淀在 `docs/architecture/overview.md`；provider 集成细节沉淀在 `docs/architecture/integrations.md`；安全边界沉淀在 `docs/architecture/security.md`。
-- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude,adapter-codex,adapter-gemini}.sh`；部署单元 `.ralph/PROMPT.md` + `.ralph/TASKS.md`（首跑样例）+ `.ralph/TASKS.bak`（hello world 样例）。
+- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude,adapter-codex,adapter-gemini}.sh`；对外部署单元由 `release/<version>/` 构建，包含 `.ralph/`、`.spec/`、agent 入口和 `docs/README.md` 模板。
 - T1（fake 闭环）、T2（Claude adapter + 单轮真实 smoke）、T6（v0.1 闭环 + 使用指南）均已完成。
 
 ## Phased Delivery
@@ -90,7 +90,7 @@
 
 ### 具体交付
 
-- `.ralph/PROMPT.md` + `.ralph/TASKS.md`：作为部署单元 `.ralph/` 的一部分入仓的参考样板。PROMPT.md 是 provider-agnostic 循环协议，承载"一个 task 一个 oneshot"硬约束、TASKS self-mutation 规则（append-only / 不删 / 不伪 `[x]`）、agent 身份澄清（不 schedule 自己 / 不 spawn 例行 subagent）、退出语义说明；**不**烧入 role 系统 / questions hard-block / conductor 概念（属用户业务域扩展，最多注释引用 trantor PROMPT.md 作为外部例子）。TASKS.md 是 ≤20 行 hello-world 起手示例。使用者部署 ralph 时通过 `cp -r .ralph/ <workspace>/.ralph/` 一并带走，按需裁剪。
+- `release/<version>/`：包含 `.ralph/PROMPT.md`、空的 `.ralph/TASKS.md` 初始化模板、`.spec/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md` 文档地图。首次项目会话先建立项目认知和任务事实，再启动 Ralph；开发工程 `.ralph/` 不直接对外复制。
 - `docs/usage.md`（或 `README.md` quickstart 节）：用户 workspace 三件套准备步骤、模板 copy 路径、首跑期望。
 - 真实 multi-task smoke：3+ 条独立小任务（每条产生真实 file diff）的 TASKS.md，Claude 全程跑通到 `exit_reason=done`。
 - 边界场景真实验证：stall 真触发（agent 一轮不动）、max_round 兜底、round_timeout 兜底——T1 fake 验过的兜底逻辑在 Claude 真实长链路下重新验一次。

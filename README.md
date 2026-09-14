@@ -9,7 +9,7 @@
 ## 定位
 
 - 做什么：提供 `ralph run`、`ralph status`、`ralph watch` 等 CLI 能力，围绕使用者 workspace 的 `.ralph/TASKS.md` 组织多轮 agent oneshot 执行。
-- 不做什么：不实现自有 agent 推理、任务规划或代码生成能力；不把 provider session 当作任务完成事实源；不默认 resume provider session；不提供 `ralph init` 或模板生成。
+- 不做什么：不实现自有 agent 推理、任务规划或代码生成能力；不把 provider session 当作任务完成事实源；不默认 resume provider session；运行时不提供 `ralph init`。版本化部署模板由仓库构建脚本生成，而不是由运行中的 Ralph 隐式写入。
 - 谁在用：维护者和 agent 协作者，用于在真实 workspace 中执行长期或多步骤开发任务。
 
 ## 快速开始
@@ -32,10 +32,10 @@
 ### 1. 部署到 workspace
 
 ```bash
-cp -r <ralph-loop-repo>/.ralph/ <your-workspace>/.ralph/
+cp -R <ralph-loop-repo>/release/0.1.1/. <your-workspace>/
 ```
 
-一次性带走 `bin/` + `lib/`（工具代码）+ `PROMPT.md` + `TASKS.md`（参考样板，可裁剪）。
+部署包同时带入 `.ralph/`、`.spec/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md` 文档地图模板。已有同名文件时先人工合并，不要静默覆盖。
 
 ### 2. 配置 workspace
 
@@ -56,18 +56,7 @@ RALPH_PROVIDER=claude                         # claude / codex
                                          # 只改变凭据/配置来源，不改变权限或沙箱模式
 ```
 
-按需裁剪 `.ralph/TASKS.md`（样板含 hello-world 示例；ralph 只识别顶层 `- [ ]` / `- [x]`，子 bullet 供 agent 读）。
-
-按需裁剪 `.ralph/PROMPT.md`（样板含循环协议骨架；ralph 内核不依赖此文件）。
-
-建议在 workspace 的 `.gitignore` 加：
-
-```
-.ralph/runs/
-.ralph/lock
-.ralph/status.json
-.ralph/.env
-```
+首次项目会话先根据用户目标和项目事实补齐 `AGENTS.md`、`docs/README.md` 和任务清单；任务准备好后再运行 Ralph。`.ralph/.gitignore` 已随 release 提供，负责忽略运行态文件和私有配置。
 
 ### 3. 首跑
 
@@ -146,10 +135,10 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 ## 项目边界
 
 - 本仓库是 ralph-loop 工具的**开发工程**。**v0.1 后切换为 dogfood 模式** — 自用 ralph 驱动后续开发；`.ralph/TASKS.md` 是当前任务源。
-- 工具代码位于 `.ralph/bin/`、`.ralph/lib/`；`.ralph/PROMPT.md` + `.ralph/TASKS.md` + `.ralph/TASKS.bak` 入仓；运行时产物 `.ralph/runs/` + `.ralph/lock` + `.ralph/status.json` + `.ralph/.env` gitignore。
+- 对外部署只使用 `release/<version>/`；开发工程中的 `.ralph/` 是 dogfood 工作区，不直接复制到其他项目。
+- release 包含 `.ralph/`、`.spec/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md`；运行时产物由 `.ralph/.gitignore` 排除。
 - Ralph 需求沉淀在 `docs/requirements.md`（项目级）和 `docs/requirements/ralph-loop/requirements.md`（模块级）；架构和外部集成沉淀在 `docs/architecture/`。
 - 历史设计方案放 `docs/requirements/ralph-loop/I<N>-design.md`；历史任务归档放 `I<N>-FINAL-TASK.md`。
-- 长期事实写入 `README.md` 或 `docs/`。
-- 新增、移动、重命名或删除项目文档时，同步更新 `docs/README.md` 和本入口。
+- 项目过程事实写入 `docs/`，并从 `docs/README.md` 保持可发现；根 README 只在项目自身入口内容变化时更新。
 
 <!-- setup complete -->

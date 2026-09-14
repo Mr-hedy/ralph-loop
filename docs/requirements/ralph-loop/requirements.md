@@ -20,7 +20,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 ## 非目标
 
 - 不实现自有 agent 推理、任务规划或代码生成。
-- 不提供 `ralph init` 或任何模板生成行为；ralph 工具运行时**不**写 `.ralph/PROMPT.md` / `.ralph/TASKS.md` / `.ralph/.env`，**不**修改它们做内核控制流（只读取 TASKS.md 任务勾选状态作为运行依据）。使用者通过部署单元 `.ralph/`（含 PROMPT.md + TASKS.md，见 REQ-017）`cp -r` 起手，再自行裁剪/补 `.env` 等私有配置。"用户自行创建"指 user-driven，不是"必须从空白起手"。
+- 运行时不提供 `ralph init`，也不在执行过程中隐式写入 `.ralph/PROMPT.md` / `.ralph/TASKS.md` / `.ralph/.env` 或修改它们作为内核控制流；版本化 release 模板由仓库构建脚本生成，使用者部署后按项目事实完成首次会话初始化。
 - 不把 provider session 当作任务完成事实源；任务完成只以 `.ralph/TASKS.md` 勾选为准。
 - 不默认 resume provider session；每轮都是 fresh oneshot。
 - 不支持全局 `ralph` 命令；只支持 per-workspace 部署。
@@ -79,7 +79,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-005 | Adapter 抽象 | 用统一 shell 函数契约抽象 provider 差异，便于独立实现和替换 | P0-必须 | 协作 | 澄清轮次 2 |
 | REQ-006 | 运行证据沉淀 | 每轮保存 `provider.stdout.log` 原始合流、provider 原生 session 副本、派生 `session.history.log` 视图、changed_files 和 meta | P0-必须 | 功能 | 澄清轮次 1 |
 | REQ-007 | 状态观察 | 提供 `ralph status`（一次性快照）和 `ralph watch`（持续刷新）两个子命令读取当前 run 状态，仅供人类维护者使用；agent oneshot 不调用 watch（自然不进 agent 工具路径，PROMPT.md 不引导）。具体边界见 REQ-023（status）/ REQ-024（watch） | P1-重要 | 功能 | 澄清轮次 1 / I1 扩展 2026-05-01 |
-| REQ-008 | Per-workspace 部署 | 每个使用者 workspace 自带完整 `.ralph/` 部署单元（构成见 REQ-017：`bin/ralph` + `lib/*` + `PROMPT.md` + `TASKS.md` + `TASKS.bak` 部署样例）；不支持全局 `ralph` 命令 | P0-必须 | 约束 | 澄清轮次 3 |
+| REQ-008 | Per-workspace 部署 | 每个使用者 workspace 通过 `release/<version>/` 获得完整部署单元；其中 `.ralph/` 提供 `bin/ralph`、`lib/*`、`PROMPT.md`、空白初始化 `TASKS.md` 与配置模板，不支持全局 `ralph` 命令 | P0-必须 | 约束 | 澄清轮次 3 / 用户裁决 2026-09-14 |
 | REQ-009 | .env 驱动默认值 | 从 `.ralph/.env` 读取 `RALPH_*` 前缀的默认参数；`RALPH_PROVIDER` 必需，其他留空即不传 flag。值以 `~/` 开头时安全展开为 `${HOME}/...`（路径类变量友好）。`.env` 不经 shell 解析，禁止 `source` 或命令替换。中立变量 `RALPH_PROVIDER_CONFIG_DIR`（见 REQ-022）由 adapter 翻译为各 provider 原生环境变量。 | P0-必须 | 功能 | 澄清轮次 3 / I1 dogfood 扩展（2026-04-30）|
 | REQ-010 | 工作目录自定位 | workspace 根由 ralph 脚本路径决定（`$script_dir/../..`），ralph 启动时内部 `cd` 到该目录；不接受 `--cwd` 参数 | P0-必须 | 约束 | 澄清轮次 3 |
 | REQ-011 | 快速失败校验 | 启动时校验 `.ralph/PROMPT.md`、`.ralph/TASKS.md`、`.ralph/.env`（含 `RALPH_PROVIDER`）、git 仓库、provider CLI 可执行；当 `RALPH_PROVIDER=claude` 时同时校验 UUID 生成器可用（TC-INT-003 三路至少一路成功）；任一缺失立即退出 | P0-必须 | 功能 | 澄清轮次 3 |
@@ -88,7 +88,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-014 | Effort 抽象 | `--effort=low\|medium\|high\|none` 由 adapter 翻译到各 provider 原生参数；留空不传 | P1-重要 | 功能 | 澄清轮次 3 |
 | REQ-015 | Provider 绑定 | `--provider` 或 `RALPH_PROVIDER` 在 `ralph run` 启动时绑定，运行中不切换；写入 `status.json` 和 `provider.meta` | P0-必须 | 约束 | 澄清轮次 1 |
 | REQ-016 | Skill 封装（后置） | 后续封装 `ralph-loop` skill，负责在使用者 workspace 初始化 `.ralph/` 结构并正确构造 `ralph run`；不进入 v0.1 范围 | P2-期望 | 协作 | 澄清轮次 3 |
-| REQ-017 | 交付单元 = `.ralph/` 整个目录 | ralph-loop 项目的最终产物是 `.ralph/` 整个目录，含 `bin/ralph`、`lib/*.sh`、`PROMPT.md`（循环协议，本仓库自用 + 部署）、`TASKS.md`（dogfood 任务源 + 部署后由使用者改写）、`TASKS.bak`（hello world 部署样例参考，不被 ralph 识别）。部署方式 = `cp -r .ralph/ <workspace>/.ralph/` 一次性带走全部，使用者把 `TASKS.bak` 重命名为 `TASKS.md` 即可首跑。运行期产物（`runs/`、`lock`、`status.json`）和私有配置（`.env`）由本仓库及使用者外层 `.gitignore` 管理（忽略 `.ralph/runs/`、`.ralph/lock`、`.ralph/status.json`、`.ralph/.env`）。**v0.1 阶段本仓库 `.ralph/` 不含 runtime artifacts；v0.1.1 起本仓库进入 dogfood 模式，会产生 runtime artifacts 但同样按 `.gitignore` 管理**（§非目标 line 30 已更新）。| P0-必须 | 约束 | 澄清轮次 4（2026-04-28）/ I1 dogfood 扩展（2026-04-30）|
+| REQ-017 | 版本化 release 部署单元 | ralph-loop 对外最终产物是 `release/<version>/`，包含 `.ralph/` 运行单元、`.spec/` 协作规范、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md` 文档地图模板。release 不包含开发工程任务状态、运行期 `runs/` / `lock` / `status.json` 或真实 `.env`；部署到外部 workspace 时遇到既有入口文件必须先人工合并，不静默覆盖。开发工程 `.ralph/` 仅供 dogfood。| P0-必须 | 约束 | 用户裁决 2026-09-14 / release 构建实施 |
 | REQ-018 | HUMAN-N 人工阻塞机制 | TASKS.md 第一个未勾选任务前缀是 `HUMAN-` 时，ralph 工具层在每轮启动前扫描发现 → 不调用 provider，直接以 `blocked_by_human`（exit code 7）退出。agent 在 ralph oneshot 内不得勾选或执行 `HUMAN-N` 任务（PROMPT.md 强约束）；普通 Claude Code 对话里不受此约束。机制目的：让 agent 优雅退出，把需求层决策交还给人类，避免猜测/伪装勾选。| P0-必须 | 功能 | I1 设计方案 2026-04-30 |
 | REQ-019 | 退出接力打印 | `ralph run` 退出时（任意 exit_reason）向 stderr 打印格式化总结，含 `run_id` / `exit_reason` / `rounds` / 任务进度 / 阻塞点（如有）/ 接力提示（基于 exit_reason 的下一步建议）；同时落到 `.ralph/runs/<run_id>/exit-message.txt` 方便人类复制粘贴给 main agent。| P1-重要 | 功能 | I1 设计方案 2026-04-30 / release cleanup 2026-05-20 |
 | REQ-020 | Runtime 不暴露迭代元数据 | Ralph runtime 不解析 `.ralph/TASKS.md` 顶部迭代声明，不写 `iteration` / `iterations` / `iteration_name` 字段，不在 `status` / `watch` / `exit-message.txt` 展示迭代信息。Project 自身的 roadmap / 归档编号属于开发文档，不进入 `.ralph/` 发布单元运行契约。| P1-重要 | 协作 | release cleanup 2026-05-20 |

@@ -15,7 +15,7 @@
 | 架构 Integrations | `architecture/integrations.md` | 已确认 | Claude / Codex 原生 session 路径、采集命令、退化策略、UUID 依赖（Gemini 段落为暂停接入的历史契约） |
 | 架构 Security | `architecture/security.md` | 已确认 | approval/sandbox 固定策略、`.env` 解析约束、secrets 禁入规则、攻击面 |
 | Roadmap | `roadmap.md` | 已确认 | T1→T7 阶段目标、验收口径和风险 |
-| 部署单元 | `../.ralph/PROMPT.md` / `../.ralph/TASKS.md` / `../.ralph/TASKS.bak` | 已确认 | 部署单元 `.ralph/`（bin/ + lib/ + PROMPT.md + TASKS.md + TASKS.bak）通过 `cp -r .ralph/ <workspace>/.ralph/` 一次性部署；TASKS.bak 是 hello world 样例参考 |
+| 发布包 | `../release/<version>/` | 已确认 | 对外部署使用版本目录，包含 `.ralph/`、`.spec/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md`；开发工程 `.ralph/` 不直接复制 |
 | 使用指南 | `../README.md#快速开始` | 已确认 | 前置依赖、部署、.env 配置、首跑、结果查看、退出原因速查、v0.1 行为说明 |
 
 ## 模块索引

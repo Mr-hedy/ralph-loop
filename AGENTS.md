@@ -7,45 +7,41 @@
 ## Project Identity
 
 - `ralph-loop` 是 shell-first CLI harness，用 provider CLI fresh oneshot 循环执行使用者 workspace `.ralph/TASKS.md` 中的长任务。
-- **项目最终产物 = `.ralph/` 整个目录**。使用者通过 `cp -r .ralph/ <workspace>/.ralph/` 部署到自己的 project，单一目录单元，不依赖外部安装器。
+- **项目最终产物 = `release/<version>/`**，其中包含 `.ralph/`、`.spec/` 和 agent 入口文件；开发工程中的 `.ralph/` 仅用于 dogfood，不直接对外复制。
 - 本仓库是 ralph-loop 工具的开发工程；当前专项从需求澄清、run loop、provider adapter、status/watch 和 session capture 逐步推进。
 - 项目事实沉淀在 `README.md`、`docs/requirements.md`、`docs/requirements/`、`docs/architecture/`、`.ralph/TASKS.md` 和邻近代码中。
-- 本仓库自 v0.1 后可用 ralph dogfood 推进开发；release 分支中的 `.ralph/TASKS.md` 是可部署首跑样例，真实开发任务以用户请求、handoff、项目文档和显式任务清单为准。root `task.md` 已封版作为 v0.1 历史归档。
+- 本仓库自 v0.1 后使用 `.ralph/TASKS.md` dogfood 推进开发；release 中的 `.ralph/TASKS.md` 是等待首次项目会话补齐的空模板。root `task.md` 已封版作为 v0.1 历史归档。
 
 ## Top Rules
 
 - 保持 `.spec/`、`docs/`、`.ralph/` 和 `.agents/skills/` 的职责分离。
 - `.spec/` 承载协作模型、事实源边界、文档结构、非动作方法、流程质量门和模板。
 - `docs/` 承载项目事实、专题设计和运行过程文档。
-- `.ralph/TASKS.md` 随 `.ralph/` 作为部署首跑样例入仓；root `task.md` 已封版作为 v0.1 历史归档，不再更新；`.ralph/TASKS.bak` 是 hello world 部署样例参考，不被 ralph 识别。
-- `.ralph/` 是部署单元 + 本仓库自用工作目录。入仓边界：`bin/` + `lib/` + `PROMPT.md` + `TASKS.md` + `TASKS.bak` 入仓；`runs/` + `lock` + `status.json` + `.env` 是运行期产物或私有配置，**gitignore**。
+- `.ralph/TASKS.md` 是本仓库 dogfood 任务源；release 构建会生成无顶层任务的初始化模板，不复制本仓库任务状态。
+- `release/<version>/` 是对外部署单元，包含 `.ralph/`、`.spec/`、`AGENTS.md`、`CLAUDE.md` 和文档地图；`runs/`、`lock`、`status.json`、`.env` 不得进入 release 的版本控制内容。
 - `.agents/skills/` 承载带明确运行产物或状态迁移的动作 workflow。
 - 不要把模板占位当成已确认项目事实。
 
 ## Default Orientation
 
-- 进入项目先读 `README.md` 和 `.spec/README.md`，确认项目地图、协作阶段和事实源边界。
+- 进入项目先读 `AGENTS.md`；需要了解项目过程文档时先读 `docs/README.md`，需要了解规范体系时再读 `.spec/README.md`。
 - 执行当前开发任务时先读用户请求、`handoff.md` 和相关项目事实源；只有明确在 dogfood/ralph 任务循环中工作时，才把 `.ralph/TASKS.md` 当作当前任务清单。查询 v0.1 历史读 root `task.md`（已封版）。
+- 需要查阅项目过程文档（需求、方案、架构、测试、研究、复盘、checkpoint）时，先读 `docs/README.md`，再按其中的入口地图打开具体文档；不要从目录猜测事实源。
 - 做 Ralph harness 需求相关工作时读 `docs/requirements/ralph-loop/requirements.md`；做设计或实现时读 `docs/architecture/`（`overview.md` 起步，provider 集成看 `integrations.md`，安全边界看 `security.md`）。
 - 历史 I<N> 设计方案和归档保留在 `docs/requirements/ralph-loop/`；这些编号是项目文档索引，不属于 ralph runtime 契约。
-- 写或移动项目文档时同步 `README.md` 和 `docs/README.md`。
+- 写或移动项目文档时同步 `docs/README.md`；只有根 README 的项目入口内容发生变化时才同步根 `README.md`。
 - 遇到失败、回归、重复错误、校验异常或预防机制问题时，先读 `docs/postmortems/README.md`，再判断是否需要记录 postmortem。
 - 续接、回滚、创建 checkpoint 或判断稳定锚点时，先读 `docs/checkpoints/README.md`。
 
-## 任务类型路由（用于 `.ralph/TASKS.md`）
+## Spec 驱动协作
 
-`.ralph/TASKS.md` 任务前缀决定本轮 mindset 和参考的 `.spec/` 规范段。完整规范在 `.ralph/PROMPT.md`，路由速查：
+本项目使用 `.spec/` 作为协作规范和质量门。需要判断任务类型、适用规则和产出位置时，先阅读 `.spec/README.md`；详细规则位于 `.spec/rules/`，本文件不复制任务路由表。
 
-| 前缀 | 必读 spec |
-|------|-----------|
-| `REQ-N` | `.spec/rules/requirements.md` |
-| `SOL-N` | `.spec/rules/solution.md` |
-| `ROADMAP-N` | `.spec/rules/roadmap.md`（Roadmap 阶段规划） |
-| `PLAN-N` | `.spec/rules/tasks.md` + `.spec/README.md` 阶段 4（任务列表规划，trantor PLAN / sprint planning 同义） |
-| (空) / `DEV-N` | CLAUDE.md + 代码事实（默认） |
-| `QA-N` | `.spec/rules/testing.md` |
-| `REVIEW-N` | `.spec/rules/review.md` 或 `.spec/rules/adversarial-review.md`（任务描述明确） |
-| `HUMAN-N` | 等人类决策 — ralph oneshot 内不可勾选不可执行；普通对话里和人类协作回答 |
+涉及权限、持久化、公开契约、generated output、release 或事实源路由的变更，额外阅读 `.spec/rules/adversarial-review.md`。
+
+## Ralph 集成
+
+本项目使用 Ralph Loop 执行多轮 agent 工作。需要启动、配置、查看状态或排障时，先阅读 `.ralph/README.md`；Ralph 的 oneshot 协议和任务调度由 `.ralph/` 自身管理，本文件不重复其内部逻辑。
 
 ## Runtime 命名边界
 

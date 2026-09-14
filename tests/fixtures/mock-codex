@@ -110,6 +110,55 @@ ENDJSONL
   echo "$rollout_file"
 }
 
+# 写「文件名含 thread_id 但内嵌 id 不同」的活动 rollout
+# 用于验证文件名匹配不再单独构成采集依据（必须按首行内嵌 id 校验内容，REQ-030 / DEV-4）
+_write_named_decoy_session() {
+  local codex_root="${CODEX_HOME:-$HOME/.codex}"
+  local ts y m d
+  ts="$(date -u +"%Y%m%d-%H%M%S")"
+  y="$(date -u +"%Y")"
+  m="$(date -u +"%m")"
+  d="$(date -u +"%d")"
+  local session_dir="$codex_root/sessions/$y/$m/$d"
+  mkdir -p "$session_dir"
+  local rollout_file="$session_dir/rollout-${ts}-${thread_id}.jsonl"
+  cat > "$rollout_file" << ENDJSONL
+{"type":"session_meta","payload":{"id":"thread-decoy-000","cwd":"${received_workspace:-$PWD}","cli_version":"0.125.0"}}
+{"type":"event_msg","payload":{"role":"user","content":"decoy rollout from another thread"}}
+ENDJSONL
+  echo "$rollout_file"
+}
+
+# 写首行被截断（非法 JSON）的活动 rollout，文件名仍含 thread_id
+# 用于验证「候选存在但不可解析」时 oneshot 不崩溃且留下诊断（REQ-030 / DEV-4）
+_write_truncated_session() {
+  local codex_root="${CODEX_HOME:-$HOME/.codex}"
+  local ts y m d
+  ts="$(date -u +"%Y%m%d-%H%M%S")"
+  y="$(date -u +"%Y")"
+  m="$(date -u +"%m")"
+  d="$(date -u +"%d")"
+  local session_dir="$codex_root/sessions/$y/$m/$d"
+  mkdir -p "$session_dir"
+  local rollout_file="$session_dir/rollout-${ts}-${thread_id}.jsonl"
+  # 故意省略收尾花括号：模拟写入中途被截断
+  printf '{"type":"session_meta","payload":{"id":"%s","cwd":"%s"\n' \
+    "$thread_id" "${received_workspace:-$PWD}" > "$rollout_file"
+  echo "$rollout_file"
+}
+
+# 写归档 rollout：首行 session_meta 无 id 字段（只有 cwd）
+# 用于验证归档目录参与 mtime/cwd 降级（REQ-030 / DEV-4）
+_write_archived_session_no_id() {
+  local fname="$1"
+  local codex_root="${CODEX_HOME:-$HOME/.codex}"
+  mkdir -p "$codex_root/archived_sessions" "$codex_root/sessions"
+  local rollout_file="$codex_root/archived_sessions/$fname"
+  printf '{"type":"session_meta","payload":{"cwd":"%s","cli_version":"0.125.0"}}\n' \
+    "${received_workspace:-$PWD}" > "$rollout_file"
+  echo "$rollout_file"
+}
+
 # 勾选 TASKS.md 第 1 条未勾选任务（通过 RALPH_WORKSPACE）
 _check_first_task() {
   if [[ -n "${RALPH_WORKSPACE:-}" ]]; then
@@ -260,6 +309,40 @@ case "$scenario" in
     _emit_item_completed_agent_message "Done."
     _emit_turn_completed
     _write_archived_session "$thread_id" "rollout-20260101-000000-notmatching.jsonl" >/dev/null
+    _check_first_task
+    exit 0
+    ;;
+
+  active_name_decoy)
+    # 活动目录里存在文件名含 thread_id 的同名 rollout，但内嵌 id 是别的 thread；
+    # 真实 rollout 在归档目录。→ 必须拒绝同名诱饵、按内嵌 id 从归档采集（DEV-4）
+    _emit_thread_started
+    _emit_item_completed_agent_message "Done."
+    _emit_turn_completed
+    _write_named_decoy_session >/dev/null
+    _write_archived_session "$thread_id" "rollout-20260101-000000-notmatching.jsonl" >/dev/null
+    _check_first_task
+    exit 0
+    ;;
+
+  truncated_rollout)
+    # 活动目录里只有首行被截断的 rollout（非法 JSON）→ 不可解析候选不得让采集崩溃，
+    # oneshot 仍须完成，并在 capture_warning 留下 unreadable 诊断（DEV-4）
+    _emit_thread_started
+    _emit_item_completed_agent_message "Done."
+    _emit_turn_completed
+    _write_truncated_session >/dev/null
+    _check_first_task
+    exit 0
+    ;;
+
+  archived_no_id_fallback)
+    # session_id 已知，但全库找不到 id 命中的 rollout；归档目录里有一个只有 cwd
+    # 无 id 的 rollout → 归档目录必须参与 mtime/cwd 降级并被采集（DEV-4）
+    _emit_thread_started
+    _emit_item_completed_agent_message "Done."
+    _emit_turn_completed
+    _write_archived_session_no_id "rollout-20260101-000000-noid.jsonl" >/dev/null
     _check_first_task
     exit 0
     ;;
