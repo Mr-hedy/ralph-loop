@@ -24,16 +24,18 @@ prevention_checks:
 
 ## 现象
 
-2026-09-14 DEV-3 round 中，`-- Provider retry: status.json` 用例在 dogfood 环境（本 oneshot 的 shell）稳定失败：
-`[FAIL] retry (status.json): retry_count=0, next_retry_at=null`。
+2026-09-14 DEV-3 round 中，同一次 `bash scripts/integration-test.sh` 出现 2 个在干净环境不出现的失败：
 
-同一用例在干净环境稳定通过。round 的其余用例不受影响，容易让人误判为"本次改动引入了 retry 回归"。
+- `[FAIL] retry (status.json): retry_count=0, next_retry_at=null`
+- `[FAIL] QA-2 multi-round: ... r1=0/0 r2=0/0 ...`（用例断言 `round 1/∞` / `round 2/∞` 标记）
+
+两个用例在干净环境稳定通过。失败项与代码改动无关，但表面上像"本轮引入了 retry / 输出回归"。
 
 ## 根因
 
 - 本机 ralph runtime 给 oneshot 进程导出了 `RALPH_PROVIDER=claude`、`RALPH_LOOP_MAX_RETRY=0`、`RALPH_LOOP_MAX_ROUND=4`、`RALPH_LOOP_STALL_LIMIT=2`、`RALPH_LOOP_ROUND_TIMEOUT=900`、`RALPH_WORKSPACE=<repo>`。
-- 该用例只传 `--provider fake` + `RALPH_LOOP_RETRY_SCHEDULE="5 5"`，把重试次数留给默认值（`RALPH_LOOP_MAX_RETRY` 默认 3）。
-- `load_env` 的优先级契约让进程 env 覆盖 `.env` 与默认值 → 实际 `max_retry=0` → 第一轮失败后不再重试 → `retry_count` 永远为 0。
+- 用例只传 `--provider fake`，把重试次数、max round 留给默认值（`RALPH_LOOP_MAX_RETRY` 默认 3、`RALPH_LOOP_MAX_ROUND` 默认 0=∞）。
+- `load_env` 的优先级契约（CLI flag > 进程 env > `.env`）让宿主导出的值覆盖默认值 → `max_retry=0` 使第一轮失败后不再重试（`retry_count` 恒为 0）；`max_round=4` 使 round 标记从 `round N/∞` 变成 `round N/4`，断言 `∞` 的用例失败。
 - 定位证据：同一份工作树，`env RALPH_LOOP_MAX_RETRY=0` 跑出 `retry_count=0`，`env -u RALPH_LOOP_MAX_RETRY` 跑出 `retry_count=1`；并用 `git archive HEAD` 的纯净副本复现失败，确认与本轮代码改动无关。
 
 ## 修复
