@@ -8,13 +8,18 @@ set -euo pipefail
 
 session_id=""
 received_effort=""
+received_skip_permissions="false"
+received_allowed_tools=""
 
-# 解析 --session-id / --effort flag（其余 flag 忽略）
+# 解析 --session-id / --effort / 权限 flag（其余 flag 忽略）
+# 权限 flag 记录用于 QA-1 的权限审计回归：adapter 源码声明的权限参数必须与实际 argv 一致
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --session-id) session_id="$2";      shift 2 ;;
-    --effort)     received_effort="$2"; shift 2 ;;
-    *)            shift ;;
+    --session-id)   session_id="$2";      shift 2 ;;
+    --effort)       received_effort="$2"; shift 2 ;;
+    --dangerously-skip-permissions) received_skip_permissions="true"; shift ;;
+    --allowedTools) received_allowed_tools="$2"; shift 2 ;;
+    *)              shift ;;
   esac
 done
 
@@ -30,7 +35,8 @@ _cwd_hash() {
 # 输出 stream-json events（stdout，逐行 JSONL）
 # 末尾 result 事件 schema：{type:"result", subtype:"success", is_error:bool, result:str, session_id:str, _received_effort?:str}
 _emit_init() {
-  printf '{"type":"system","subtype":"init","session_id":"%s"}\n' "$session_id"
+  printf '{"type":"system","subtype":"init","session_id":"%s","_received_skip_permissions":%s,"_received_allowed_tools":"%s"}\n' \
+    "$session_id" "$received_skip_permissions" "$received_allowed_tools"
 }
 
 _emit_result_ok() {
@@ -124,6 +130,22 @@ case "$scenario" in
     _emit_init
     _emit_result_ok
     _post_stream_sleep
+    exit 0
+    ;;
+
+  home_decoy)
+    # 采集期（provider_started_at 之后）在真实 HOME config 目录写入与本次 run 同 cwd 的诱饵
+    # session，刻意忽略 CLAUDE_CONFIG_DIR。用于验证 session 采集不会回落到 $HOME/.claude：
+    # 正确实现必须保持 capture_status=warning 且不复制；若实现回落 HOME，mtime 降级会采走诱饵。
+    _emit_init
+    _emit_result_ok
+    cwd_hash="$(_cwd_hash "$PWD")"
+    decoy_dir="$HOME/.claude/projects/$cwd_hash"
+    mkdir -p "$decoy_dir"
+    printf '%s\n' '{"type":"user","message":{"role":"user","content":"decoy session"}}' \
+      > "$decoy_dir/decoy-session.jsonl"
+    _post_stream_sleep
+    _check_first_task
     exit 0
     ;;
 

@@ -2564,6 +2564,248 @@ fi
 cleanup_codex_ws
 
 	# ────────────────────────────────
+	# QA-1：Provider 兼容性与权限 adversarial 回归门
+	# 覆盖 REQ-028（入口收敛）/ REQ-029（非零退出与终态）/ REQ-030（session 采集鲁棒性）/
+	#      REQ-031（权限参数审计）/ REQ-032（回归门本身）
+	# ────────────────────────────────
+
+	# SC-028-1 —— 公开入口只接受 claude / codex / fake；Gemini 必须在启动校验阶段失败，
+	# 且不得留下任何 run 产物（runs 目录 / lock / status.json）
+	assert_provider_gate_rejects() {
+	  local ws="$1" label="$2" rc="$3" stderr_out="$4"
+	  local artifacts_ok=1
+	  [[ -d "$ws/.ralph/runs" ]] && artifacts_ok=0
+	  [[ -f "$ws/.ralph/lock" ]] && artifacts_ok=0
+	  [[ -f "$ws/.ralph/status.json" ]] && artifacts_ok=0
+	  if [[ "$rc" -eq 1 \
+	     && "$stderr_out" == *"temporarily disabled"* \
+	     && "$stderr_out" == *"claude, codex or fake"* \
+	     && "$artifacts_ok" -eq 1 ]]; then
+	    _pass "$label: rc=1, 'temporarily disabled', no runs/lock/status.json"
+	  else
+	    _fail "$label: rc=$rc artifacts_ok=$artifacts_ok stderr=$stderr_out"
+	  fi
+	}
+
+	echo ""
+	echo "-- SC-028-1: --provider gemini rejected at startup (no run artifacts)"
+	ws=$(setup_workspace)
+	git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
+	rc=0
+	stderr_out=$(bash "$ws/.ralph/bin/ralph" run --provider gemini 2>&1 >/dev/null) || rc=$?
+	assert_provider_gate_rejects "$ws" "gate gemini (--provider flag)" "$rc" "$stderr_out"
+	cleanup_ws "$ws"
+
+	echo ""
+	echo "-- SC-028-1: .env RALPH_PROVIDER=gemini rejected at startup"
+	ws=$(setup_workspace --provider gemini)
+	git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
+	rc=0
+	stderr_out=$(env -u RALPH_PROVIDER bash "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
+	assert_provider_gate_rejects "$ws" "gate gemini (.env RALPH_PROVIDER)" "$rc" "$stderr_out"
+	cleanup_ws "$ws"
+
+	echo ""
+	echo "-- SC-028-1: process env RALPH_PROVIDER=gemini rejected at startup"
+	ws=$(setup_workspace --no-env)
+	git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
+	rc=0
+	stderr_out=$(env RALPH_PROVIDER=gemini bash "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
+	assert_provider_gate_rejects "$ws" "gate gemini (process env)" "$rc" "$stderr_out"
+	cleanup_ws "$ws"
+
+	echo ""
+	echo "-- SC-028-1: gemini CLI 可执行也不能绕过入口门（adversarial）"
+	ws=$(setup_workspace --provider gemini)
+	mkdir -p "$ws/tests-bin"
+	ln -sf "$REPO_ROOT/tests/fixtures/mock-gemini" "$ws/tests-bin/gemini"
+	git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
+	rc=0
+	stderr_out=$(env PATH="$ws/tests-bin:$PATH" RALPH_PROVIDER=gemini \
+	  bash "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
+	assert_provider_gate_rejects "$ws" "gate gemini (mock CLI on PATH)" "$rc" "$stderr_out"
+	cleanup_ws "$ws"
+
+	# SC-030-1 —— Codex 活动/归档 rollout 采集：按内嵌 id 校验，失败可诊断且不阻塞
+	echo ""
+	echo "-- SC-030-1: Codex 归档 rollout 按内嵌 id 采集（文件名不匹配）"
+	setup_codex_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+	git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "archived" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_CODEX_SCENARIO=archived_session \
+	  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	capture_ok=0; src_ok=0; content_ok=0
+	grep -q '"capture_status": "ok"' "$round_dir/meta.json" 2>/dev/null && capture_ok=1
+	archived_src="$(jq -r '.session_source_path // ""' "$round_dir/meta.json" 2>/dev/null)"
+	[[ "$archived_src" == */archived_sessions/rollout-20260101-000000-notmatching.jsonl ]] && src_ok=1
+	# 复制件与归档原件逐字节一致（id 校验后复制，不得改写内容）
+	if [[ -f "$archived_src" && -f "$round_dir/session.codex.jsonl" ]] \
+	   && cmp -s "$archived_src" "$round_dir/session.codex.jsonl"; then
+	  content_ok=1
+	fi
+	if [[ "$rc" -eq 0 && "$reason" == "done" && "$capture_ok" -eq 1 && "$src_ok" -eq 1 && "$content_ok" -eq 1 ]]; then
+	  _pass "codex archived session: done, capture_status=ok, source=archived_sessions, byte-identical copy"
+	else
+	  _fail "codex archived session: rc=$rc reason=$reason capture_ok=$capture_ok src_ok=$src_ok content_ok=$content_ok src=$archived_src"
+	fi
+	cleanup_codex_ws
+
+	echo ""
+	echo "-- SC-030-1: Codex session 完全缺失 → warning + 不阻塞 oneshot + raw log 保留"
+	setup_codex_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+	git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "nosession" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_CODEX_SCENARIO=no_session_at_all \
+	  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	no_jsonl=0; warn_ok=0; warnmsg_ok=0; history_ok=0; raw_ok=0
+	[[ ! -f "$round_dir/session.codex.jsonl" ]] && no_jsonl=1
+	[[ "$(meta_terminal_field "$round_dir" terminal_status)" == "success" ]] && warn_ok=1
+	warn_text="$(jq -r '.capture_warning // ""' "$round_dir/meta.json" 2>/dev/null)"
+	[[ "$warn_text" == *"Codex session file not found"* ]] && warnmsg_ok=1
+	# history 派生自 provider.stdout.log，不依赖 session 文件
+	[[ -s "$round_dir/session.history.log" ]] \
+	  && grep -q '\[assistant\]' "$round_dir/session.history.log" && history_ok=1
+	grep -q '"thread.started"' "$round_dir/provider.stdout.log" 2>/dev/null && raw_ok=1
+	if [[ "$rc" -eq 0 && "$reason" == "done" && "$no_jsonl" -eq 1 && "$warn_ok" -eq 1 \
+	   && "$warnmsg_ok" -eq 1 && "$history_ok" -eq 1 && "$raw_ok" -eq 1 ]]; then
+	  _pass "codex no session: done (oneshot 不被采集失败阻塞), no copy, capture_warning='$warn_text', history from stdout, raw log kept"
+	else
+	  _fail "codex no session: rc=$rc reason=$reason no_jsonl=$no_jsonl warn_ok=$warn_ok warnmsg_ok=$warnmsg_ok history_ok=$history_ok raw_ok=$raw_ok warn='$warn_text'"
+	fi
+	cleanup_codex_ws
+
+	echo ""
+	echo "-- SC-030-1: Codex CODEX_HOME 不可达时不回落到 HOME/.codex（session 隔离 adversarial）"
+	setup_codex_workspace
+	missing_cfg="$(dirname "$SETUP_CODEX_HOME")/missing-codex-cfg"
+	# 诱饵由 mock 在采集期写入真实 HOME config（与 thread_id 同名）。若实现回落到 HOME，
+	# 诱饵会被采成 capture_status=ok（跨账号/跨项目 session 泄漏）。
+	printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+	git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "decoy" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_CODEX_SCENARIO=home_decoy \
+	  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" RALPH_PROVIDER_CONFIG_DIR="$missing_cfg" \
+	  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	no_copy_ok=0; warn_ok=0
+	[[ ! -f "$round_dir/session.codex.jsonl" ]] && no_copy_ok=1
+	grep -q '"capture_status": "warning"' "$round_dir/meta.json" 2>/dev/null && warn_ok=1
+	# 诱饵确实存在（证明本用例不是因"诱饵没写成功"而恒真），且必须原地未动
+	decoy_file="$SETUP_CODEX_HOME/.codex/sessions/2026/01/01/rollout-20260101-000000-thread-aaa111-bbb222.jsonl"
+	decoy_ok=0
+	[[ -f "$decoy_file" ]] && grep -q '"/decoy"' "$decoy_file" 2>/dev/null && decoy_ok=1
+	if [[ "$rc" -eq 0 && "$reason" == "done" && "$no_copy_ok" -eq 1 && "$warn_ok" -eq 1 && "$decoy_ok" -eq 1 ]]; then
+	  _pass "codex CODEX_HOME isolation: HOME/.codex decoy present but NOT collected, capture_status=warning, run done"
+	else
+	  _fail "codex CODEX_HOME isolation: rc=$rc reason=$reason no_copy_ok=$no_copy_ok warn_ok=$warn_ok decoy_ok=$decoy_ok"
+	fi
+	cleanup_codex_ws
+
+	echo ""
+	echo "-- SC-030-1: Claude CLAUDE_CONFIG_DIR 不可达时不回落到 \$HOME/.claude（session 隔离 adversarial）"
+	setup_claude_workspace
+	missing_cfg="$(dirname "$SETUP_CLAUDE_HOME")/missing-claude-cfg"
+	# 诱饵由 mock 在采集期写入真实 HOME config 的 cwd_hash 目录。若实现回落到 HOME，
+	# mtime 降级会把诱饵采走（capture_status=ok + fallback by mtime）。
+	printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+	git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "decoy" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_CLAUDE_SCENARIO=home_decoy \
+	  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" RALPH_PROVIDER_CONFIG_DIR="$missing_cfg" \
+	  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	no_copy_ok=0; warn_ok=0; warnmsg_ok=0
+	[[ ! -f "$round_dir/session.claude.jsonl" ]] && no_copy_ok=1
+	grep -q '"capture_status": "warning"' "$round_dir/meta.json" 2>/dev/null && warn_ok=1
+	cw_text="$(jq -r '.capture_warning // ""' "$round_dir/meta.json" 2>/dev/null)"
+	[[ "$cw_text" == *"session file not found"* ]] && warnmsg_ok=1
+	# 诱饵确实落在真实 HOME config 下（证明本用例不是恒真）
+	decoy_count=0
+	decoy_count="$(find "$SETUP_CLAUDE_HOME/.claude/projects" -name 'decoy-session.jsonl' -type f 2>/dev/null | wc -l | tr -d ' ')"
+	decoy_ok=0
+	[[ "$decoy_count" -ge 1 ]] && decoy_ok=1
+	if [[ "$rc" -eq 0 && "$reason" == "done" && "$no_copy_ok" -eq 1 && "$warn_ok" -eq 1 && "$warnmsg_ok" -eq 1 && "$decoy_ok" -eq 1 ]]; then
+	  _pass "claude CLAUDE_CONFIG_DIR isolation: HOME/.claude decoy present but NOT collected, capture_status=warning, run done"
+	else
+	  _fail "claude CLAUDE_CONFIG_DIR isolation: rc=$rc reason=$reason no_copy_ok=$no_copy_ok warn_ok=$warn_ok warnmsg_ok=$warnmsg_ok decoy_ok=$decoy_ok warn='$cw_text'"
+	fi
+	cleanup_claude_ws
+
+	# REQ-029 —— 非零退出与终态的组合：success 终态不得掩盖进程非零退出
+	echo ""
+	echo "-- REQ-029: Codex turn.completed + CLI 非零退出 → provider_failed（终态不掩盖退出码）"
+	setup_codex_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+	git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "rc1" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_CODEX_SCENARIO=completed_then_rc1 \
+	  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
+	  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-retry 0 --max-round 1 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	term_ok=0; raw_ok=0
+	[[ "$(meta_terminal_field "$round_dir" terminal_event)" == "turn.completed" \
+	   && "$(meta_terminal_field "$round_dir" terminal_status)" == "success" ]] && term_ok=1
+	grep -q '"type":"turn.completed"' "$round_dir/provider.stdout.log" 2>/dev/null && raw_ok=1
+	if [[ "$rc" -ne 0 && "$reason" == "provider_failed" && "$term_ok" -eq 1 && "$raw_ok" -eq 1 ]]; then
+	  _pass "codex completed_then_rc1: provider_failed (rc=$rc), terminal=turn.completed/success, raw log kept"
+	else
+	  _fail "codex completed_then_rc1: rc=$rc reason=$reason term_ok=$term_ok raw_ok=$raw_ok"
+	fi
+	cleanup_codex_ws
+
+	# SC-031-1 —— 权限参数审计：adapter 实际传给 provider 的权限 flag 必须与源码声明一致，
+	# 且扩权声明只允许出现在 provider adapter 文件里（不得有第四个文件隐式扩权）
+	echo ""
+	echo "-- SC-031-1: Claude 权限参数运行时审计（传了什么 = 源码声明什么）"
+	setup_claude_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+	git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "perm" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_CLAUDE_SCENARIO=happy \
+	  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+	  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	got_skip="$(grep -E '^\{' "$round_dir/provider.stdout.log" 2>/dev/null \
+	  | jq -r 'select(.type == "system") | ._received_skip_permissions // empty' 2>/dev/null | head -1)" || got_skip=""
+	got_tools="$(grep -E '^\{' "$round_dir/provider.stdout.log" 2>/dev/null \
+	  | jq -r 'select(.type == "system") | ._received_allowed_tools // empty' 2>/dev/null | head -1)" || got_tools=""
+	if [[ "$got_skip" == "true" && "$got_tools" == "Bash,Read,Edit,Write,Glob,Grep" ]]; then
+	  _pass "claude permission audit: --dangerously-skip-permissions received, --allowedTools='$got_tools' (pre-approve 规则，非能力上界；见 security.md)"
+	else
+	  _fail "claude permission audit: skip_permissions='$got_skip' allowedTools='$got_tools'"
+	fi
+	cleanup_claude_ws
+
+	echo ""
+	echo "-- SC-031-1: 扩权参数只由 provider adapter 显式声明（防第四个文件隐式扩权）"
+	perm_files="$(grep -lE -- '--dangerously-skip-permissions|--sandbox|--approval-mode|--allowedTools' \
+	  "$REPO_ROOT/.ralph/bin/ralph" "$REPO_ROOT/.ralph/lib"/*.sh 2>/dev/null \
+	  | while IFS= read -r _f; do basename "$_f"; done | sort | tr '\n' ' ')" || perm_files=""
+	expected_perm_files="adapter-claude.sh adapter-codex.sh adapter-gemini.sh "
+	if [[ "$perm_files" == "$expected_perm_files" ]]; then
+	  _pass "permission flag scan: only provider adapters declare widening flags ($perm_files)"
+	else
+	  _fail "permission flag scan: got '$perm_files', expected '$expected_perm_files'"
+	fi
+
+	# ────────────────────────────────
 	# Gemini adapter（I4 QA-1）
 	# ────────────────────────────────
 	# Gemini is currently disabled at the public entry point. Keep the historical

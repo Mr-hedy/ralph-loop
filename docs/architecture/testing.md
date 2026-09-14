@@ -93,6 +93,25 @@ tests/
 | I5 sticky/plain/round | +20（实际 120） | sticky 渲染（首帧/重绘/健康灯/事件区/退出还原）、plain 模式回归（heartbeat/marker）、per-task round/stall 触发、HUMAN 自动插入、legacy 命名到 round 的回归、env 分组重命名 |
 | Release cleanup | +29（实际 149） | runtime 不暴露迭代元数据、Gemini/Codex 事件区回归、sticky UX、旧 flag/env 拒绝、release 文档口径 |
 
+## Provider 兼容性与权限回归门（QA-1）
+
+每次改动 provider adapter、输出解析/终态契约、session 采集路径或权限参数时，除完整集成测试外必须复核本节用例组。用例集中在 `scripts/integration-test.sh` 的「QA-1」段（`SC-028-1` / `SC-030-1` / `SC-031-1` + REQ-029 非零退出组合），共 11 例。
+
+| 维度 | 用例 | 断言要点 |
+|---|---|---|
+| 入口收敛（REQ-028 / SC-028-1） | `gate gemini` × 4（`--provider` flag / `.env RALPH_PROVIDER` / 进程 env / mock CLI 在 PATH 上） | rc=1、stderr 含 `temporarily disabled` + `claude, codex or fake`，且 `.ralph/` 下无 `runs/`、`lock`、`status.json` |
+| session 采集鲁棒性（REQ-030 / SC-030-1） | `codex archived session`、`codex no session`、Codex/Claude 配置目录隔离诱饵各 1 | 归档 rollout 靠内嵌 id 命中（文件名不匹配）且复制件与原件逐字节一致；采集失败落 `capture_status=warning` + 非空 `capture_warning` 且 run 仍 `done`、`session.history.log` 仍从 stdout 派生；`CODEX_HOME` / `CLAUDE_CONFIG_DIR` 不可达时不得回落到 `$HOME` 配置目录 |
+| 权限参数审计（REQ-031 / SC-031-1） | Claude 权限参数运行时审计、扩权参数文件扫描 | mock 回显的 `--dangerously-skip-permissions` / `--allowedTools` 与 adapter 源码声明一致；扩权 flag 只允许出现在 provider adapter 文件内（防第四个文件隐式扩权） |
+| 非零退出 × 终态（REQ-029） | `codex completed_then_rc1` | `turn.completed` + 进程非零退出 → `exit_reason=provider_failed`；success 终态不得掩盖退出码 |
+
+**诱饵（decoy）用例的判别力**：配置目录隔离两例由 mock 在**采集期内**（`provider_started_at` 之后）向真实 HOME 配置目录写入与 `session_id` / `thread_id` 同名的诱饵 session（scenario `home_decoy`），刻意忽略 `CLAUDE_CONFIG_DIR` / `CODEX_HOME`。诱饵必须写在采集期之后，否则时间锚点不命中，用例会退化成恒真。已做变异验证——去掉 `CODEX_HOME` / `CLAUDE_CONFIG_DIR` 后诱饵确实被采成 `capture_status=ok`（Claude 走 `fallback by mtime`），说明用例能区分「隔离生效」与「回落泄露」。
+
+**权限的已知缺口（不计入失败）**：REQ-031 字面要求把沙箱 / approval 参数记录到 `meta.json`，当前 meta 无权限字段；实际可审计通道是 adapter 源码声明 + `provider.stdout.log` 中 provider 回显的 argv + `docs/architecture/security.md`。缺口本体已在 security.md 记录，属新 REQ 决策而非测试问题。
+
+**Gemini 测试层状态**：`mock-gemini` 与历史 Gemini 用例组保留在 `integration-test.sh` 的 `if false; then` 块内（`--provider gemini` 已在入口被 REQ-028 拒绝），当前不计入回归门；重新接入 Gemini 时需同时恢复该块并新增兼容性验证。
+
+**真实 provider smoke**：本回归门只跑 mock/fake。真实 Claude/Codex CLI 端到端 smoke 属人工触发项（见下文「未覆盖范围」），不阻塞本门结论，但必须在报告里显式声明是否执行。
+
 ## I5 特色测试策略 (Sticky / Plain / Per-task)
 
 I5 引入了复杂的 TUI 渲染和 per-task 熔断逻辑，测试策略扩展如下：

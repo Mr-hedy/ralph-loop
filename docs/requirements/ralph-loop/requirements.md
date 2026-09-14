@@ -451,11 +451,11 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-025 | SC-025-1, SC-025-2, SC-025-3, SC-025-4, SC-025-5 | plain 模式 marker + sticky 三段式 + TTY fallback + per-task round 集成测试 / 手工验证 | 完整（I5 sticky 三段式重构 2026-05-06）|
 | REQ-026 | SC-026-1, SC-026-2 | 双层时间格式 helper + status/watch/exit-message 应用 | 完整（I5 round 命名统一 2026-05-06）|
 | REQ-027 | SC-027-1, SC-027-2, SC-027-3, SC-027-4, SC-027-5, SC-027-6 | 集成测试（max_round 触发 / stall 触发 / task 切换归零 / HUMAN 模板 / exit_reason / 勾掉后继续） | 完整（I5 新增 2026-05-06） |
-| REQ-028 | SC-028-1 | 启动校验拒绝 Gemini，且不创建 run 目录 | 待新增集成测试 |
-| REQ-029 | SC-029-1, SC-029-2 | 集成测试（终态字段三态 + 截断行证据保留 + raw log 只读） | 完整（DEV-3 2026-09-14；回归门与 adversarial 复核见 QA-1 / REVIEW-1） |
-| REQ-030 | SC-030-1 | Codex 活动/归档 session 通过 id 校验采集，失败可诊断且不阻塞 | 待新增集成测试 |
-| REQ-031 | SC-031-1 | 权限参数与风险在 meta/文档中可审计 | 待新增 adversarial review |
-| REQ-032 | SC-032-1 | provider 变更后的完整检查、smoke 和 adversarial review 结果可复现 | 待新增 QA 任务 |
+| REQ-028 | SC-028-1 | 集成测试 × 4（入口门：`--provider` flag / `.env` / 进程 env / gemini CLI 位于 PATH） | 完整（QA-1 2026-09-14） |
+| REQ-029 | SC-029-1, SC-029-2 | 集成测试（终态字段三态 + 截断行证据保留 + raw log 只读 + 非零退出 × success 终态组合） | 完整（DEV-3 2026-09-14；非零退出组合用例与回归门见 QA-1；adversarial 复核见 REVIEW-1） |
+| REQ-030 | SC-030-1 | 集成测试 × 3（归档 rollout 内嵌 id 采集 / 采集缺失可诊断且不阻塞 / 配置目录隔离诱饵） | 完整（QA-1 2026-09-14） |
+| REQ-031 | SC-031-1 | 集成测试 × 2（权限参数运行时 argv 审计 + 扩权 flag 文件扫描）；meta 记录权限参数的缺口见 `security.md` | 部分（QA-1 2026-09-14；`meta.json` 权限字段缺口待新 REQ 决策，adversarial 复核见 REVIEW-1） |
+| REQ-032 | SC-032-1 | 本轮完整 `check.sh` + 完整集成测试可复现；真实 provider smoke 与 adversarial review | 部分（QA-1 2026-09-14；真实 CLI smoke 未执行、adversarial 结论见 REVIEW-1） |
 | REQ-008 | SC-008-1, TC-STK-002 | 单元 + 集成测试 | 完整 |
 | REQ-009 | SC-009-1, FR-001, TC-STK-003 | 单元测试 | 完整 |
 | REQ-010 | SC-010-1, TC-STK-004 | 集成测试 | 完整 |

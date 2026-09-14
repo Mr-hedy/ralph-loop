@@ -95,6 +95,21 @@ ENDJSONL
   echo "$rollout_file"
 }
 
+# 写归档 rollout：${CODEX_HOME:-$HOME/.codex}/archived_sessions/<fname>
+# 文件名刻意不含 thread_id（Strategy 1 文件名匹配必失败），只有首行 payload.id 命中，
+# 用于验证 provider_collect_session 的归档分支按内嵌 id 校验采集（REQ-030 / SC-030-1）
+_write_archived_session() {
+  local id="$1" fname="$2"
+  local codex_root="${CODEX_HOME:-$HOME/.codex}"
+  mkdir -p "$codex_root/archived_sessions" "$codex_root/sessions"
+  local rollout_file="$codex_root/archived_sessions/$fname"
+  cat > "$rollout_file" << ENDJSONL
+{"type":"session_meta","payload":{"id":"$id","cwd":"${received_workspace:-$PWD}","cli_version":"0.125.0"}}
+{"type":"event_msg","payload":{"role":"user","content":"Do one task"}}
+ENDJSONL
+  echo "$rollout_file"
+}
+
 # 勾选 TASKS.md 第 1 条未勾选任务（通过 RALPH_WORKSPACE）
 _check_first_task() {
   if [[ -n "${RALPH_WORKSPACE:-}" ]]; then
@@ -236,6 +251,50 @@ case "$scenario" in
 
   slow)
     sleep "${RALPH_MOCK_CODEX_SLEEP:-30}"
+    ;;
+
+  archived_session)
+    # rollout 只存在于 archived_sessions/，且文件名不含 thread_id
+    # → Strategy 1（文件名精确匹配）必失败，只能靠 Strategy 2 的内嵌 id 校验命中
+    _emit_thread_started
+    _emit_item_completed_agent_message "Done."
+    _emit_turn_completed
+    _write_archived_session "$thread_id" "rollout-20260101-000000-notmatching.jsonl" >/dev/null
+    _check_first_task
+    exit 0
+    ;;
+
+  no_session_at_all)
+    # 完全不写 native session（$CODEX_HOME/sessions 目录不存在）
+    # → 采集必须落 warning 且不阻塞 oneshot（REQ-030）
+    _emit_thread_started
+    _emit_item_completed_agent_message "Done."
+    _emit_turn_completed
+    _check_first_task
+    exit 0
+    ;;
+
+  home_decoy)
+    # 采集期在真实 HOME config 目录写入与 thread_id 同名的 rollout，刻意忽略 CODEX_HOME。
+    # 用于验证 session 采集不会回落到 $HOME/.codex：正确实现必须保持 warning 且不复制。
+    _emit_thread_started
+    _emit_item_completed_agent_message "Done."
+    _emit_turn_completed
+    _decoy_dir="$HOME/.codex/sessions/2026/01/01"
+    mkdir -p "$_decoy_dir"
+    printf '%s\n' "{\"type\":\"session_meta\",\"payload\":{\"id\":\"$thread_id\",\"cwd\":\"/decoy\"}}" \
+      > "$_decoy_dir/rollout-20260101-000000-${thread_id}.jsonl"
+    _check_first_task
+    exit 0
+    ;;
+
+  completed_then_rc1)
+    # 合法 success 终态事件，但 CLI 进程以非零退出
+    # → terminal_status=success 不得掩盖非零退出（退出原因仍须是 provider_failed）
+    _emit_thread_started
+    _emit_item_completed_agent_message "Done."
+    _emit_turn_completed
+    exit 1
     ;;
 
   *)

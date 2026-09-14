@@ -13,6 +13,12 @@ bash -n "$ROOT/.ralph/bin/ralph" \
   "$ROOT/.ralph/lib/run.sh"
 "$ROOT/.ralph/bin/ralph" help >/dev/null
 test -f "$ROOT/scripts/integration-test.sh"
+# 测试层语法检查（QA-1）：集成测试脚本与 mock fixture 都是 bash 脚本，
+# 语法错误在测试运行期会表现为难以定位的用例失败，提前到静态检查。
+bash -n "$ROOT/scripts/integration-test.sh" \
+  "$ROOT/tests/fixtures/mock-claude" \
+  "$ROOT/tests/fixtures/mock-codex" \
+  "$ROOT/tests/fixtures/mock-gemini"
 
 ! grep -q "AGENTS.md" "$ROOT/README.md"
 ! grep -q "npm run check" "$ROOT/README.md"
