@@ -71,21 +71,51 @@ provider_oneshot() {
   # stdout + stderr 合并写入 provider.stdout.log（stderr 罕见；diagnose 用 ^{ 前缀过滤）
   "${claude_cmd[@]}" > "$log_path" 2>>"$log_path" || rc=$?
 
-  # 从 stream-json events 末尾找 result 事件，is_error=true 视为 provider 失败。
-  # 终态字段即使 provider 返回非零也要记录，便于区分失败类型。
+  # ── 终态事件契约（REQ-029）────────────────────────────────────────────────
+  # 三条路径必须区分，且不得仅凭 exit code 推断 provider 是否产出终态事件：
+  #   result 事件 is_error=false → terminal_status=success
+  #   result 事件 is_error=true  → terminal_status=error（rc 置 1，agent 逻辑失败）
+  #   无 result 事件 / is_error 不可解析 → terminal_status=unknown + terminal_warning
+  #     （CLI 崩溃、流被截断、未知事件类型均落此路径）
+  # 解析只读 provider.stdout.log，不写不改；截断行原文仍留在 log 里（ralph_json_lines）。
+  local terminal_event="" terminal_status="unknown" terminal_warning=""
   if [[ -f "$log_path" ]]; then
-    local _is_err
-    _is_err="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
-      | jq -r 'select(.type == "result") | .is_error // false' 2>/dev/null \
-      | tail -1)"
-    if [[ -n "$_is_err" ]]; then
-      local _terminal_status="success"
-      [[ "$_is_err" == "true" ]] && _terminal_status="error"
-      update_meta_jq "$round_dir" '.terminal_event = "result" | .terminal_status = $s' \
-        --arg s "$_terminal_status"
+    local result_event
+    result_event="$(ralph_json_lines "$log_path" \
+      | jq -c 'select(.type == "result")' 2>/dev/null \
+      | tail -1)" || result_event=""
+
+    if [[ -n "$result_event" ]]; then
+      terminal_event="result"
+      local _is_err
+      _is_err="$(printf '%s' "$result_event" \
+        | jq -r 'if (.is_error | type) == "boolean" then (.is_error | tostring) else "invalid" end' 2>/dev/null)" \
+        || _is_err="invalid"
+      case "$_is_err" in
+        false)
+          terminal_status="success"
+          ;;
+        true)
+          terminal_status="error"
+          rc=1
+          ;;
+        *)
+          terminal_status="unknown"
+          terminal_warning="result event is_error is missing or not a boolean"
+          ;;
+      esac
+    else
+      terminal_warning="no result event in stream (crash, truncated or unknown event)"
     fi
-    [[ "$_is_err" == "true" ]] && rc=1
+  else
+    terminal_warning="no stdout log file"
   fi
+
+  update_meta_jq "$round_dir" \
+    '.terminal_event = (if $e == "" then null else $e end)
+     | .terminal_status = $s
+     | .terminal_warning = (if $w == "" then null else $w end)' \
+    --arg e "$terminal_event" --arg s "$terminal_status" --arg w "$terminal_warning"
 
   return "$rc"
 }
@@ -188,7 +218,9 @@ provider_collect_session() {
 _claude_derive_history() {
   local jsonl="$1" out="$2"
   [[ -f "$jsonl" ]] || return 0
-  jq -r --slurp '
+  # ralph_json_lines 跳过截断/非法行：jq --slurp 只要有一行非法就整体失败，
+  # 会让派生视图全空（native session 副本本身不受影响）
+  ralph_json_lines "$jsonl" | jq -r --slurp '
     def text_of(c):
       if   (c | type) == "array"  then [c[] | select(.type=="text") | .text] | join("")
       elif (c | type) == "string" then c
@@ -245,7 +277,7 @@ _claude_derive_history() {
         ""
       else empty end
     else empty end
-  ' "$jsonl" > "$out"
+  ' > "$out"
 }
 
 # ── _claude_classify_error ───────────────────────────────────────────────────
@@ -288,9 +320,10 @@ provider_diagnose() {
     return 0
   fi
 
-  # 找 stream-json 末尾的 result 事件
+  # 找 stream-json 末尾的 result 事件（ralph_json_lines 跳过截断/非法行，
+  # 避免 jq 在非法行上提前退出丢掉后续合法事件）
   local result_event is_error result_text
-  result_event="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
+  result_event="$(ralph_json_lines "$log_path" \
     | jq -c 'select(.type == "result")' 2>/dev/null \
     | tail -1)"
 

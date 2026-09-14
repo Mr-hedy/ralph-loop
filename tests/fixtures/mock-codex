@@ -206,6 +206,34 @@ case "$scenario" in
     exit 1
     ;;
 
+  truncated_then_completed)
+    # 截断行出现在合法 turn.completed 之前 → 终态仍须解析为 turn.completed / success
+    _emit_thread_started
+    printf '{"type":"item.completed","item":{"type":"agent_message","text":"cut off mid-wr\n'
+    _emit_turn_completed
+    _check_first_task
+    exit 0
+    ;;
+
+  completed_then_error)
+    # turn.completed 之后追加 error 事件（retry 循环遗留）→ turn.* 是权威终态，
+    # 不得被末尾 error 事件覆盖为 error
+    _emit_thread_started
+    _emit_item_completed_agent_message "Done."
+    _emit_turn_completed
+    _emit_error "transient retry notice: 429 too many requests"
+    _check_first_task
+    exit 0
+    ;;
+
+  error_only_rc0)
+    # 只有 error 事件、无 turn.* 终态，且 CLI 以 0 退出 → 退化判定为 error，
+    # rc 必须被 adapter 提升为非零（不得仅以退出码推断终态）
+    _emit_thread_started
+    _emit_error "Authentication failed: 401 unauthorized"
+    exit 0
+    ;;
+
   slow)
     sleep "${RALPH_MOCK_CODEX_SLEEP:-30}"
     ;;

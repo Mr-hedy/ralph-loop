@@ -71,10 +71,10 @@ provider_oneshot() {
   # stdout + stderr 合并写入 provider.stdout.log
   "${codex_cmd[@]}" > "$log_path" 2>>"$log_path" || rc=$?
 
-  # 从 stdout JSONL 解析 thread_id（session_id 等价物，用于 DEV-3 session 采集）
+  # 从 stdout JSONL 解析 thread_id（session_id 等价物，用于 session 采集）
   local thread_id=""
   if [[ -f "$log_path" ]]; then
-    thread_id="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
+    thread_id="$(ralph_json_lines "$log_path" \
       | jq -r 'select(.type == "thread.started") | .thread_id // empty' 2>/dev/null \
       | head -1)" || thread_id=""
   fi
@@ -82,30 +82,60 @@ provider_oneshot() {
     update_meta_jq "$round_dir" '.session_id = $sid' --arg sid "$thread_id"
   fi
 
-  # Preserve the structured terminal event separately from the raw log. The
-  # raw provider.stdout.log remains the source of truth if the stream is cut.
-  local terminal_event terminal_status
-  terminal_event="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
-    | jq -r 'select(.type == "turn.completed" or .type == "turn.failed" or .type == "error") | .type' 2>/dev/null | tail -1)" || terminal_event=""
-  case "$terminal_event" in
-    turn.completed) terminal_status="success" ;;
-    turn.failed|error) terminal_status="error" ;;
-    *) terminal_status="" ;;
-  esac
-  if [[ -n "$terminal_event" ]]; then
-    update_meta_jq "$round_dir" '.terminal_event = $e | .terminal_status = $s' \
-      --arg e "$terminal_event" --arg s "$terminal_status"
+  # ── 终态事件契约（REQ-029）────────────────────────────────────────────────
+  # 结构化终态与原始 log 分离保存；流被截断时 provider.stdout.log 仍是事实源。
+  # 判定优先级：
+  #   turn.completed → success
+  #   turn.failed    → error（最终权威失败事件，integrations.md §错误诊断）
+  #   仅 error 事件  → error + warning（retry 循环里 error 可能被覆盖，属退化路径）
+  #   都没有 / 无法解析 → unknown + terminal_warning（crash、截断、未知事件）
+  # rc 不得单独决定终态：terminal_status=error 时即使 CLI 进程退出码为 0 也返回非零。
+  local terminal_event="" terminal_status="unknown" terminal_warning=""
+  if [[ -f "$log_path" ]]; then
+    local terminal_line terminal_kind=""
+    terminal_line="$(ralph_json_lines "$log_path" \
+      | jq -c 'select(.type == "turn.completed" or .type == "turn.failed")' 2>/dev/null \
+      | tail -1)" || terminal_line=""
+    if [[ -n "$terminal_line" ]]; then
+      terminal_kind="$(printf '%s' "$terminal_line" | jq -r '.type' 2>/dev/null)" || terminal_kind=""
+    else
+      # 退化：无 turn.* 终态时，末尾 error 事件作为最后线索
+      terminal_line="$(ralph_json_lines "$log_path" \
+        | jq -c 'select(.type == "error")' 2>/dev/null \
+        | tail -1)" || terminal_line=""
+      if [[ -n "$terminal_line" ]]; then
+        terminal_kind="$(printf '%s' "$terminal_line" | jq -r '.type' 2>/dev/null)" || terminal_kind=""
+        terminal_warning="no turn.completed/turn.failed; degraded to trailing error event"
+      fi
+    fi
+
+    if [[ -n "$terminal_kind" ]]; then
+      terminal_event="$terminal_kind"
+      case "$terminal_event" in
+        turn.completed)
+          terminal_status="success"
+          ;;
+        turn.failed|error)
+          terminal_status="error"
+          [[ "$rc" -eq 0 ]] && rc=1
+          ;;
+        *)
+          terminal_status="unknown"
+          terminal_warning="unrecognized terminal event: $terminal_event"
+          ;;
+      esac
+    else
+      terminal_warning="no terminal event in stream (crash, truncated or unknown event)"
+    fi
+  else
+    terminal_warning="no stdout log file"
   fi
 
-  # Codex turn.failed 事件检测（相当于 Claude 的 result.is_error）
-  # turn.failed 是最终权威失败事件（integrations.md §错误诊断）
-  if [[ "$rc" -eq 0 && -f "$log_path" ]]; then
-    local _has_failure
-    _has_failure="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
-      | jq -r 'select(.type == "turn.failed") | .type // empty' 2>/dev/null \
-      | head -1)" || _has_failure=""
-    [[ -n "$_has_failure" ]] && rc=1
-  fi
+  update_meta_jq "$round_dir" \
+    '.terminal_event = (if $e == "" then null else $e end)
+     | .terminal_status = $s
+     | .terminal_warning = (if $w == "" then null else $w end)' \
+    --arg e "$terminal_event" --arg s "$terminal_status" --arg w "$terminal_warning"
 
   return "$rc"
 }
@@ -225,9 +255,10 @@ _codex_derive_history() {
   local stdout_log="$round_dir/provider.stdout.log"
   [[ -f "$stdout_log" ]] || return 0
 
-  # 过滤 JSON 行（provider.stdout.log 含 stdout + stderr 合流）
+  # 过滤 JSON 行（provider.stdout.log 含 stdout + stderr 合流；ralph_json_lines
+  # 跳过截断/非法行，避免 jq --slurp 因单行损坏而丢掉整段事件流）
   local jsonl_events
-  jsonl_events="$(grep -E '^[[:space:]]*\{' "$stdout_log" 2>/dev/null)" || return 0
+  jsonl_events="$(ralph_json_lines "$stdout_log")" || return 0
   [[ -n "$jsonl_events" ]] || return 0
 
   printf '%s\n' "$jsonl_events" | jq -r --slurp '
@@ -297,7 +328,7 @@ provider_diagnose() {
   # 优先查找 turn.failed 事件（最终权威，integrations.md §错误诊断）
   local error_msg=""
   local failed_event
-  failed_event="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
+  failed_event="$(ralph_json_lines "$log_path" \
     | jq -c 'select(.type == "turn.failed")' 2>/dev/null \
     | tail -1)" || failed_event=""
 
@@ -309,7 +340,7 @@ provider_diagnose() {
   # 回退：查找 error 事件（可能被 retry 覆盖，但仍是线索）
   if [[ -z "$error_msg" ]]; then
     local error_event
-    error_event="$(grep -E '^[[:space:]]*\{' "$log_path" 2>/dev/null \
+    error_event="$(ralph_json_lines "$log_path" \
       | jq -c 'select(.type == "error")' 2>/dev/null \
       | tail -1)" || error_event=""
 

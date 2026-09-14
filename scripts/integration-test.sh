@@ -1569,6 +1569,100 @@ echo "-- Claude diagnose: unknown (CLI crash, no stdout)"
 _run_diagnose_case crash unknown "diagnose unknown (crash)"
 
 # ────────────────────────────────
+# DEV-3 / REQ-029: 终态事件契约（SC-029-1 / SC-029-2）
+# Claude adapter 的 terminal_event / terminal_status / terminal_warning 三字段，
+# 以及 provider.stdout.log 作为不可变证据保留。
+# ────────────────────────────────
+
+# 读取 round meta 的终态字段（null → 字符串 "null"，便于断言）
+meta_terminal_field() {
+  local round_dir="$1" field="$2"
+  jq -r ".${field} // \"null\"" "$round_dir/meta.json" 2>/dev/null
+}
+
+# _run_claude_terminal_case <scenario> <exp_event> <exp_status> <exp_ralph_rc> <label>
+_run_claude_terminal_case() {
+  local scenario="$1" exp_event="$2" exp_status="$3" exp_rc="$4" label="$5"
+  setup_claude_workspace
+  printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+  git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "terminal" 2>/dev/null || true
+  local rc=0
+  # --max-retry 0：见 _run_diagnose_case 注释（禁用退避，避免测试 hang）
+  RALPH_MOCK_CLAUDE_SCENARIO="$scenario" \
+    env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+    bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 --max-retry 0 2>/dev/null || rc=$?
+  local run_dir round_dir got_event got_status
+  run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
+  round_dir="${run_dir}/rounds/round-001"
+  got_event="$(meta_terminal_field "$round_dir" terminal_event)"
+  got_status="$(meta_terminal_field "$round_dir" terminal_status)"
+  if [[ "$rc" -eq "$exp_rc" && "$got_event" == "$exp_event" && "$got_status" == "$exp_status" ]]; then
+    _pass "$label: rc=$rc terminal_event=$got_event terminal_status=$got_status"
+  else
+    _fail "$label: rc=$rc (expected $exp_rc) terminal_event=$got_event (expected $exp_event) terminal_status=$got_status (expected $exp_status)"
+  fi
+  cleanup_claude_ws
+}
+
+echo ""
+echo "-- SC-029-2: Claude terminal status — success / error / unknown 三态"
+_run_claude_terminal_case is_error_auth result error 2 "claude terminal error (result.is_error=true)"
+_run_claude_terminal_case is_error_missing result unknown 0 "claude terminal unknown (result without is_error)"
+_run_claude_terminal_case no_terminal_event null unknown 0 "claude terminal unknown (no result event, exit 0)"
+_run_claude_terminal_case crash null unknown 2 "claude terminal unknown (CLI crash, no stdout)"
+
+echo ""
+echo "-- SC-029-1: Claude 截断行出现在合法 result 事件之前 → 终态不丢 + raw log 原文保留"
+setup_claude_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "terminal" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CLAUDE_SCENARIO=truncated_then_result \
+  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
+round_dir="${run_dir}/rounds/round-001"
+term_ok=0; raw_truncated_ok=0; raw_result_ok=0; warning_null_ok=0
+[[ "$(meta_terminal_field "$round_dir" terminal_event)" == "result" \
+   && "$(meta_terminal_field "$round_dir" terminal_status)" == "success" ]] && term_ok=1
+# 截断行原文逐字保留（未截断、未重写、未删除）
+grep -qF '"content":[{"type":"text","text":"cut off mid-wr' "$round_dir/provider.stdout.log" 2>/dev/null \
+  && grep -qF 'cut off mid-wr' "$round_dir/provider.stdout.log" 2>/dev/null && raw_truncated_ok=1
+# 截断行未破坏后续合法 result 事件的落盘
+grep -qE '"type":"result".*\}$' "$round_dir/provider.stdout.log" 2>/dev/null && raw_result_ok=1
+[[ "$(meta_terminal_field "$round_dir" terminal_warning)" == "null" ]] && warning_null_ok=1
+if [[ "$rc" -eq 0 && "$term_ok" -eq 1 && "$raw_truncated_ok" -eq 1 && "$raw_result_ok" -eq 1 && "$warning_null_ok" -eq 1 ]]; then
+  _pass "claude truncated line before result: terminal=result/success, raw log keeps truncated + result lines, no warning"
+else
+  _fail "claude truncated line before result: rc=$rc term_ok=$term_ok raw_truncated_ok=$raw_truncated_ok raw_result_ok=$raw_result_ok warning_null_ok=$warning_null_ok"
+fi
+cleanup_claude_ws
+
+echo ""
+echo "-- SC-029-2: Claude terminal_status=unknown 时 terminal_warning 给出可诊断原因"
+setup_claude_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CLAUDE_WS/.ralph/TASKS.md"
+git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "terminal" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CLAUDE_SCENARIO=no_terminal_event \
+  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
+  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
+round_dir="${run_dir}/rounds/round-001"
+warn_ok=0
+warning_text="$(jq -r '.terminal_warning // ""' "$round_dir/meta.json" 2>/dev/null)"
+[[ "$warning_text" == *"no result event"* ]] && warn_ok=1
+# raw log 仍保留事件流（terminal 解析失败不删证据）
+raw_ok=0
+grep -q '"type":"assistant"' "$round_dir/provider.stdout.log" 2>/dev/null && raw_ok=1
+if [[ "$rc" -eq 0 && "$warn_ok" -eq 1 && "$raw_ok" -eq 1 ]]; then
+  _pass "claude unknown terminal: terminal_warning='$warning_text', raw event stream preserved"
+else
+  _fail "claude unknown terminal: rc=$rc warn_ok=$warn_ok raw_ok=$raw_ok warning='$warning_text'"
+fi
+cleanup_claude_ws
+
+# ────────────────────────────────
 # SC-014-1: --effort flag 接入（T6.2）
 # ────────────────────────────────
 
@@ -2295,6 +2389,95 @@ _run_codex_diagnose_case stderr_error network "codex diagnose stderr fallback"
 echo ""
 echo "-- Codex diagnose: crash (no stdout)"
 _run_codex_diagnose_case crash unknown "codex diagnose crash"
+
+# ────────────────────────────────
+# DEV-3 / REQ-029: Codex 终态事件契约（SC-029-1 / SC-029-2）
+# ────────────────────────────────
+
+# _run_codex_terminal_case <scenario> <exp_event> <exp_status> <exp_ralph_rc> <label> [exp_error_type]
+_run_codex_terminal_case() {
+  local scenario="$1" exp_event="$2" exp_status="$3" exp_rc="$4" label="$5"
+  local exp_error="${6:-__none__}"
+  setup_codex_workspace
+  printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+  git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "terminal" 2>/dev/null || true
+  local rc=0
+  RALPH_MOCK_CODEX_SCENARIO="$scenario" \
+    env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
+    bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 --max-retry 0 2>/dev/null || rc=$?
+  local run_dir round_dir got_event got_status error_type
+  run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+  round_dir="${run_dir}/rounds/round-001"
+  got_event="$(meta_terminal_field "$round_dir" terminal_event)"
+  got_status="$(meta_terminal_field "$round_dir" terminal_status)"
+  error_type="$(get_last_error_type "$run_dir")"
+  local error_ok=1
+  if [[ "$exp_error" != "__none__" && "$error_type" != "$exp_error" ]]; then
+    error_ok=0
+  fi
+  if [[ "$rc" -eq "$exp_rc" && "$got_event" == "$exp_event" && "$got_status" == "$exp_status" && "$error_ok" -eq 1 ]]; then
+    _pass "$label: rc=$rc terminal_event=$got_event terminal_status=$got_status last_error.type='$error_type'"
+  else
+    _fail "$label: rc=$rc (expected $exp_rc) terminal_event=$got_event (expected $exp_event) terminal_status=$got_status (expected $exp_status) last_error.type='$error_type' (expected $exp_error)"
+  fi
+  cleanup_codex_ws
+}
+
+echo ""
+echo "-- SC-029-2: Codex terminal status — turn.completed / turn.failed / 退化 error / unknown"
+_run_codex_terminal_case turn_failed_auth turn.failed error 2 "codex terminal error (turn.failed)" auth
+_run_codex_terminal_case error_only_rc0 error error 2 "codex terminal error (error-only, CLI exit 0 → rc promoted)" auth
+_run_codex_terminal_case crash null unknown 2 "codex terminal unknown (CLI crash, no stdout)"
+
+echo ""
+echo "-- SC-029-2: Codex 优先 turn.* 权威终态，末尾 error 事件不覆盖"
+_run_codex_terminal_case completed_then_error turn.completed success 0 \
+  "codex terminal success (turn.completed wins over trailing error)"
+
+echo ""
+echo "-- SC-029-1: Codex 截断行出现在 turn.completed 之前 → 终态不丢 + raw log 原文保留"
+setup_codex_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "terminal" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CODEX_SCENARIO=truncated_then_completed \
+  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
+  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+round_dir="${run_dir}/rounds/round-001"
+term_ok=0; raw_truncated_ok=0; raw_completed_ok=0; warning_null_ok=0
+[[ "$(meta_terminal_field "$round_dir" terminal_event)" == "turn.completed" \
+   && "$(meta_terminal_field "$round_dir" terminal_status)" == "success" ]] && term_ok=1
+grep -qF '"text":"cut off mid-wr' "$round_dir/provider.stdout.log" 2>/dev/null && raw_truncated_ok=1
+grep -qE '"type":"turn\.completed"\}$' "$round_dir/provider.stdout.log" 2>/dev/null && raw_completed_ok=1
+[[ "$(meta_terminal_field "$round_dir" terminal_warning)" == "null" ]] && warning_null_ok=1
+if [[ "$rc" -eq 0 && "$term_ok" -eq 1 && "$raw_truncated_ok" -eq 1 && "$raw_completed_ok" -eq 1 && "$warning_null_ok" -eq 1 ]]; then
+  _pass "codex truncated line before turn.completed: terminal=turn.completed/success, raw log keeps truncated + completed lines"
+else
+  _fail "codex truncated line before turn.completed: rc=$rc term_ok=$term_ok raw_truncated_ok=$raw_truncated_ok raw_completed_ok=$raw_completed_ok warning_null_ok=$warning_null_ok"
+fi
+cleanup_codex_ws
+
+echo ""
+echo "-- SC-029-2: Codex 退化 error 终态写入 terminal_warning"
+setup_codex_workspace
+printf '%s\n' "- [ ] Task A" > "$SETUP_CODEX_WS/.ralph/TASKS.md"
+git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "terminal" 2>/dev/null || true
+rc=0
+RALPH_MOCK_CODEX_SCENARIO=error_only_rc0 \
+  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
+  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 --max-retry 0 2>/dev/null || rc=$?
+run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
+round_dir="${run_dir}/rounds/round-001"
+warn_ok=0
+warning_text="$(jq -r '.terminal_warning // ""' "$round_dir/meta.json" 2>/dev/null)"
+[[ "$warning_text" == *"degraded to trailing error event"* ]] && warn_ok=1
+if [[ "$rc" -eq 2 && "$warn_ok" -eq 1 ]]; then
+  _pass "codex degraded terminal: terminal_warning='$warning_text'"
+else
+  _fail "codex degraded terminal: rc=$rc warn_ok=$warn_ok warning='$warning_text'"
+fi
+cleanup_codex_ws
 
 echo ""
 echo "-- SC-014-1: RALPH_PROVIDER_EFFORT=low → codex receives -c model_reasoning_effort=low"

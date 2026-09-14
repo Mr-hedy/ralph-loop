@@ -296,3 +296,21 @@ ralph_json_num() {
     printf '%s' "$v"
   fi
 }
+
+# ── JSONL 事件流解析 helper ──────────────────────────────────────────────────
+# ralph_json_lines <file>
+# 输出 provider 事件流中"结构完整"的单行 JSON 对象：整行（允许前导/尾随空白）
+# 以 `{` 开头且以 `}` 结尾。
+#
+# 为什么需要这层过滤（REQ-029 证据契约）：jq 遇到非法 JSON 行会立即以非零码退出，
+# 并丢弃该行之后的全部输入。provider.stdout.log 是 stdout + stderr 合流文件，
+# 进程被 timeout 杀掉、stderr 交错写入或 CLI 崩溃都会留下截断行；不过滤的话，
+# 截断行之后的合法事件（含终态 result / turn.completed）会被整条解析链丢掉，
+# 导致"解析异常丢证据"。
+#
+# 过滤只影响解析视图：完整原文（含截断行）始终保留在 provider.stdout.log。
+ralph_json_lines() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  grep -E '^[[:space:]]*\{.*\}[[:space:]]*$' "$file" 2>/dev/null || true
+}

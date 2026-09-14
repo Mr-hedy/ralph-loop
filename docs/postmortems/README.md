@@ -21,3 +21,4 @@
 | PM-0002 | [pm-cross-task-decision-sedimentation.md](pm-cross-task-decision-sedimentation.md) | 跨任务稳定决策只在对话/任务文档中提及，未沉淀到稳定文档，下一轮容易偏离 | active |
 | PM-0003 | [pm-task-closure-req-traceability.md](pm-task-closure-req-traceability.md) | 任务收口 adversarial review 缺乏 REQ traceability + 现实条件外推，导致 P0 缺陷漏到下阶段 | active |
 | PM-0004 | [pm-real-provider-smoke-permission-gap.md](pm-real-provider-smoke-permission-gap.md) | Mock provider 集成通过但真实 provider 权限/信任边界不一致，发布前 smoke 才暴露 | active |
+| PM-0005 | [pm-integration-test-env-inheritance.md](pm-integration-test-env-inheritance.md) | 集成测试继承 dogfood 进程的 RALPH_* 环境变量，产生与代码无关的假失败 | active |

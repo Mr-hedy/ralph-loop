@@ -167,6 +167,32 @@ case "$scenario" in
     exit 1
     ;;
 
+  truncated_then_result)
+    # 截断行（模拟 timeout 杀进程 / stderr 交错写入）出现在合法 result 事件之前。
+    # jq 遇非法 JSON 会退出并丢弃后续输入 → 必须靠 ralph_json_lines 过滤才不丢终态。
+    _emit_init
+    printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"cut off mid-wr\n'
+    _emit_result_ok
+    _check_first_task
+    exit 0
+    ;;
+
+  is_error_missing)
+    # result 事件存在但缺 is_error 字段（schema 漂移）→ terminal_status=unknown
+    _emit_init
+    printf '{"type":"result","subtype":"success","result":"done","session_id":"%s"}\n' "$session_id"
+    _check_first_task
+    exit 0
+    ;;
+
+  no_terminal_event)
+    # 有事件流但无 result 终态事件；CLI 仍以 0 退出 → terminal_status=unknown
+    _emit_init
+    _emit_conversation_events
+    _check_first_task
+    exit 0
+    ;;
+
   *)
     printf 'mock-claude: unknown scenario: %s\n' "$scenario" >&2
     exit 1

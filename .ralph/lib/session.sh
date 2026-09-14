@@ -27,6 +27,7 @@ init_meta() {
   "provider_started_at": null,
   "terminal_event": null,
   "terminal_status": null,
+  "terminal_warning": null,
   "runtime_block": null,
   "session_source_path": null,
   "session_copied_path": null,

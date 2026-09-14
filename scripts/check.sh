@@ -7,6 +7,8 @@ bash -n "$ROOT/.ralph/bin/ralph" \
   "$ROOT/.ralph/lib/common.sh" \
   "$ROOT/.ralph/lib/tasks.sh" \
   "$ROOT/.ralph/lib/session.sh" \
+  "$ROOT/.ralph/lib/adapter-claude.sh" \
+  "$ROOT/.ralph/lib/adapter-codex.sh" \
   "$ROOT/.ralph/lib/adapter-fake.sh" \
   "$ROOT/.ralph/lib/run.sh"
 "$ROOT/.ralph/bin/ralph" help >/dev/null

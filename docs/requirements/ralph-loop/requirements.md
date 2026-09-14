@@ -206,6 +206,8 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | SC-027-4 | REQ-027 | HUMAN-N 模板正确：name 简短（一句话）；缩进子项含 4 个结构化字段（触发 / 已耗时 / 建议 / 修复后） | TASKS.md 内容 | name 一句话 + 4 个缩进子项 | 集成测试 |
 | SC-027-5 | REQ-027 | max_round / stall 触发后 `result.json.exit_reason=blocked_by_human`（复用现有），不出现 `max_iterations` 或 `stagnated` 作为独立 exit_reason | `result.json.exit_reason` | `blocked_by_human` / 无 `max_iterations` / 无 `stagnated` | 集成测试 |
 | SC-027-6 | REQ-027 | 用户勾掉 HUMAN-N 后重跑 `ralph run` → ralph 正常 pick 原阻塞 task 继续执行（per-task try 从 1 重新计数） | `result.json` / TASKS.md 最终状态 | 原 task 能被正常执行和勾选 | 集成测试 |
+| SC-029-1 | REQ-029 | `provider.stdout.log` 是唯一事实源：adapter 解析 / 诊断 / 派生 `session.history.log` 全程只读不写；含截断行（结构不完整 JSON）的输出中，截断行按原文保留，且其后的合法终态事件仍能被解析（jq 遇非法行会提前退出并丢弃后续输入） | 构造「截断行 + 合法终态事件」fixture，比对落盘 log 原文与 meta 终态字段 | log 保留截断行原文且未重写 / 终态字段来自截断行之后的合法事件 | 集成测试（Claude + Codex 各 1 用例） |
+| SC-029-2 | REQ-029 | Claude / Codex adapter 每轮写入 `terminal_event` / `terminal_status` / `terminal_warning`：success 终态 → `success`；失败终态 → `error`（并返回非零，即使 CLI 退出码为 0）；无终态事件 / 事件不可解析 → `unknown` + 非空 `terminal_warning`；不以进程退出码单独推断终态 | mock provider 终态 fixture 矩阵下的 round `meta.json` 字段 + run 退出码 | 各 fixture 的 `terminal_event` / `terminal_status` / `terminal_warning` 与预期一致 | 集成测试（Claude 4 用例 + 诊断原因 1 用例；Codex 5 用例） |
 
 ## 业务流程
 
@@ -448,7 +450,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-026 | SC-026-1, SC-026-2 | 双层时间格式 helper + status/watch/exit-message 应用 | 完整（I5 round 命名统一 2026-05-06）|
 | REQ-027 | SC-027-1, SC-027-2, SC-027-3, SC-027-4, SC-027-5, SC-027-6 | 集成测试（max_round 触发 / stall 触发 / task 切换归零 / HUMAN 模板 / exit_reason / 勾掉后继续） | 完整（I5 新增 2026-05-06） |
 | REQ-028 | SC-028-1 | 启动校验拒绝 Gemini，且不创建 run 目录 | 待新增集成测试 |
-| REQ-029 | SC-029-1, SC-029-2 | raw log 保留；终态字段覆盖成功、失败和未知事件 | 待新增 adapter/集成测试 |
+| REQ-029 | SC-029-1, SC-029-2 | 集成测试（终态字段三态 + 截断行证据保留 + raw log 只读） | 完整（DEV-3 2026-09-14；回归门与 adversarial 复核见 QA-1 / REVIEW-1） |
 | REQ-030 | SC-030-1 | Codex 活动/归档 session 通过 id 校验采集，失败可诊断且不阻塞 | 待新增集成测试 |
 | REQ-031 | SC-031-1 | 权限参数与风险在 meta/文档中可审计 | 待新增 adversarial review |
 | REQ-032 | SC-032-1 | provider 变更后的完整检查、smoke 和 adversarial review 结果可复现 | 待新增 QA 任务 |

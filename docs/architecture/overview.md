@@ -230,6 +230,7 @@ round dir **4 文件契约** —— 详细命名约定见 [`integrations.md#roun
   "provider_started_at": "2026-04-24T10:03:12Z",
   "terminal_event": "turn.completed",
   "terminal_status": "success",
+  "terminal_warning": null,
   "runtime_block": "run_id: ...\nround: 3\nstart_sha: ...\nworkspace: ...",
   "session_source_path": "/home/.../rollout-...jsonl",
   "session_copied_path": ".ralph/runs/.../round-003/session.codex.jsonl",
@@ -248,6 +249,7 @@ round dir **4 文件契约** —— 详细命名约定见 [`integrations.md#roun
 
 字段说明：
 - `provider_started_at`：provider CLI 调用前的 ISO 8601 UTC 时间戳，用于 session 文件 mtime fallback 锚点（替代旧 `.session_start` 文件）
+- `terminal_event` / `terminal_status` / `terminal_warning`：provider 终态事件契约（REQ-029），语义见 [`integrations.md#终态事件契约`](./integrations.md#终态事件契约)
 - `runtime_block`：本轮 prompt 中动态部分（`<ralph-runtime>` 块内容），与 git `start_sha` 的 PROMPT.md 共同构成完整 prompt 还原源（替代旧 `prompt.md` 文件）
 - `changed_files_total`：自 run 启动至本轮结束的累计文件变更
 - `changed_files_round`：本轮（vs 上轮）的文件变更，用于 stall 判定

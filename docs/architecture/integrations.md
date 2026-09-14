@@ -325,6 +325,24 @@ provider exit code 0 不等于 agent 成功。Ralph 需要按 provider 协议做
 - **Gemini**：`--output-format stream-json` 模式下从 stdout 事件流诊断；退化时依赖 exit code + stderr 关键字。详细规则见下文 §Gemini CLI 错误诊断。
 
 诊断结果写入 `rounds/round-NNN/meta.json`，并作为 `result.json` 的聚合错误摘要。
+
+## 终态事件契约
+
+REQ-029 契约（SC-029-1 / SC-029-2）：**进程退出码不等于 provider 产出了终态事件**。Claude / Codex adapter 每轮必须把结构化终态写入 `meta.json`，原始证据单独保留。
+
+| 字段 | 取值 | 含义 |
+|---|---|---|
+| `terminal_event` | `result`（Claude）/ `turn.completed` / `turn.failed` / `error`（Codex）/ `null` | 判定终态所依据的事件类型；无可用终态事件时为 `null` |
+| `terminal_status` | `success` / `error` / `unknown` | 终态判定结果；`unknown` = 无终态事件或事件不可解析 |
+| `terminal_warning` | 自由文本 / `null` | `unknown` 或退化判定的原因说明（诊断入口） |
+
+判定规则：
+
+- **Claude**：末尾 `result` 事件 `is_error=false` → `success`；`is_error=true` → `error`（adapter 返回非零，即使 CLI 退出码为 0）；无 `result` 事件，或 `is_error` 缺失/非布尔 → `unknown` + `terminal_warning`。
+- **Codex**：末尾 `turn.completed` → `success`；`turn.failed` → `error`（`turn.*` 是权威终态，`turn.completed` 之后的 `error` 事件不覆盖它）；无 `turn.*` 时末尾 `error` 事件退化为 `error` 并写 `terminal_warning`；三者皆无 → `unknown` + `terminal_warning`。
+- `terminal_status=error` 时 adapter 返回非零，run 层按 `provider_failed` 处理；即终态事件可以推翻 CLI 的退出码，反之亦然（exit 0 + 无终态事件仍是 `unknown`）。
+
+证据保留（SC-029-1）：`provider.stdout.log` 是唯一事实源，adapter 只读不写——解析、诊断、派生 `session.history.log` 都不截断、不重写、不删除该文件。截断行（timeout 杀进程、stderr 交错写入、CLI 崩溃）按原文保留；解析时先经 `ralph_json_lines`（`common.sh`）过滤掉结构不完整的行，避免 jq 在非法行上提前退出而丢掉其后的合法事件（jq 1.7 实测行为）。`fake` adapter 无事件流，保持三字段为 `null`。
 ...
 ## 统一采集输出
 
@@ -348,6 +366,7 @@ provider exit code 0 不等于 agent 成功。Ralph 需要按 provider 协议做
 - `session_copied_path`（`round-NNN/session.<provider>.*` 的相对路径）
 - `capture_status`：`ok` / `missing` / `warning`
 - `capture_warning`：自由文本
+- `terminal_event` / `terminal_status` / `terminal_warning`：终态事件契约字段（见上文 §终态事件契约）
 - `exit_code`
 - `duration_ms`
 - `error`：`null` 或 `{ type, message, raw }`（来自错误诊断）

@@ -517,6 +517,7 @@ Ralph 有两道保护：
 - `exit-message.txt`: 退出摘要和下一步提示。
 - `provider.stdout.log`: provider 原始输出，排查失败第一看它。
 - `session.history.log`: Ralph 整理过的人类可读历史。
+- `rounds/round-NNN/meta.json`: 本轮元数据。`terminal_status` = `success` / `error` / `unknown` 是 provider 终态判定（`unknown` 时读 `terminal_warning` 看原因）；`capture_status` / `capture_warning` 是 session 采集结果。
 
 ## 常见问题
 
