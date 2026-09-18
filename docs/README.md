@@ -10,8 +10,10 @@
 | v0.1 历史任务 | `../task.md` | 已封版 | T0–T6 历史任务史 + 22 条决策追溯（v0.1.0 发布于 2026-04-28） |
 | 历史 I<N> 归档 | `requirements/ralph-loop/I1-FINAL-TASK.md` / `requirements/ralph-loop/I2-FINAL-TASK.md` / `requirements/ralph-loop/I3-FINAL-TASK.md` / `requirements/ralph-loop/I4-FINAL-TASK.md` / `requirements/ralph-loop/I5-FINAL-TASK.md` | 历史 | 已完成项目阶段的不可变任务快照；I<N> 是文档索引，不属于 runtime 契约 |
 | 项目级需求 | `requirements.md` | 已确认 | 项目全局目标、跨模块边界和模块索引 |
-| 模块需求 | `requirements/ralph-loop/requirements.md` | 已确认 | Ralph harness 模块 REQ-001 ~ REQ-026，22 条决策和 I1 扩展需求完整追踪 |
-| 架构 Overview | `architecture/overview.md` | 已确认 | 系统上下文、CLI 契约、运行目录 schema、adapter 函数签名、退出原因、stagnation、lock、错误诊断类别 |
+| Vibecoding 协作需求 | `requirements/vibecoding-collaboration/requirements.md` | 已确认 | Codex Main Agent、Ralph 黑盒执行、最终产物验收、handoff/checkpoint/postmortem 边界，REQ-033 ~ REQ-047 |
+| Ralph 模块需求 | `requirements/ralph-loop/requirements.md` | 已确认 | Ralph harness 模块 REQ-001 ~ REQ-032 及历史决策追踪 |
+| 架构 Overview | `architecture/overview.md` | 已确认 | 总体系统入口；Ralph CLI 契约、运行目录 schema、adapter 函数签名、退出原因、stagnation、lock、错误诊断类别 |
+| Vibecoding 协作架构 | `architecture/vibecoding-collaboration.md` | 草案 | Codex Main Agent 控制面、Ralph 后台执行面、最终产物验收和长期协作记忆 |
 | 架构 Integrations | `architecture/integrations.md` | 已确认 | Claude / Codex 原生 session 路径、采集命令、退化策略、UUID 依赖（Gemini 段落为暂停接入的历史契约） |
 | 架构 Security | `architecture/security.md` | 已确认 | approval/sandbox 固定策略、`.env` 解析约束、secrets 禁入规则、攻击面 |
 | Roadmap | `roadmap.md` | 已确认 | T1→T7 阶段目标、验收口径和风险 |
@@ -22,6 +24,7 @@
 
 | 模块 | 需求 | 业务结构 | 状态 |
 |---|---|---|---|
+| Vibecoding collaboration | `requirements/vibecoding-collaboration/requirements.md` | 流程和状态边界见需求文档 | 已确认 |
 | Ralph harness | `requirements/ralph-loop/requirements.md` | 当前不适用 | 已确认 |
 
 ## 架构索引
@@ -29,6 +32,7 @@
 | 领域 | 文档 | 状态 | 说明 |
 |---|---|---|---|
 | Overview | `architecture/overview.md` | 已确认 | 系统上下文、稳定契约和架构文档索引 |
+| Vibecoding Collaboration | `architecture/vibecoding-collaboration.md` | 草案 | Main Agent 协作、后台派发、最终验收、handoff/checkpoint/postmortem 边界 |
 | API | `architecture/api.md` | 当前不适用 | Ralph 是 CLI 工具，无 HTTP/RPC API |
 | Backend | `architecture/backend.md` | 当前不适用 | Bash 模块结构在 `overview.md#运行目录` 覆盖 |
 | Frontend | `architecture/frontend.md` | 当前不适用 | 无前端 |
@@ -56,7 +60,9 @@
 | `.ralph/` 首跑样例 | `../.ralph/TASKS.md` |
 | v0.1 历史任务 | `../task.md`（已封版） |
 | 项目级需求和跨模块约束 | `requirements.md` |
+| Codex Main Agent vibecoding 协作需求 | `requirements/vibecoding-collaboration/requirements.md` |
 | Ralph harness 模块需求 | `requirements/ralph-loop/requirements.md` |
+| Vibecoding 协作技术方案 | `architecture/vibecoding-collaboration.md` |
 | Ralph 架构和稳定契约 | `architecture/overview.md` |
 | Provider 集成细节 | `architecture/integrations.md` |
 | 安全边界 | `architecture/security.md` |

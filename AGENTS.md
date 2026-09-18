@@ -6,8 +6,8 @@
 
 ## Project Identity
 
-- `ralph-loop` 是 shell-first CLI harness，用 provider CLI fresh oneshot 循环执行使用者 workspace `.ralph/TASKS.md` 中的长任务。
-- **项目最终产物 = `release/<version>/`**，其中包含 `.ralph/`、`.spec/` 和 agent 入口文件；开发工程中的 `.ralph/` 仅用于 dogfood，不直接对外复制。
+- `ralph-loop` 正在建设为面向 Codex Main Agent 的 vibecoding 协作脚手架；当前已实现核心是 shell-first Ralph CLI harness，用 provider CLI fresh oneshot 循环执行使用者 workspace `.ralph/TASKS.md` 中的长任务。
+- **项目最终产物 = `release/<version>/`**。目标组成包含 `.ralph/`、`.spec/`、`.agents/skills/`、必要的 `.codex/` 会话治理配置和 agent 入口文件；当前 release 在实施完成前仍以 v0.1.1 结构为准。开发工程中的 `.ralph/` 仅用于 dogfood，不直接对外复制。
 - 本仓库是 ralph-loop 工具的开发工程；当前专项从需求澄清、run loop、provider adapter、status/watch 和 session capture 逐步推进。
 - 项目事实沉淀在 `README.md`、`docs/requirements.md`、`docs/requirements/`、`docs/architecture/`、`.ralph/TASKS.md` 和邻近代码中。
 - 本仓库自 v0.1 后使用 `.ralph/TASKS.md` dogfood 推进开发；release 中的 `.ralph/TASKS.md` 是等待首次项目会话补齐的空模板。root `task.md` 已封版作为 v0.1 历史归档。
@@ -18,7 +18,7 @@
 - `.spec/` 承载协作模型、事实源边界、文档结构、非动作方法、流程质量门和模板。
 - `docs/` 承载项目事实、专题设计和运行过程文档。
 - `.ralph/TASKS.md` 是本仓库 dogfood 任务源；release 构建会生成无顶层任务的初始化模板，不复制本仓库任务状态。
-- `release/<version>/` 是对外部署单元，包含 `.ralph/`、`.spec/`、`AGENTS.md`、`CLAUDE.md` 和文档地图；`runs/`、`lock`、`status.json`、`.env` 不得进入 release 的版本控制内容。
+- `release/<version>/` 是对外部署单元；目标结构见 `docs/architecture/vibecoding-collaboration.md`，当前实现由 `scripts/build-release.sh` 决定。`runs/`、`lock`、`status.json`、真实 `.env` 和未脱敏会话状态不得进入 release 的版本控制内容。
 - `.agents/skills/` 承载带明确运行产物或状态迁移的动作 workflow。
 - 不要把模板占位当成已确认项目事实。
 

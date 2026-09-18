@@ -1,6 +1,6 @@
 # ralph-loop
 
-`ralph-loop` 是一个 shell-first CLI harness，用 provider CLI 的 fresh oneshot 能力驱动长任务循环执行。它把任务状态、运行日志、退出原因和 provider 原生 session 证据保存在使用者 workspace 的 `.ralph/runs/` 下，让长任务可观察、可恢复、可复盘。
+`ralph-loop` 正在建设为面向 Codex Main Agent 的 vibecoding 协作脚手架：Main Agent 负责需求、方案、任务和最终产物验收，Ralph 作为独立后台执行引擎，用 provider CLI 的 fresh oneshot 能力驱动长任务。当前已发布实现仍以 Ralph shell-first CLI harness 为核心。
 
 ![ralph-loop 运行演示：两轮任务执行、Provider 事件流和最终完成状态](./ralph-loop-demo.gif)
 
@@ -9,6 +9,7 @@
 ## 定位
 
 - 做什么：提供 `ralph run`、`ralph status`、`ralph watch` 等 CLI 能力，围绕使用者 workspace 的 `.ralph/TASKS.md` 组织多轮 agent oneshot 执行。
+- 建设方向：以 `.spec/` 作为自然语言协作 harness，串联后台 Ralph、最终产物验收、handoff、checkpoint 和 postmortem；目标需求与技术架构见 `docs/requirements/vibecoding-collaboration/requirements.md` 和 `docs/architecture/vibecoding-collaboration.md`。
 - 不做什么：不实现自有 agent 推理、任务规划或代码生成能力；不把 provider session 当作任务完成事实源；不默认 resume provider session；运行时不提供 `ralph init`。版本化部署模板由仓库构建脚本生成，而不是由运行中的 Ralph 隐式写入。
 - 谁在用：维护者和 agent 协作者，用于在真实 workspace 中执行长期或多步骤开发任务。
 
@@ -123,7 +124,9 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 | 查看历史任务归档 | `docs/requirements/ralph-loop/I<N>-FINAL-TASK.md` |
 | 查看项目文档地图 | `docs/README.md` |
 | 查看项目级需求 | `docs/requirements.md` |
+| 查看 Vibecoding 协作需求 | `docs/requirements/vibecoding-collaboration/requirements.md` |
 | 查看 Ralph 需求 | `docs/requirements/ralph-loop/requirements.md` |
+| 查看 Vibecoding 协作架构 | `docs/architecture/vibecoding-collaboration.md` |
 | 查看 Ralph 架构 | `docs/architecture/overview.md` |
 | 查看 Provider 集成 | `docs/architecture/integrations.md` |
 | 查看安全边界 | `docs/architecture/security.md` |
@@ -136,7 +139,7 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 
 - 本仓库是 ralph-loop 工具的**开发工程**。**v0.1 后切换为 dogfood 模式** — 自用 ralph 驱动后续开发；`.ralph/TASKS.md` 是当前任务源。
 - 对外部署只使用 `release/<version>/`；开发工程中的 `.ralph/` 是 dogfood 工作区，不直接复制到其他项目。
-- release 包含 `.ralph/`、`.spec/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md`；运行时产物由 `.ralph/.gitignore` 排除。
+- 当前 v0.1.1 release 包含 `.ralph/`、`.spec/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md`；目标协作脚手架还将加入 `.agents/skills/` 与必要的 `.codex/` 会话治理配置，实施状态以对应需求与架构文档为准。运行时产物不得进入 release。
 - Ralph 需求沉淀在 `docs/requirements.md`（项目级）和 `docs/requirements/ralph-loop/requirements.md`（模块级）；架构和外部集成沉淀在 `docs/architecture/`。
 - 历史设计方案放 `docs/requirements/ralph-loop/I<N>-design.md`；历史任务归档放 `I<N>-FINAL-TASK.md`。
 - 项目过程事实写入 `docs/`，并从 `docs/README.md` 保持可发现；根 README 只在项目自身入口内容变化时更新。

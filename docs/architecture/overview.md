@@ -1,14 +1,16 @@
 # Architecture Overview
 
 - 状态：已确认
-- 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-001 ~ REQ-016，澄清结论 22 条决策）；本文在 design 层面给出稳定契约。
-- 范围：本文承载 Ralph 系统上下文、主要组成、稳定契约（CLI、运行目录、adapter 接口、退出码、stall、lock、错误诊断类别）、关键数据流和架构文档索引。
+- 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-001 ~ REQ-032）和 `docs/requirements/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）；本文在 design 层面给出总体系统入口。
+- 范围：本文承载项目总体上下文，以及 Ralph 执行引擎的主要组成和稳定契约（CLI、运行目录、adapter 接口、退出码、stall、lock、错误诊断类别）。Codex Main Agent 协作控制面、后台派发、最终验收和长期记忆边界见 [`vibecoding-collaboration.md`](./vibecoding-collaboration.md)。
 Provider 特定命令构造、session 路径和诊断关键字在 [`integrations.md`](./integrations.md)；approval / sandbox 策略和安全边界在 [`security.md`](./security.md)。
 - 变更条件：CLI 契约、退出原因枚举、adapter 函数签名或 `.ralph/runs/<id>/` schema 变化时必须同步更新；并触发下游 `integrations.md` / `security.md` / 模块需求 / roadmap / task 检查。
 
 ## 总体模型
 
-Ralph 是一个 shell-first CLI harness。它不做推理，只把长任务组织成多轮 provider CLI fresh oneshot 执行。
+项目总体由 Codex Main Agent 协作控制面和 Ralph 后台执行面组成。Main Agent 负责需求、方案、任务和最终产物验收；Ralph 不做推理治理，只把已确认长任务组织成多轮 provider CLI fresh oneshot 执行。两者以任务事实源和最终 repository 状态交互，不以 provider 对话总结作为完成证据。
+
+详细协作模型见 [`vibecoding-collaboration.md`](./vibecoding-collaboration.md)。以下内容继续描述 Ralph 执行引擎的稳定契约。
 
 每轮执行流程：
 

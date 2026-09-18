@@ -1,8 +1,8 @@
 # Testing
 
-- 状态：当前 `bash scripts/integration-test.sh` 为 PASS=149 FAIL=0。
+- 状态：2026-09-17 实测 `bash scripts/integration-test.sh` 为 PASS=156 FAIL=0。
 - 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/architecture/overview.md`（启动校验、退出原因、运行目录 schema）、`docs/architecture/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
-- 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/testing.md`），不写具体用例的验证计划（写到任务事实源 `task.md` 对应任务的"验证计划"段）。
+- 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/testing.md`），不写具体用例的验证计划（写到当前任务事实源 `.ralph/TASKS.md` 对应任务的“验证计划”段；root `task.md` 已封版）。
 - 变更条件：测试入口脚本变化、新增 fixture 或 mock 类型、隔离规则失效、新平台支持、测试覆盖目标变化。
 
 ## 测试入口
@@ -92,6 +92,7 @@ tests/
 | I4 Gemini mock tests | +17（实际 100） | Gemini happy path + run -v markers、GEMINI_CLI_HOME 翻译/隔离/空值鲁棒、session capture（精确/mtime fallback/missing）、错误诊断矩阵 7 类、model 参数、依赖缺失 |
 | I5 sticky/plain/round | +20（实际 120） | sticky 渲染（首帧/重绘/健康灯/事件区/退出还原）、plain 模式回归（heartbeat/marker）、per-task round/stall 触发、HUMAN 自动插入、legacy 命名到 round 的回归、env 分组重命名 |
 | Release cleanup | +29（实际 149） | runtime 不暴露迭代元数据、Gemini/Codex 事件区回归、sticky UX、旧 flag/env 拒绝、release 文档口径 |
+| 当前基线（2026-09-17） | +7（实际 156） | provider retry 与 task_try 边界、终态解析和既有回归门增补 |
 
 ## Provider 兼容性与权限回归门（QA-1）
 
@@ -144,5 +145,5 @@ I5 引入了复杂的 TUI 渲染和 per-task 熔断逻辑，测试策略扩展�
 ## 与方法论的边界
 
 - 通用测试方法论（如何设计验证策略、追踪矩阵、报告口径）在 `.spec/rules/testing.md`，是协作规则。
-- 项目具体测试规范（本文）和具体任务的验证计划（`task.md` 各任务"验证计划"段）是实施事实。
+- 项目具体测试规范（本文）和具体任务的验证计划（`.ralph/TASKS.md` 各任务“验证计划”段）是实施事实。
 - 当通用方法论与本项目实际不一致时，以本文为准；同时考虑是否需要更新方法论。

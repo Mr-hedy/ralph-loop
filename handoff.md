@@ -1,46 +1,39 @@
 # 当前目标与约束
 
-- 目标：完成 v0.1.1 release candidate 收口后的交接；本次请求要求先刷新 handoff，再创建 checkpoint。
-- 硬约束：中文回复；当前开发任务事实源为 `.ralph/TASKS.md`；发布单元是 `.ralph/` 整个目录；不要把 `.ralph/runs/`、`.ralph/status.json`、`.ralph/lock`、`.ralph/.env` 带入发布包。
-- 当前 release 判断：Claude/Codex 真实 smoke 已通过；Gemini adapter 逻辑和 mock 回归通过，但 Gemini 真实 full smoke 被本机认证缺失阻塞，不能声明三 provider 全部真实验证完成。
+- 当前目标：在已明确的 Codex Main Agent + Ralph 后台执行协作模型上，完成需求和技术架构确认后，再拆解实施任务。
+- 硬约束：`.spec/` 是自然语言协作 harness，不是动作 Skill；Ralph 只负责 provider oneshot 执行，不参与 Main Agent handoff 判断；Main Agent 验收最终代码、测试、文档和 Git 状态，不消费 Ralph 正常执行过程。
+- 本轮边界：只完成需求、技术架构、事实源同步和交接；尚未修改动作 Skills、Codex Hook、Ralph runtime、release 构建或任务清单。
 
 # 当前阶段与范围
 
-- 阶段：release readiness / v0.1.1 收口。
-- 影响模块：`.ralph/` CLI/runtime/provider adapters/docs、`scripts/integration-test.sh`、`tests/fixtures/mock-gemini`、README/requirements/architecture docs、`.agents/skills/`、`docs/postmortems/`。
-- 变更类型：代码修复、发布文档、真实 provider smoke、UX 回归、skills 沉淀、postmortem、checkpoint 准备。
+- 阶段：Vibecoding collaboration 需求已确认，技术架构为草案，等待用户审阅后进入任务拆解。
+- 影响模块：项目级需求、Vibecoding collaboration 模块需求、总体架构、专题架构、测试基线、文档地图、根 README、AGENTS 入口和 Ralph release 契约。
+- 变更类型：需求、架构、文档、事实源和 release 目标契约；无运行时代码变更。
 
 # 稳定决策
 
-- Runtime 不再暴露 iteration 元数据；运行时统一使用 `round` / `rounds`，开发文档里的 `I<N>` 只作为历史归档编号。
-- `parse_current_iteration()` 已删除；`.ralph/TASKS.md` 顶部 legacy 当前迭代声明即使存在，也不会写入 `status.json` / `result.json`。
-- Codex adapter 使用 `--sandbox danger-full-access`，因为 ralph oneshot 协议要求 provider 在每轮内完成 `git add -A && git commit`，真实 Codex `workspace-write` 不能写 `.git/index.lock`。
-- Gemini adapter 使用 `--approval-mode yolo --skip-trust --output-format stream-json`；`--skip-trust` 用于避免新 workspace trust 降级 approval。
-- `.ralph/README.md` 是部署后新手手册，应独立覆盖安装、认证、`.env`、TASKS 写法、所有 CLI 命令/参数、status/watch、退出原因、日志和故障处理。
-- Release/provider adapter 收口不能只看 mock 集成测试；必须记录真实 provider smoke 的 passed / failed / blocked-by-auth / not-run 状态。
+- Codex Main Agent 是协作控制面，负责需求澄清、方案设计、任务拆解、用户授权后的执行派发和最终产物验收。
+- Ralph 是独立后台执行面。Main Agent 不读取正常 provider 过程会话，也不以 Ralph `done`、退出码或任务勾选证明需求完成。
+- Main Agent 与 Ralph 通过已确认任务和最终 repository 状态交付，不通过模型总结交付。
+- 同一 checkout 默认单写入者：Ralph running 时 Main Agent 不修改业务文件；并行写入必须使用隔离 worktree。
+- `.spec/` 持续约束日常自然语言协作；`.agents/skills/` 只承载 `ralph`、`handoff`、`checkpoint`、`postmortem` 这类有动作或状态迁移的 workflow。
+- Handoff 只治理 Main Agent 长上下文，不读取 Ralph round、stall、status 或 provider session。
+- Codex 原生 Hooks 支持 `PreCompact`、`PostCompact` 和 `SessionStart(source=compact)`；外部参考项目中依赖 `msvcrt` 的 Python handler 才是 Windows 定向实现，二者不能混同。
+- 首期 handoff 方案选定项目级 `SessionStart(source=compact)` Hook + macOS shell handler。Hook 只注入评估提醒，不写 `handoff.md`、不创建新会话；保存或完整交接必须由用户授权。
+- Checkpoint 是经过验收、可回退的 Git 稳定锚点；普通执行 commit 不自动成为 checkpoint。
+- Postmortem 记录重复、系统性、回归或 prevention 失效问题，并把可执行预防规则提炼到 AGENTS、`.spec/`、Skill、脚本或测试。
+- Release 目标组成扩展为 `.ralph/`、`.spec/`、`.agents/skills/`、必要的 `.codex/` 会话治理配置和 agent 入口；当前 v0.1.1 release 尚未实现该目标结构。
 
 # 已完成工作
 
-- 版本收口：`.ralph/bin/ralph` 当前为 `0.1.1`，README 状态同步到 `v0.1.1`。
-- 发布迭代信息清理：删除 `parse_current_iteration()`；移除 runtime/status/watch/exit-message 中的 iteration 字段；更新 PROMPT、requirements、architecture、README、tests。
-- Codex 真实 smoke 暴露 `.git/index.lock` 权限问题后，adapter 改为 `danger-full-access`，docs 和 mock 断言同步。
-- Gemini 真实 smoke 暴露新 workspace trust downgrade 后，adapter 增加 `--skip-trust`，docs 和 mock 断言同步；真实 full smoke 仍被本机 Gemini auth 阻塞。
-- 修复 Gemini/Codex 日志事件区：verbose filter 不再丢弃 Gemini assistant delta，`run -v` / `watch` 能显示 assistant delta + tool/result marker。
-- 修复 plain heartbeat 后台 `sleep` 清理：heartbeat 子 shell 增加 trap，并新增集成测试断言 fast plain run 后无 orphan sleep。
-- 重写 `.ralph/README.md` 为手把手新手文档，枚举所有命令、参数和示例，并说明 provider 权限边界、runtime artifacts 复制风险、Gemini auth 前置条件。
-- skills 沉淀：
-  - `checkpoint`：release/provider adapter checkpoint 必须记录真实 smoke 状态。
-  - `postmortem`：sweep 覆盖 mock-vs-real 验证差异和 release smoke 阻塞。
-  - `ralph`：任务源改为 `.ralph/TASKS.md`，并把真实 provider smoke 状态纳入 exit gate。
-- postmortem：
-  - 新增 `docs/postmortems/pm-real-provider-smoke-permission-gap.md`（PM-0004）。
-  - 更新 `docs/postmortems/pm-task-closure-req-traceability.md`（PM-0003）记录 heartbeat orphan sleep 失败模式。
+- 新增 `docs/requirements/vibecoding-collaboration/requirements.md`，定义 REQ-033 ~ REQ-047、成功标准、业务流程、功能/非功能需求、技术约束和追踪矩阵。
+- 新增 `docs/architecture/vibecoding-collaboration.md`，定义双平面模型、repository 交付接口、Task Readiness Gate、后台派发、最终验收、返工、handoff/checkpoint/postmortem 边界、单写入者模型和 release 目标结构。
+- 更新 `docs/requirements.md` 和 `docs/architecture/overview.md`，把项目定位从单一 CLI harness 扩展为 Codex Main Agent vibecoding 协作脚手架，Ralph 作为后台执行引擎。
+- 更新 Ralph 模块 REQ-017 和新增 SC-017-2，消除旧 release 组成与 REQ-046 的稳定契约冲突。
+- 更新 `README.md`、`AGENTS.md`、`docs/README.md` 和 `docs/architecture/testing.md`，同步入口、文档地图、当前/目标 release 区分和 PASS=156 测试基线。
+- 使用官方 Codex 文档核实 Hooks 的 compaction 生命周期事件、项目级配置、信任机制和 compact 后上下文注入行为。
 
 # 最新验证
-
-- 命令：`bash -n .ralph/bin/ralph .ralph/lib/*.sh scripts/integration-test.sh tests/*.exp`
-- 结果：通过
-- 诊断：所有 shell/expect 脚本语法 OK。
 
 - 命令：`git diff --check`
 - 结果：通过
@@ -48,51 +41,39 @@
 
 - 命令：`bash scripts/check.sh`
 - 结果：通过
-- 诊断：项目声明检查通过，输出 `ralph-loop check passed`。
+- 诊断：输出 `ralph-loop check passed`。
 
 - 命令：`bash scripts/integration-test.sh`
-- 结果：通过，`PASS=150 FAIL=0`
-- 诊断：覆盖 exit reason、retry、timeout child cleanup、per-task max_round/stall、round 命名、plain/sticky UX、status/watch、Claude/Codex/Gemini mock adapters、Gemini verbose assistant delta、heartbeat cleanup 等。
+- 结果：通过，`PASS=156 FAIL=0`
+- 诊断：完整 Ralph 回归门通过；本轮没有运行时代码变更。
 
-- 命令：真实 Claude smoke
+- 命令：Codex Hooks 官方文档核对
 - 结果：通过
-- 诊断：临时 workspace run_id `20260520-035742-071467e`，`exit_reason=done`，1/1 task，目标文件和任务勾选 OK，commits=2，`capture_status=ok`，history bytes 12274。
-
-- 命令：真实 Codex smoke
-- 结果：先失败后修复通过
-- 诊断：首次 `workspace-write` 因 `.git/index.lock` 权限失败；修复为 `danger-full-access` 后临时 workspace run_id `20260520-040808-326dbfc`，`exit_reason=done`，1/1 task，目标文件和任务勾选 OK，commits=2，`capture_status=ok`，history bytes 3271。
-
-- 命令：真实 Gemini smoke
-- 结果：阻塞
-- 诊断：本机没有 `~/.gemini/settings.json`，且 `GEMINI_API_KEY` / `GOOGLE_GENAI_USE_VERTEXAI` / `GOOGLE_GENAI_USE_GCA` 未设置；直接命令加 `--skip-trust` 后只剩 auth error，无 trust downgrade 警告。
-
-- 命令：进程残留检查 `ps aux | rg 'ralph|integration-test|mock-claude|mock-codex|mock-gemini|claude|codex|gemini|sleep 17|sleep 60'`
-- 结果：通过
-- 诊断：未见 ralph/integration-test/mock provider/heartbeat sleep 残留；仅有 Codex app server、Claude native host、VS Code 这类常驻进程。
+- 诊断：确认 `SessionStart(source=compact)` 在根会话手动或自动压缩后触发，并可向压缩后的即时续跑注入 developer context；项目 Hook 需要用户审查和信任。
 
 # 已验证与未验证
 
-- 已验证：release cleanup 后 runtime round/rounds 契约；Codex/Gemini adapter 关键参数；Gemini/Codex 日志事件区 UX；plain/sticky/status/watch 自动化 UX；heartbeat cleanup；Claude/Codex 真实 provider 完整 smoke。
-- 未验证：Gemini 真实 full smoke。原因是本机 Gemini CLI 认证未配置；这是环境/auth 阻塞，不是当前已知产品代码阻塞。
+- 已验证：需求编号与追踪结构、项目事实源同步、现有 Ralph 完整回归、Codex Hook 官方事件契约、Windows handler 与 Codex Hook 的概念边界。
+- 未验证：项目级 `.codex/hooks.json` 的真实信任流程、Git 根路径解析、turn 中途自动压缩续跑；Main Agent 后台托管 Ralph 的具体机制；每次压缩触发评估是否需要静默策略；完整 release 部署 smoke。
 
 # Checkpoint 与 Postmortem 状态
 
-- Checkpoint：本 handoff 刷新后将创建 `docs/checkpoints/2026-05-21-01-release-readiness.md` 并提交；最终以该 checkpoint note 和提交为准。
-- Postmortem：新增 PM-0004；更新 PM-0003。PM sweep 结论为“已新增/已更新”，且已把规则提炼到 skills 和 `scripts/integration-test.sh`。
+- Checkpoint：无。本次用户要求普通 Git 提交，没有创建 checkpoint note；该 commit 不自动声明为稳定 checkpoint。
+- Postmortem：本轮未新增或更新。收尾诊断命令曾因 zsh 特殊变量 `path` 覆盖 `PATH` 而失败，已改用 `doc_file` 重跑通过；该问题未进入项目代码，未达到新增 postmortem 的价值阈值。已查阅现有 PM-0001（macOS shell 兼容）。
 
 # 工作区状态
 
-- 分支：`main`
-- HEAD：`af9c54f docs(sticky): unify \`(Ctrl+C to exit)\` formatting across hint & frozen footer`
-- 当前 dirty 范围包含 release 收口代码/文档/skills/postmortem/checkpoint 准备，以及一批历史 mode-only 文件状态。提交 checkpoint 时应避免把无关 mode-only 噪音混入。
-- 新增文件：`docs/postmortems/pm-real-provider-smoke-permission-gap.md`；checkpoint note 待创建。
+- 分支：`main`。
+- 提交前 dirty 范围：`AGENTS.md`、`README.md`、`handoff.md`、`docs/README.md`、`docs/requirements.md`、`docs/requirements/ralph-loop/requirements.md`、`docs/requirements/vibecoding-collaboration/requirements.md`、`docs/architecture/overview.md`、`docs/architecture/testing.md`、`docs/architecture/vibecoding-collaboration.md`。
+- 本 handoff 与上述相干文档计划在同一个普通 commit 中提交；接手时以 `git log -1` 和 `git status --short` 的实际结果为准。
+- 外部参考 `/Users/wacai/Downloads/Table-skills-main` 仅作为研究材料，不是源码、运行依赖或事实源。
 
 # 建议下一步
 
-- 创建并提交 checkpoint：`docs/checkpoints/2026-05-21-01-release-readiness.md`。
-- Gemini CLI auth 配置完成后，重新执行 Gemini 真实 smoke；若通过，更新 release 验证结论。
-- 若准备正式 release，建议先确认是否要清理工作树中的 mode-only 噪音，避免后续 diff 继续污染审查。
+- 用户先审阅 Vibecoding collaboration 需求与架构，重点确认后台 Ralph 托管方式和 handoff 提醒频率边界。
+- 确认后按 `.spec/rules/tasks.md` 把实施拆入唯一任务事实源 `.ralph/TASKS.md`，不要创建新的任务板。
+- 实施优先顺序建议：真实 Hook smoke → 后台派发与单写入者协议 → 最终产物验收 workflow → handoff/checkpoint/postmortem 协同 → release 构建与临时 workspace smoke。
 
 # 交接摘要
 
-- v0.1.1 release candidate 的代码、文档、UX、mock 回归、Claude/Codex 真实链路已收口；唯一未完成的真实验证是 Gemini full smoke，阻塞原因是本机 auth 缺失。
+- 当前已经完成“Codex Main Agent 控制面 + Ralph 黑盒执行面”的需求和架构定义；下一位 Agent 不应重新把 `.spec/` 设计成 Skill，也不应把 Ralph 运行过程或进度信号接入 Main Agent handoff。

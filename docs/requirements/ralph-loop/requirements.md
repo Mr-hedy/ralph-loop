@@ -88,7 +88,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-014 | Effort 抽象 | `--effort=low\|medium\|high\|none` 由 adapter 翻译到各 provider 原生参数；留空不传 | P1-重要 | 功能 | 澄清轮次 3 |
 | REQ-015 | Provider 绑定 | `--provider` 或 `RALPH_PROVIDER` 在 `ralph run` 启动时绑定，运行中不切换；写入 `status.json` 和 `provider.meta` | P0-必须 | 约束 | 澄清轮次 1 |
 | REQ-016 | Skill 封装（后置） | 后续封装 `ralph-loop` skill，负责在使用者 workspace 初始化 `.ralph/` 结构并正确构造 `ralph run`；不进入 v0.1 范围 | P2-期望 | 协作 | 澄清轮次 3 |
-| REQ-017 | 版本化 release 部署单元 | ralph-loop 对外最终产物是 `release/<version>/`，包含 `.ralph/` 运行单元、`.spec/` 协作规范、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md` 文档地图模板。release 不包含开发工程任务状态、运行期 `runs/` / `lock` / `status.json` 或真实 `.env`；部署到外部 workspace 时遇到既有入口文件必须先人工合并，不静默覆盖。开发工程 `.ralph/` 仅供 dogfood。| P0-必须 | 约束 | 用户裁决 2026-09-14 / release 构建实施 |
+| REQ-017 | 版本化 release 部署单元 | ralph-loop 对外最终产物是 `release/<version>/`，包含 `.ralph/` 执行单元、`.spec/` 协作规范、`.agents/skills/` 动作 workflow、必要的 `.codex/` 会话治理配置、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和文档地图。release 不包含开发工程任务状态、运行期 `runs/` / `lock` / `status.json`、真实 `.env` 或未脱敏会话状态；部署到外部 workspace 时遇到既有入口文件必须先人工合并，不静默覆盖。开发工程 `.ralph/` 仅供 dogfood。| P0-必须 | 约束 | 用户裁决 2026-09-14；REQ-046 扩展 2026-09-16 |
 | REQ-018 | HUMAN-N 人工阻塞机制 | TASKS.md 第一个未勾选任务前缀是 `HUMAN-` 时，ralph 工具层在每轮启动前扫描发现 → 不调用 provider，直接以 `blocked_by_human`（exit code 7）退出。agent 在 ralph oneshot 内不得勾选或执行 `HUMAN-N` 任务（PROMPT.md 强约束）；普通 Claude Code 对话里不受此约束。机制目的：让 agent 优雅退出，把需求层决策交还给人类，避免猜测/伪装勾选。| P0-必须 | 功能 | I1 设计方案 2026-04-30 |
 | REQ-019 | 退出接力打印 | `ralph run` 退出时（任意 exit_reason）向 stderr 打印格式化总结，含 `run_id` / `exit_reason` / `rounds` / 任务进度 / 阻塞点（如有）/ 接力提示（基于 exit_reason 的下一步建议）；同时落到 `.ralph/runs/<run_id>/exit-message.txt` 方便人类复制粘贴给 main agent。| P1-重要 | 功能 | I1 设计方案 2026-04-30 / release cleanup 2026-05-20 |
 | REQ-020 | Runtime 不暴露迭代元数据 | Ralph runtime 不解析 `.ralph/TASKS.md` 顶部迭代声明，不写 `iteration` / `iterations` / `iteration_name` 字段，不在 `status` / `watch` / `exit-message.txt` 展示迭代信息。Project 自身的 roadmap / 归档编号属于开发文档，不进入 `.ralph/` 发布单元运行契约。| P1-重要 | 协作 | release cleanup 2026-05-20 |
@@ -173,6 +173,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | SC-014-1 | REQ-014 | `--effort=low\|medium\|high` 翻译为各 provider 原生参数；`none` 或留空不传 | 构造的命令行 | flag 匹配或缺席 | 单元测试 |
 | SC-015-1 | REQ-015 | `status.json` 和 `provider.meta` 都记录本轮 provider；run 生命周期内不变更 | 文件字段 | 一致 | 集成测试 |
 | SC-017-1 | REQ-017 | `.ralph/` 整个目录可通过 `cp -r .ralph/ <workspace>/.ralph/` 一次性部署到独立 workspace 并跑通 `ralph run` 到 `exit_reason=done` | 部署后 workspace 的 `.ralph/runs/<id>/result.json` | `done` 且无依赖外部脚本 | T6.3 真实多轮 smoke |
+| SC-017-2 | REQ-017 | 完整 release 部署到临时 workspace 后，协作规范、四个动作 Skills、会话治理配置、Ralph 执行单元和入口文档均可发现，且不存在开发工程运行状态或私有配置 | release 结构和禁入项扫描 | 必备项 100% 存在，禁入项为 0 | release 完整性测试 |
 | SC-018-1 | REQ-018 | TASKS.md 第一个未勾选任务前缀是 `HUMAN-` → ralph 不调 provider，立即以 `blocked_by_human` / exit code 7 退出；HUMAN-N 任务勾 `[x]` 后正常进入下一轮 | `result.json.exit_reason` + 退出码 + round 目录是否存在 | exit 7 / no round dir；勾掉后 done | 集成测试 2 用例（blocked_by_human 触发 + cleared）+ 1 断言（不调 provider 验证 round 目录不创建） |
 | SC-018-2 | REQ-018, REQ-021 | 任务前缀格式校验：非全大写英文（如 `Dev-1`、`dev-1`）触发启动失败 exit 1 | 启动退出码 + stderr 错误前缀 | exit 1 / `startup check failed: TASKS.md task prefixes must be UPPERCASE` | 集成测试 |
 | SC-019-1 | REQ-019 | `.ralph/runs/<run_id>/exit-message.txt` 在 lock 获取后的所有 exit_reason 下生成，包含 exit_reason、rounds、任务进度、接力提示等字段（`startup_failed` / `locked` 不产生 run 目录因此无文件） | 文件存在 + 文本 grep | 含关键字段 | 集成测试（HUMAN-N 用例覆盖：含 `blocked_by_human`） |
@@ -465,7 +466,7 @@ Ralph Loop 是一个 shell-first CLI harness，用 provider CLI 的 fresh onesho
 | REQ-014 | SC-014-1, FR-005-007 | 单元测试 | 完整 |
 | REQ-015 | SC-015-1, FR-001 | 集成测试 | 完整 |
 | REQ-016 | — | 延后到 v0.1 之后 | 延后 |
-| REQ-017 | SC-017-1 | T6.0 落样板入仓 + T6.3 真实 smoke 验证 `cp -r` 部署链路 | 完整（待 T6 闭环验证） |
+| REQ-017 | SC-017-1, SC-017-2 | 既有 `.ralph/` 部署 smoke + 待新增 release 完整性测试 | 部分（Ralph 部署已覆盖；协作脚手架组成待 REQ-046 实施） |
 
 ## 变更影响
 
