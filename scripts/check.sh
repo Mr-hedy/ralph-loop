@@ -23,6 +23,42 @@ bash -n "$ROOT/scripts/integration-test.sh" \
 ! grep -q "AGENTS.md" "$ROOT/README.md"
 ! grep -q "npm run check" "$ROOT/README.md"
 ! grep -q "AGENTS.md" "$ROOT/docs/README.md"
+# Spec assets use uppercase filenames; docs and runtime naming are separate contracts.
+for spec_rule in ADVERSARIAL-REVIEW ARCHITECTURE DOCS REQUIREMENTS REVIEW ROADMAP SOLUTION TASKS TESTING TROUBLESHOOTING; do
+  test -f "$ROOT/.spec/rules/$spec_rule.md"
+done
+for spec_template in DOCS-README REQUIREMENTS SOLUTION TESTING TROUBLESHOOTING; do
+  test -f "$ROOT/.spec/rules/templates/$spec_template.md"
+done
+while IFS= read -r spec_file; do
+  spec_name="${spec_file##*/}"
+  case "$spec_name" in
+    *.md) spec_stem="${spec_name%.md}" ;;
+    *)
+      echo "unexpected .spec filename extension: $spec_file" >&2
+      exit 1
+      ;;
+  esac
+  spec_upper="$(printf '%s' "$spec_stem" | tr '[:lower:]' '[:upper:]')"
+  if [[ "$spec_stem" != "$spec_upper" ]]; then
+    echo "uppercase .spec filename required: $spec_file" >&2
+    exit 1
+  fi
+done < <(find "$ROOT/.spec/rules" -maxdepth 2 -type f)
+# Active entrypoints must use the current uppercase rule paths. Historical
+# checkpoints, research notes, and immutable archives may retain old paths.
+if grep -REn '\.spec/rules/(adversarial-review|architecture|docs|requirements|review|roadmap|solution|tasks|testing)\.md' \
+  "$ROOT/.ralph/TASKS.md" \
+  "$ROOT/.ralph/PROMPT.md" \
+  "$ROOT/AGENTS.md" \
+  "$ROOT/README.md" \
+  "$ROOT/docs/README.md" \
+  "$ROOT/docs/architecture/overview.md" \
+  "$ROOT/docs/architecture/testing.md" \
+  "$ROOT/scripts"; then
+  echo "stale lowercase .spec rule reference in active files" >&2
+  exit 1
+fi
 test -f "$ROOT/docs/requirements/ralph-loop/requirements.md"
 test -f "$ROOT/docs/requirements.md"
 test -f "$ROOT/docs/architecture/overview.md"
@@ -33,5 +69,13 @@ test -f "$ROOT/task.md"
 test ! -d "$ROOT/ralph"
 test -f "$ROOT/.ralph/PROMPT.md"
 test -f "$ROOT/.ralph/TASKS.md"
+current_version="$(sed -n 's/^RALPH_VERSION="\([^"]*\)"$/\1/p' "$ROOT/.ralph/bin/ralph")"
+[[ -n "$current_version" ]] || { echo "RALPH_VERSION not found" >&2; exit 1; }
+current_release="$ROOT/release/$current_version"
+[[ -d "$current_release/.spec" ]] || { echo "current release .spec missing: $current_release" >&2; exit 1; }
+if ! diff -rq "$ROOT/.spec" "$current_release/.spec" >/dev/null; then
+  echo "current release .spec is out of sync with root .spec: $current_release" >&2
+  exit 1
+fi
 
 echo "ralph-loop check passed"

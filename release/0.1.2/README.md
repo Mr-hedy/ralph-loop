@@ -1,4 +1,4 @@
-# Ralph Loop 0.1.1
+# Ralph Loop 0.1.2
 
 这是 Ralph Loop 的可部署 release 包，包含 `.ralph/` 运行单元、`.spec/` 协作规范和 agent 启动入口。
 

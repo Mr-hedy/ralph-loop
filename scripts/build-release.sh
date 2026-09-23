@@ -13,6 +13,9 @@ out="$repo_root/release/$version"
 rm -rf "$out"
 mkdir -p "$out/.ralph/bin" "$out/.ralph/lib" "$out/.spec" "$out/docs"
 cp "$src_ralph/bin/ralph" "$out/.ralph/bin/ralph"
+sed -i.bak "s/^RALPH_VERSION=\"[^\"]*\"$/RALPH_VERSION=\"$version\"/" "$out/.ralph/bin/ralph"
+rm -f "$out/.ralph/bin/ralph.bak"
+grep -q "^RALPH_VERSION=\"$version\"$" "$out/.ralph/bin/ralph"
 for file in "$src_ralph"/lib/*.sh; do
   base="$(basename "$file")"
   [[ "$base" == adapter-gemini.sh ]] && continue
@@ -22,13 +25,24 @@ cp "$src_ralph/PROMPT.md" "$out/.ralph/PROMPT.md"
 cp "$src_ralph/README.md" "$out/.ralph/README.md"
 cp "$src_ralph/.gitignore" "$out/.ralph/.gitignore"
 cp -R "$repo_root/.spec/." "$out/.spec/"
+if [[ -d "$repo_root/.codex" ]]; then
+  cp -R "$repo_root/.codex" "$out/.codex"
+fi
 
 cat > "$out/.ralph/TASKS.md" <<'EOF'
 # Tasks
 
+> 主题: <首次项目会话补齐>
+> 起始: <YYYY-MM-DD>
+> 归档目标: `docs/features/<feature>/final-task.md`（无项目归档 workflow 时补齐）
+
 ## 当前有效结论
 
-> 由项目需求、架构决策和 `.spec/` 规范确认后填写。
+> 由 feature 需求、方案决策和 `.spec/` 规范确认后填写。
+
+## 历史索引
+
+> 首次项目会话根据已有文档填写；没有历史时留空。
 
 ## 任务维护规则
 
@@ -99,9 +113,11 @@ cat > "$out/docs/README.md" <<'EOF'
 | Ralph 运行方式 | `../.ralph/README.md` |
 | 当前任务 | `../.ralph/TASKS.md` |
 | 需求、方案、测试、审查规范 | `../.spec/README.md` |
-| 项目需求 | `requirements.md`（创建后补充） |
-| 项目架构 | `architecture/`（创建后补充） |
-| 运行过程与复盘 | `checkpoints/`、`postmortems/`（创建后补充） |
+| 某个功能需求 | `features/<feature>/requirements.md`（按需创建） |
+| 某个功能方案/验证 | `features/<feature>/solution.md`、`testing.md`（按需创建） |
+| 项目级稳定契约 | `architecture.md`、`security.md`、`integrations.md`、`testing.md`（按需创建） |
+| 业务系统排查 | `troubleshooting/<slug>.md`（按需创建） |
+| 运行过程与复盘 | `checkpoints/`、`postmortems/`（按需创建） |
 
 新增文档时必须同步更新本地图；本文件只做导航，不承载正文。
 EOF
@@ -113,7 +129,7 @@ cat > "$out/README.md" <<'EOF'
 
 ## 部署
 
-目标 workspace 已存在 `AGENTS.md`、`CLAUDE.md`、`.ralph/`、`.spec/` 或 `docs/` 时，不要直接覆盖；先将本目录复制到临时位置，再逐项人工合并。全新 workspace 才可以直接复制本目录内容。首次项目会话先阅读 `AGENTS.md`、`docs/README.md` 和 `.spec/README.md`，再根据用户目标补齐 `.ralph/TASKS.md`；清单准备好后才运行 Ralph。
+目标 workspace 已存在 `AGENTS.md`、`CLAUDE.md`、`.ralph/`、`.spec/` 或 `docs/` 时，不要直接覆盖；先将本目录复制到临时位置，再逐项人工合并。全新 workspace 才可以直接复制本目录内容。首次项目会话先阅读 `AGENTS.md`、`docs/README.md` 和 `.spec/README.md`，再根据用户目标创建 feature 文档并补齐 `.ralph/TASKS.md`；清单准备好后才运行 Ralph。
 
 正式支持 provider：Claude Code、Codex CLI；`fake` 仅用于测试。Gemini 暂停接入。
 EOF

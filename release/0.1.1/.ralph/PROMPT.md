@@ -28,13 +28,13 @@
 
 | 前缀 | 执行方 | mindset | 必读 spec | 主要产出 |
 |------|--------|---------|-----------|---------|
-| `REQ-N` | ralph oneshot 内 agent | 需求澄清 | `.spec/rules/requirements.md` | `docs/requirements/<module>/requirements.md` |
-| `SOL-N` | ralph oneshot 内 agent | 方案决策（存在真实取舍时） | `.spec/rules/solution.md` | requirements / architecture / 任务源对应章节 |
-| `ROADMAP-N` | ralph oneshot 内 agent | Roadmap 阶段规划（版本切分、阶段目标、优先级、验收口径） | `.spec/rules/roadmap.md` | `docs/roadmap.md` |
+| `REQ-N` | ralph oneshot 内 agent | 需求澄清 | `.spec/rules/REQUIREMENTS.md` | `docs/features/<feature>/requirements.md` |
+| `SOL-N` | ralph oneshot 内 agent | 方案决策（存在真实取舍时） | `.spec/rules/SOLUTION.md` | feature / 架构 / 任务源对应章节 |
+| `ROADMAP-N` | ralph oneshot 内 agent | Roadmap 阶段规划（版本切分、阶段目标、优先级、验收口径） | `.spec/rules/ROADMAP.md` | `docs/roadmap.md` |
 | `PLAN-N` | ralph oneshot 内 agent | 任务列表规划（基于已确认 REQ/SOL/架构，产出 `.ralph/TASKS.md` 的 `- [ ]` 任务列表；与 trantor PLAN / 业界 sprint planning 同义） | `.spec/README.md` 阶段 4 | `.ralph/TASKS.md` 后续追加 |
 | (空) / `DEV-N` | ralph oneshot 内 agent | 开发实施（默认） | `CLAUDE.md` + 代码事实 | 代码 / 文档 / 提示词 / 论文等任何"按已确认需求/方案产出具体交付物"的工作 |
-| `QA-N` | ralph oneshot 内 agent | 测试设计与实施 | `.spec/rules/testing.md` | `docs/architecture/testing.md` + 测试代码 |
-| `REVIEW-N` | ralph oneshot 内 agent | 审查（见下文格式） | `.spec/rules/review.md` 或 `.spec/rules/adversarial-review.md` | findings / 事实源修订 |
+| `QA-N` | ralph oneshot 内 agent | 测试设计与实施 | `.spec/rules/TESTING.md` | `docs/features/<feature>/testing.md` 或 `docs/testing.md` + 测试代码 |
+| `REVIEW-N` | ralph oneshot 内 agent | 审查（见下文格式） | `.spec/rules/REVIEW.md` 或 `.spec/rules/ADVERSARIAL-REVIEW.md` | findings / 事实源修订 |
 | `HUMAN-N` | **main agent 对话内人类协作**（见下文 HUMAN-N 机制） | 必须人工介入决策；ralph oneshot 内不可执行不可勾选 | — | 答案落到对应 docs + HUMAN 任务里追加"答："摘要 + 由人类勾选 |
 
 **强约束（ralph 启动校验，违反则启动失败 exit 1）**：
@@ -135,7 +135,7 @@ HUMAN-N 是任务类型之一，但和其他类型不同：**必须由人类在 
 
 ## TASKS.md 结构、模板与自修改规则
 
-→ 详见 `.spec/rules/tasks.md`（spec 层契约：4 段结构、顶部 blockquote 声明、未完成/已完成模板的 7 个必填字段（预期/输入/范围/验证计划/完成/验证/未验证）、HUMAN-N 模板、REVIEW-N 两种用法、自修改规则、归档约定）。
+→ 详见 `.spec/rules/TASKS.md`（spec 层契约：4 段结构、顶部 blockquote 声明、未完成/已完成模板的 7 个必填字段（预期/输入/范围/验证计划/完成/验证/未验证）、HUMAN-N 模板、REVIEW-N 两种用法、自修改规则、归档约定）。
 
 **runtime 速查**（与 spec 层一致，本段为 oneshot 内自检）：
 
@@ -143,7 +143,7 @@ HUMAN-N 是任务类型之一，但和其他类型不同：**必须由人类在 
 - 已写入任务不删、不改写历史字段、不 fake-mark `[x]`。
 - HUMAN-N 在 ralph oneshot 内不可勾选（见上文 §HUMAN-N 阻塞机制）。
 - 前缀必须全大写英文（启动校验，违反 exit 1）。
-- 写新任务用 `.spec/rules/tasks.md` §未完成任务模板（预期/输入/范围/验证计划 4 个字段必填）。
+- 写新任务用 `.spec/rules/TASKS.md` §未完成任务模板（预期/输入/范围/验证计划 4 个字段必填）。
 - 完成任务追加 `- 完成: <产出>` / `- 验证: <命令 + 结果>` / `- 未验证: <residual 或 None>`（"未验证"必填）。
 
 ## 退出语义（ralph 外层判定，agent 不主动控制）

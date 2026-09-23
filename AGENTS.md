@@ -37,7 +37,7 @@
 
 本项目使用 `.spec/` 作为协作规范和质量门。需要判断任务类型、适用规则和产出位置时，先阅读 `.spec/README.md`；详细规则位于 `.spec/rules/`，本文件不复制任务路由表。
 
-涉及权限、持久化、公开契约、generated output、release 或事实源路由的变更，额外阅读 `.spec/rules/adversarial-review.md`。
+涉及权限、持久化、公开契约、generated output、release 或事实源路由的变更，额外阅读 `.spec/rules/ADVERSARIAL-REVIEW.md`。
 
 ## Ralph 集成
 

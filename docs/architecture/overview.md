@@ -408,13 +408,13 @@ v0.1.1 引入的协作协议层约定，承载 ralph + 人类 + main agent 三�
 
 | 前缀 | 对应 `.spec/` 段 |
 |------|-----------------|
-| `REQ-N` | `.spec/rules/requirements.md` |
-| `SOL-N` | `.spec/rules/solution.md` |
-| `ROADMAP-N` | `.spec/rules/roadmap.md`（Roadmap 阶段规划） |
+| `REQ-N` | `.spec/rules/REQUIREMENTS.md` |
+| `SOL-N` | `.spec/rules/SOLUTION.md` |
+| `ROADMAP-N` | `.spec/rules/ROADMAP.md`（Roadmap 阶段规划） |
 | `PLAN-N` | `.spec/README.md` 阶段 4（任务列表规划，trantor PLAN / sprint planning 同义） |
 | (空) / `DEV-N` | `CLAUDE.md` + 代码事实（默认） |
-| `QA-N` | `.spec/rules/testing.md` |
-| `REVIEW-N` | `.spec/rules/review.md` 或 `.spec/rules/adversarial-review.md` |
+| `QA-N` | `.spec/rules/TESTING.md` |
+| `REVIEW-N` | `.spec/rules/REVIEW.md` 或 `.spec/rules/ADVERSARIAL-REVIEW.md` |
 | `HUMAN-N` | 等人类决策（见下文 HUMAN-N 阻塞机制） |
 
 ### HUMAN-N 阻塞机制（REQ-018）
