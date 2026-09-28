@@ -1,11 +1,13 @@
 ---
-status: active
+status: historical
 date: 2026-05-02
 topic: TASKS.md 格式规范回溯——从无结构 sub-bullet 切到 7 字段结构化模板
 audience: 本仓库 + agent-collab-kit 工程同步参考
 ---
 
 # TASKS.md 格式规范回溯（2026-05）
+
+本文仅记录 2026-05 的任务格式演进和当时的同步建议；现行规则以 `.spec/rules/TASKS.md` 为准，正文中的旧路径不作为当前入口。
 
 ## 背景
 

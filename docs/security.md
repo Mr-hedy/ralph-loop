@@ -1,7 +1,7 @@
 # Security
 
 - 状态：已确认
-- 来源：`docs/features/ralph-loop/requirements.md`（REQ-005 / REQ-010 / NFR-SEC-001 / NFR-SEC-002 / NFR-SEC-003 / TC-STK-003）、`docs/requirements.md`（跨模块约束）、[`overview.md`](./architecture.md)、[`integrations.md`](./integrations.md)。
+- 来源：`docs/features/ralph-loop/requirements.md`（REQ-005 / REQ-010 / NFR-SEC-001 / NFR-SEC-002 / NFR-SEC-003 / TC-STK-003）、`docs/requirements.md`（跨模块约束）、[`architecture.md`](./architecture.md)、[`integrations.md`](./integrations.md)。
 - 范围：本文定义 Ralph harness 的安全边界：workspace 信任域、approval/sandbox 固定策略、`.ralph/.env` 解析约束、session/日志敏感信息处置、仓库边界与 secrets 禁入规则。不覆盖 provider CLI 自身的密钥管理（登录、API key 轮换），也不覆盖使用者 workspace 的代码安全审查流程。
 - 变更条件：NFR-SEC-* 条目增删；新增 provider；增加 policy/白名单开关（会把"approval 写死"从稳定契约变为可配置）；支持跨 workspace 的 worker/daemon 模式。
 
@@ -31,7 +31,7 @@ Claude 侧结论核查于 Claude Code CLI `2.1.270` 的 `claude --help`（"`--da
 稳定契约（NFR-SEC-002）：
 
 - approval/sandbox 策略写死在 `adapter-<provider>.sh` 内，不通过 CLI flag、环境变量或 `.env` 开放。
-- **不存在** `--approval` / `--sandbox` / `--allowedTools`（overview.md CLI 段已声明为非目标）。
+- **不存在** `--approval` / `--sandbox` / `--allowedTools`（`architecture.md` CLI 段已声明为非目标）。
 - Claude `--allowedTools` 取值固定 `Bash,Read,Edit,Write,Glob,Grep`，不随 `.env` 变化；但如上表所述，该清单在 `--dangerously-skip-permissions` 下不生效，**不构成工具限制**。
 - Codex 沙箱模式固定 `danger-full-access`，不随 `.env` 变化；`RALPH_PROVIDER_CONFIG_DIR` 只改变 Codex 读取的配置/凭据目录（→ `CODEX_HOME`），不改变沙箱模式。
 - **不存在** provider 侧能力收窄层。若要真正限制 Claude 可用工具（改用 `--tools`）或恢复沙箱（Codex 改 `workspace-write`），必须先新增 REQ 并按 NFR-SEC-002 的同一流程审查，不能靠 `.env` 或 flag 顺带调整。

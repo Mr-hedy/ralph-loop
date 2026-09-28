@@ -94,7 +94,7 @@ git status
 从 ralph-loop release 目录复制完整版本包：
 
 ```bash
-cp -R /path/to/ralph-loop/release/0.1.3/. ./
+cp -R /path/to/ralph-loop/release/0.1.4/. ./
 ```
 
 上面的命令只适用于全新 workspace。目标已有 `AGENTS.md`、`CLAUDE.md`、`.ralph/`、

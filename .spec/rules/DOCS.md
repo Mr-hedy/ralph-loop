@@ -10,7 +10,7 @@
 ## 入口与职责
 
 - `docs/README.md` 是当前项目过程文档的唯一地图和阅读指南，由项目维护。
-- 除 `docs/README.md` 外，`docs/` 下新增文档统一使用小写文件名；目录名使用小写 kebab-case 或项目既有约定。
+- 除 `docs/README.md` 外，`docs/` 下新增现行文档统一使用小写文件名；目录名使用小写 kebab-case 或项目既有约定。迁移既有历史归档时可保留原文件名，但必须在文档地图或历史索引中标明其历史性质。
 - feature 需求/方案/验证、项目级专题、roadmap、checkpoint、troubleshooting 和 postmortem 等正文放在对应位置，
   不把正文堆进 `docs/README.md`。
 - 新增、移动、重命名、废弃或删除 `docs/` 文档后，必须同步更新

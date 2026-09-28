@@ -1,6 +1,7 @@
 # Testing
 
-- 状态：2026-09-28 实测 `bash scripts/integration-test.sh` 为 PASS=156 FAIL=0；当前 release 的完整生成内容比对与临时 workspace fake smoke 已通过。
+- 状态：已确认。
+- 最近验证：2026-09-28 实测 `bash scripts/integration-test.sh` 为 PASS=156 FAIL=0；`release/0.1.4` 的完整生成内容比对与临时 workspace fake smoke 已通过。
 - 来源：`docs/features/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/architecture.md`（启动校验、退出原因、运行目录 schema）、`docs/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
 - 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/TESTING.md`），不写具体用例的验证计划；用户已建立对应任务时，计划写入 `.ralph/TASKS.md` 的“验证计划”段，其他工作在交付中报告。root `task.md` 已封版。
 - 变更条件：测试入口脚本变化、新增 fixture 或 mock 类型、隔离规则失效、新平台支持、测试覆盖目标变化。
@@ -15,6 +16,8 @@
 | `git diff --check` | 空白错误检查 | 无输出 |
 
 完整验证 = `check.sh`、`integration-test.sh`、`git diff --check` 全过；`check.sh` 已调用发布包完整比对。文档/协作规则改动至少跑前两项；脚本/代码改动跑全套。
+
+修改 `.spec/` 或现行 `docs/` 布局时，还要对照 `.spec/rules/DOCS.md` 与 `ARCHITECTURE.md` 人工核对：新增或移动的文档已进入 `docs/README.md` 或其明确的历史索引；历史资料不会被标成现行规则；文档状态、可见链接文字和文档内容一致；方案文档不承载独立审查报告。`check.sh` 的文件存在性检查和 release 字节比对不能证明这些语义关系。
 
 ## Release 部署验证
 
@@ -88,7 +91,7 @@ tests/
 | T2.1 完成期 | +1（实际 18） | claude adapter 骨架 happy |
 | T2.2 完成期 | +3（实际 21） | session 采集 happy / mtime fallback / missing |
 | T2.3 完成期 | +6（实际 28） | 错误诊断 6 种类别 |
-| T2.4 完成期 | +0（复用 T2.1/T2.2 用例加派生视图断言） | `session.history.log` 内容与格式符合 overview.md schema |
+| T2.4 完成期 | +0（复用 T2.1/T2.2 用例加派生视图断言） | `session.history.log` 内容与格式符合现行 `architecture.md` schema |
 | T2.5 完成期 | +2（实际 30） | dep_missing_jq + claude+jq 双缺失非 fail-fast |
 | T2.6 完成期 | +4（实际 34） | --version + --help + run --help + status placeholder；真实 smoke 手动通过（2026-04-27，claude 2.1.119） |
 | T2 总目标 | ≥33（实际 34） | 上述累计；schema 修正：real Claude JSONL tool_result 在 type:"user" 而非 type:"tool" |

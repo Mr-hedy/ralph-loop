@@ -8,8 +8,9 @@
 | 协作规范 | `../.spec/README.md` | 已确认 | 协作模型、阶段和事实源边界 |
 | 当前开发任务 | `../.ralph/TASKS.md` | 执行中 | 本仓库 dogfood 的唯一任务事实源；release 构建另生成空模板，不复制这里的任务状态 |
 | v0.1 历史任务 | `../task.md` | 已封版 | T0–T6 历史任务史 + 22 条决策追溯（v0.1.0 发布于 2026-04-28） |
-| 历史 I<N> 设计与归档 | `features/ralph-loop/history/index.md` | 历史 | I1–I5 启动前设计与已完成任务快照；I<N> 是文档索引，不属于 runtime 契约 |
+| 历史 I<N> 设计与归档 | `features/ralph-loop/history/index.md` | 历史 | I1–I5 启动前设计与已完成任务快照，保留原文件名；I<N> 是文档索引，不属于 runtime 契约 |
 | 早期任务协议 | `research/task-protocol-legacy-2026-04.md` | 历史 | 仅用于理解早期 `task.md` 协作方式；现行规则见 `.spec/rules/TASKS.md` |
+| TASKS 格式回溯 | `research/tasks-md-format-spec-2026-05.md` | 历史 | 记录 2026-05 的格式演进和旧版同步建议；现行规则见 `.spec/rules/TASKS.md` |
 | 项目级需求 | `requirements.md` | 已确认 | 项目全局目标、跨模块边界和模块索引 |
 | Vibecoding 协作需求 | `features/vibecoding-collaboration/requirements.md` | 已确认 | Codex Main Agent、Ralph 黑盒执行、用户触发验收、handoff/checkpoint/postmortem 边界，REQ-033 ~ REQ-047 |
 | Ralph 模块需求 | `features/ralph-loop/requirements.md` | 已确认 | Ralph harness 模块 REQ-001 ~ REQ-032 及历史决策追踪 |
@@ -17,7 +18,7 @@
 | Vibecoding 协作方案 | `features/vibecoding-collaboration/solution.md` | 草案 | Codex Main Agent 控制面、Ralph 后台执行面、用户触发验收和长期协作记忆 |
 | 外部集成 | `integrations.md` | 已确认 | Claude / Codex 原生 session 路径、采集命令、退化策略、UUID 依赖（Gemini 段落为暂停接入的历史契约） |
 | 安全边界 | `security.md` | 已确认 | approval/sandbox 固定策略、`.env` 解析约束、secrets 禁入规则、攻击面 |
-| 测试规范 | `testing.md` | 已建立（持续维护） | 测试入口、基础设施、隔离规则、运行平台和当前覆盖范围 |
+| 测试规范 | `testing.md` | 已确认 | 测试入口、基础设施、隔离规则、运行平台和当前覆盖范围 |
 | Roadmap | `roadmap.md` | 已确认 | T1→T7 阶段目标、验收口径和风险 |
 | 发布包 | `../release/<version>/` | 已确认 | 对外部署使用同一项目版本的生成目录；当前包内容以构建脚本和实际受版本控制文件为准，开发工程运行数据不进入包 |
 | 使用指南 | `../README.md#快速开始` | 已确认 | 前置依赖、部署、.env 配置、首跑、结果查看、退出原因速查、v0.1 行为说明 |
@@ -40,8 +41,8 @@
 | Frontend | — | 当前不适用 | 无前端 |
 | Database | — | 当前不适用 | 无持久化业务实体；运行期状态在 `.ralph/runs/` |
 | UI | — | 当前不适用 | 仅 `ralph watch` 的终端 UI，细节已由 REQ-024 与 `architecture.md` 覆盖 |
-| Security | `security.md` | 已确认 | approval / sandbox、secrets、allowedTools 白名单 |
-| Testing | `testing.md` | 已建立（持续维护） | 测试入口、基础设施、隔离规则、单一来源、运行平台、当前覆盖范围 |
+| Security | `security.md` | 已确认 | approval / sandbox、secrets、`allowedTools` 参数的实际语义 |
+| Testing | `testing.md` | 已确认 | 测试入口、基础设施、隔离规则、单一来源、运行平台、当前覆盖范围 |
 | Deployment | — | 当前不适用 | per-workspace 部署在 `architecture.md#部署形态` 覆盖 |
 | Integrations | `integrations.md` | 已确认 | Provider CLI 原生 session、oneshot 命令、错误诊断关键字 |
 

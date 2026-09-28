@@ -7,7 +7,7 @@
 ## Project Identity
 
 - `ralph-loop` 正在建设为面向 Codex Main Agent 的 vibecoding 协作脚手架；当前已实现核心是 shell-first Ralph CLI harness，用 provider CLI fresh oneshot 循环执行使用者 workspace `.ralph/TASKS.md` 中的长任务。
-- **项目最终产物 = `release/<version>/`**。目标组成包含 `.ralph/`、`.spec/`、`.agents/skills/`、必要的 `.codex/` 会话治理配置和 agent 入口文件；当前 v0.1.3 release 仍只交付已实现部分。开发工程中的 `.ralph/` 仅用于 dogfood，不直接对外复制。
+- **项目最终产物 = `release/<version>/`**。目标组成包含 `.ralph/`、`.spec/`、`.agents/skills/`、必要的 `.codex/` 会话治理配置和 agent 入口文件；当前 v0.1.4 release 仍只交付已实现部分。开发工程中的 `.ralph/` 仅用于 dogfood，不直接对外复制。
 - 本仓库是 ralph-loop 工具的开发工程；当前专项从需求澄清、run loop、provider adapter、status/watch 和 session capture 逐步推进。
 - 项目事实沉淀在 `README.md`、`docs/requirements.md`、`docs/features/`、`docs/architecture.md`、`docs/security.md`、`docs/integrations.md`、`docs/testing.md`、`.ralph/TASKS.md` 和邻近代码中。
 - 本仓库自 v0.1 后使用 `.ralph/TASKS.md` dogfood 推进开发；release 中的 `.ralph/TASKS.md` 是等待首次项目会话补齐的空模板。root `task.md` 已封版作为 v0.1 历史归档。

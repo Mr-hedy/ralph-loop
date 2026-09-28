@@ -6,8 +6,8 @@
 
 # 当前阶段与范围
 
-- 阶段：现行事实源与 release v0.1.3 一致性整理及整体 adversarial review 已完成，准备整体提交。
-- 影响：`.spec/` Review/TASKS 指导、`.ralph/PROMPT.md` 与 README、Ralph 退出提示、根入口、`docs/` 现行需求/架构位置、`scripts/build-release.sh`、`scripts/check.sh`、集成测试版本断言及 `release/0.1.3/`。
+- 阶段：v0.1.3 整体整理已提交；本轮定向修正文档地图、历史研究状态、方案正文边界和现行链接文字，生成 release v0.1.4。
+- 影响：`.spec/rules/DOCS.md`、现行 `docs/` 文档与地图、项目版本入口及 `release/0.1.4/`；Ralph 执行逻辑不变。
 - 变更类型：文档迁移、协作契约澄清、版本与生成包、静态检查、测试维护和退出提示文字；不改变 Ralph 主循环与 provider adapter 的执行逻辑。
 
 # 稳定决策
@@ -15,7 +15,7 @@
 - `.spec/rules/TASKS.md` 指导任务写作，不决定清单创建、派发或勾选时机；当前 dogfood 工作包的既有记录不批量改写。
 - Ralph `done` 只表示执行终态。Main Agent 对整轮产物的验收由用户提出诉求后按约定范围启动；局部 Review 不声明整个工作包通过。
 - 现行文档使用 `docs/features/<feature>/requirements.md`、`docs/features/vibecoding-collaboration/solution.md` 及 `docs/` 根级 architecture/security/integrations/testing；Ralph I1–I5 历史文件位于 `docs/features/ralph-loop/history/`，旧 `docs/requirements/`、`docs/architecture/` 和 `docs/collaboration/` 目录已移除。
-- 项目与 Ralph CLI、release 使用同一版本 `0.1.3`；`release/0.1.1` 和 `release/0.1.2` 作为历史产物保留，`release/0.1.3` 仅从源文件生成。
+- 项目与 Ralph CLI、release 使用同一当前版本 `0.1.4`；`release/0.1.1`、`release/0.1.2` 和已提交的 `release/0.1.3` 保留为历史产物，`release/0.1.4` 仅从源文件生成。
 
 # 已完成工作
 
@@ -28,15 +28,15 @@
 - 审查发现 `scripts/check.sh` 中独立 `! grep` 断言在 `set -e` 下没有形成失败门，已修正并新增 PM-0007 与脚本自检。
 - 用户要求的 adversarial review 发现旧事实、发布包必读路径缺失和旧目录策略不一致；已修正现行需求/架构/使用入口、移除旧导航目录，发布版对未入包项目文档作条件说明；PM-0008 记录根因与预防检查。`.spec` Review/Adversarial Review 的返工输出规则已补齐用户决定边界。
 - 整体复审又清理了随包分发的 TASKS 规则里开发仓库专用的历史记录和检查命令，修正 README 的本地 CLI 调用示例；`.spec` 中验证与方案记录仅在已有对应任务时写入任务源，归档仅由用户触发。构建脚本不再因本地存在 `.codex/` 就提前将未实施 Hook 配置带入包；发布校验检查 CLI 可执行权限。PM-0008 已补充这一轮同类遗漏。
+- 本轮将 `docs/research/tasks-md-format-spec-2026-05.md` 明确标为历史并收入文档地图；方案中的独立 adversarial review 标题改为实施前置条件和风险处置；测试文档状态与验证记录分开；现行链接显示文字改用 `architecture.md`，安全地图不再把 `allowedTools` 表述为有效限制。`.spec/rules/DOCS.md` 明确历史归档原文件名例外。PM-0008 和 `docs/testing.md` 增加文档语义复核点。
 
 # 最新验证
 
-- `./.ralph/bin/ralph --version`：通过，输出 `ralph 0.1.3 (9618f88)`；commit 部分是执行时 HEAD。
+- `./.ralph/bin/ralph --version`：通过，输出 `ralph 0.1.4 (a5ad531)`；commit 部分是执行时 HEAD。
 - `bash scripts/check.sh`：通过，输出 `ralph-loop check passed`。
-- `env -u RALPH_WORKSPACE -u RALPH_PROVIDER -u RALPH_LOOP_MAX_ROUND -u RALPH_LOOP_MAX_RETRY -u RALPH_LOOP_STALL_LIMIT -u RALPH_LOOP_ROUND_TIMEOUT bash scripts/integration-test.sh`：第一次 `PASS=155 FAIL=1`，唯一失败为写死 `0.1.1` 的版本断言；修正后的最新完整复跑为 `PASS=156 FAIL=0`，已覆盖历史文档迁移与 Ralph 退出提示修改。
-- 活跃文档本地 Markdown 链接检查：31 个文件，0 个缺失；`git diff --check` 与 `git diff --cached --check`：通过；新 `REVIEW-N: [blocked-by ...]` 标题被现有前缀校验接受。
-- 再次调用 `bash scripts/build-release.sh`：按设计拒绝覆盖现有 `release/0.1.3`，exit 1；包内无 `.ralph/runs/`、`status.json`、`lock`、真实 `.env`、`.codex/` 或 `.agents/`。
-- `bash scripts/build-release.sh --verify`：通过，完整文件树与生成内容一致且 CLI 可执行；把 `release/0.1.3/` 复制到临时 Git workspace 后，`ralph --version` 与 fake 单任务 `done` smoke 通过，退出提示明确区分执行结束和用户验收。
+- `env -u RALPH_WORKSPACE -u RALPH_PROVIDER -u RALPH_LOOP_MAX_ROUND -u RALPH_LOOP_MAX_RETRY -u RALPH_LOOP_STALL_LIMIT -u RALPH_LOOP_ROUND_TIMEOUT bash scripts/integration-test.sh`：`PASS=156 FAIL=0`。
+- 活跃文档本地 Markdown 链接检查：30 个链接，0 个缺失；`git diff --check`：通过。
+- `bash scripts/build-release.sh --verify`：通过，v0.1.4 完整文件树与生成内容一致且 CLI 可执行；把 `release/0.1.4/` 复制到临时 Git workspace 后，版本、软链与 fake 单任务 `done` smoke 通过，退出提示明确区分执行结束和用户验收。
 
 # 已验证与未验证
 
@@ -50,8 +50,8 @@
 
 # 工作区状态
 
-- 分支：`main`；本次整理前的基线提交：`9618f88 release: build 0.1.2 and tighten spec checks`。
-- 本次改动包含现行 docs 迁移、Ralph 历史归档迁移、源文件修改、`release/0.1.3/` 新生成包及本 handoff，整体提交交付。被忽略的本地运行记录仍保留。
+- 分支：`main`；v0.1.3 整理提交：`a5ad531100550894b382e56d03fedea08a8476e4`。
+- 本轮 v0.1.4 文档修复和新生成包作为后续变更交付；被忽略的本地运行记录仍保留。
 
 # 建议下一步
 
@@ -59,4 +59,4 @@
 
 # 交接摘要
 
-- 当前权威版本和部署包为 `0.1.3`；Ralph 完成不自动触发 Main Agent 整轮验收，用户决定验收时机与范围；旧项目文档目录已移除，历史快照与本仓库 TASKS 内旧路径按原文保留。
+- 当前权威版本和部署包为 `0.1.4`；Ralph 完成不自动触发 Main Agent 整轮验收，用户决定验收时机与范围；旧项目文档目录已移除，历史快照与本仓库 TASKS 内旧路径按原文保留。

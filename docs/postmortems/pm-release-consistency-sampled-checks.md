@@ -11,7 +11,7 @@ affected_modules:
   - "scripts/build-release.sh"
   - "scripts/check.sh"
 linked_commits:
-  - "pending v0.1.3 consistency cleanup"
+  - "a5ad531100550894b382e56d03fedea08a8476e4"
 trigger_conditions:
   - "按新 .spec 布局迁移现行文档并生成 release，但只检查部分源文件和发布内容"
 failure_pattern:
@@ -19,6 +19,7 @@ failure_pattern:
 prevention_checks:
   - "bash scripts/build-release.sh --verify 完整比对当前生成包"
   - "按 docs/testing.md 的 Release 部署验证检查新 workspace 入口、可执行权限与必读文件"
+  - "按 docs/testing.md 的文档语义检查核对研究文档索引、状态、可见链接文字和正文职责"
 ---
 
 # 抽样校验使发布包与现行协作入口同时保留旧事实
@@ -40,12 +41,13 @@ v0.1.3 整理后，`bash scripts/check.sh` 与 mock 集成测试通过，但现�
 - `scripts/build-release.sh --verify` 在临时目录重建当前版本，并对包的完整文件树做比对；构建时先写临时目录，成功后才移入正式版本路径。
 - `scripts/check.sh` 调用完整包比对，并拒绝旧目录重新出现。
 - 后续整体审查发现发布版 TASKS 规则仍含本开发仓库专用的历史任务与检查命令，且 README 使用未安装的全局 `ralph` 命令；已将分发规则改为项目声明的入口和命令，并修正 quickstart。发布校验增加 CLI 可执行权限检查。
+- v0.1.3 提交后的定向复核发现，研究回溯文档未进入文档地图且仍标为 active，方案正文保留独立审查报告段，测试文档的状态字段混入单次验证结果，部分现行链接仍显示旧文件名。字节一致性检查无法发现文档语义和职责漂移；已按现行 DOCS/ARCHITECTURE 规则修正，并在测试规范中补充人工核对点。
 
 ## 预防检查
 
 - 类型：script + manual-check。
-- 位置：`scripts/build-release.sh --verify`、`scripts/check.sh`、`docs/testing.md` §Release 部署验证。
-- 通过标准：生成包与从源文件重建的包完全一致且 CLI 可执行；复制到临时 Git workspace 后 CLI/fake smoke 通过；发布入口要求立即读取的路径存在或明确为按需创建/开发仓库专有；随包分发的规则不要求使用者运行开发仓库专用脚本。
+- 位置：`scripts/build-release.sh --verify`、`scripts/check.sh`、`docs/testing.md` §Release 部署验证和文档规则验证。
+- 通过标准：生成包与从源文件重建的包完全一致且 CLI 可执行；复制到临时 Git workspace 后 CLI/fake smoke 通过；发布入口要求立即读取的路径存在或明确为按需创建/开发仓库专有；随包分发的规则不要求使用者运行开发仓库专用脚本；现行文档地图、状态、链接显示文字和正文职责经人工核对一致。
 - 适用范围：`.spec/`、`.ralph/`、模板、构建脚本、release 或文档事实源路由变化。
 
 ## 知识沉淀

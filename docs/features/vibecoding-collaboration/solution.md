@@ -324,20 +324,20 @@ release/<version>/
 | 记忆事实漂移 | handoff/checkpoint/postmortem 复制需求正文 | 唯一事实源表 + 引用而非复制 |
 | Codex 能力变化 | Hook 或任务 API 变更导致流程失效 | Codex 集成层独立、fail-open、版本兼容 smoke |
 
-## 11. Adversarial Review
+## 11. 实施前置条件与风险处置
 
-### 必须修复后才能实施
+### 实施前置条件
 
 - **双写保护尚未实现**：后台派发前必须定义并验证写入权协议，否则 Main Agent 可在 Ralph 运行时破坏工作区一致性。
 - **验收入口缺失**：当前有 review 规则但没有明确的用户触发式最终产物验收 workflow；不能用 `ralph` Skill 的运行结果报告代替。
 - **Hook 信任和路径尚未做真实 smoke**：文档已确认 Codex 事件契约，但项目级配置的信任提示、Git 根路径解析和 turn 中间自动压缩续跑仍需在当前 Codex/macOS 版本验证后才能进入 release。
 
-### 可观察风险
+### 后续观察
 
 - 每次压缩都触发评估是否过于频繁尚未通过真实长会话校准；首期先保持无计数状态机的最小实现，出现干扰后再增加静默策略。
 - Ralph 后台托管方式可能受 Codex terminal/session 生命周期影响；必须验证断开、恢复和进程归属。
 
-### 接受风险
+### 已接受边界
 
 - 首期只保证 macOS；其他平台在有真实使用需求和验证环境后扩展。
 - 首期不使用 MCP、云端 Memory 或 subagent 完成核心流程，减少外部依赖和上下文回流。
