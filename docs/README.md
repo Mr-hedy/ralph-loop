@@ -14,6 +14,8 @@
 | 项目级需求 | `requirements.md` | 已确认 | 项目全局目标、跨模块边界和模块索引 |
 | Vibecoding 协作需求 | `features/vibecoding-collaboration/requirements.md` | 已确认 | Codex Main Agent、Ralph 黑盒执行、用户触发验收、handoff/checkpoint/postmortem 边界，REQ-033 ~ REQ-047 |
 | Ralph 模块需求 | `features/ralph-loop/requirements.md` | 已确认 | Ralph harness 模块 REQ-001 ~ REQ-032 及历史决策追踪 |
+| Antigravity CLI 接入需求 | `features/antigravity-cli/requirements.md` | 已确认（待实施） | 新 provider 的执行、证据采集、权限、诊断与发布验收，REQ-048 ~ REQ-053；当前发布包尚不支持 |
+| Antigravity CLI 接入方案 | `features/antigravity-cli/solution.md` | 草案 | 流式输出优先的采集映射、原生会话校验、终态与配置域取舍；待真实 AGY smoke 校准 |
 | 架构 Overview | `architecture.md` | 已确认 | 总体系统入口；Ralph CLI 契约、运行目录 schema、adapter 函数签名、退出原因、stagnation、lock、错误诊断类别 |
 | Vibecoding 协作方案 | `features/vibecoding-collaboration/solution.md` | 草案 | Codex Main Agent 控制面、Ralph 后台执行面、用户触发验收和长期协作记忆 |
 | 外部集成 | `integrations.md` | 已确认 | Claude / Codex 原生 session 路径、采集命令、退化策略、UUID 依赖（Gemini 段落为暂停接入的历史契约） |
@@ -29,6 +31,7 @@
 |---|---|---|---|
 | Vibecoding collaboration | `features/vibecoding-collaboration/requirements.md` | 流程和状态边界见需求文档 | 已确认 |
 | Ralph harness | `features/ralph-loop/requirements.md` | 当前不适用 | 已确认 |
+| Antigravity CLI 接入 | `features/antigravity-cli/requirements.md` | 当前不适用 | 已确认（待实施） |
 
 ## 架构索引
 
@@ -36,6 +39,7 @@
 |---|---|---|---|
 | Overview | `architecture.md` | 已确认 | 系统上下文、稳定契约和架构文档索引 |
 | Vibecoding Collaboration | `features/vibecoding-collaboration/solution.md` | 草案 | Main Agent 协作、后台派发、用户触发验收、handoff/checkpoint/postmortem 边界 |
+| Antigravity CLI 接入 | `features/antigravity-cli/solution.md` | 草案 | 新 provider 的流式证据采集、终态和原生会话校验方案；当前未实施 |
 | API | — | 当前不适用 | Ralph 是 CLI 工具，无 HTTP/RPC API |
 | Backend | — | 当前不适用 | Bash 模块结构在 `architecture.md#运行目录` 覆盖 |
 | Frontend | — | 当前不适用 | 无前端 |
@@ -65,6 +69,8 @@
 | 项目级需求和跨模块约束 | `requirements.md` |
 | Codex Main Agent vibecoding 协作需求 | `features/vibecoding-collaboration/requirements.md` |
 | Ralph harness 模块需求 | `features/ralph-loop/requirements.md` |
+| Antigravity CLI 接入需求 | `features/antigravity-cli/requirements.md` |
+| Antigravity CLI 接入方案 | `features/antigravity-cli/solution.md` |
 | Vibecoding 协作技术方案 | `features/vibecoding-collaboration/solution.md` |
 | Ralph 架构和稳定契约 | `architecture.md` |
 | Provider 集成细节 | `integrations.md` |

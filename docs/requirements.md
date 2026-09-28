@@ -17,6 +17,7 @@
 - 隔离 Main Agent 决策上下文和 Ralph/provider 执行上下文，以最终 repository 产物作为两者交付接口。
 - 通过 handoff、checkpoint 和 postmortem 分别治理主会话接续、已验收稳定状态和可复用失败知识。
 - 覆盖 Claude Code、Codex CLI 两家 provider（Gemini CLI adapter 保留但暂停接入，公共入口禁用，见 REQ-028），通过统一 adapter 抽象解耦 provider 差异。
+- Antigravity CLI 是待实施的新 provider 需求，正式支持须满足其独立验收标准；当前支持矩阵仍以前一条和实际发布包为准。
 - 工具本身以 shell 实现,降低部署和运行环境成本；不引入包管理器、编译步骤或额外 runtime。
 - 项目文档、方案取舍和实现任务按 `.spec/` 规范沉淀，让后续迭代有稳定事实源。
 
@@ -57,6 +58,7 @@
 |---|---|---|---|---|
 | Vibecoding collaboration | Codex Main Agent 协作控制面、最终验收和长期记忆边界 | [`features/vibecoding-collaboration/requirements.md`](./features/vibecoding-collaboration/requirements.md) | 流程和状态边界见需求文档 | 已确认 |
 | Ralph harness | 后台执行引擎；提供 `ralph run/status/watch` 和 provider adapter | [`features/ralph-loop/requirements.md`](./features/ralph-loop/requirements.md) | 当前不适用（命令行工具，无持久化业务实体） | 已确认 |
+| Antigravity CLI 接入 | 扩展 Ralph 的正式 provider 入口和等价 round 证据 | [`features/antigravity-cli/requirements.md`](./features/antigravity-cli/requirements.md) | 当前不适用（provider 集成） | 已确认（待实施） |
 
 ## 全局验收口径
 
