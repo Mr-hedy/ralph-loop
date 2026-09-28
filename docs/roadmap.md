@@ -1,7 +1,7 @@
 # Roadmap
 
 > Ralph Loop 专项开发阶段目标、优先级、验收口径和风险。
-> 权威需求：`docs/requirements/ralph-loop/requirements.md`。
+> 权威需求：`docs/features/ralph-loop/requirements.md`。
 
 ## 历史编号约定
 
@@ -12,27 +12,28 @@
   - v0.1 release = T0+T1+T2+T6 历史集合（已完成）
   - I1-I5 = v0.1.x 开发阶段的历史归档集合
 - **未实施的历史 phase（T3 / T4 / T5）已按 I 编号推进，编号与 T 不绑定**：
-  - I1 = dogfood T5（status + watch 真实功能）+ HUMAN-N 阻塞机制 + 任务类型路由（已完成，归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`）
-  - I2 = T3（Codex adapter）（已完成，归档见 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`）
-  - I3 = watch/status 观察面 bugfix（已完成，归档见 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`）
-  - I4 = T4（Gemini adapter）（已完成，归档见 `docs/requirements/ralph-loop/I4-FINAL-TASK.md`；设计见 `docs/requirements/ralph-loop/I4-design.md`）
-  - I5 = run/watch sticky 输出 + per-task round + env 重组（已完成，归档见 `docs/requirements/ralph-loop/I5-FINAL-TASK.md`；设计见 `docs/requirements/ralph-loop/I5-design.md`）
+  - I1 = dogfood T5（status + watch 真实功能）+ HUMAN-N 阻塞机制 + 任务类型路由（已完成，归档见 `docs/features/ralph-loop/history/I1-FINAL-TASK.md`）
+  - I2 = T3（Codex adapter）（已完成，归档见 `docs/features/ralph-loop/history/I2-FINAL-TASK.md`）
+  - I3 = watch/status 观察面 bugfix（已完成，归档见 `docs/features/ralph-loop/history/I3-FINAL-TASK.md`）
+  - I4 = T4（Gemini adapter）（已完成，归档见 `docs/features/ralph-loop/history/I4-FINAL-TASK.md`；设计见 `docs/features/ralph-loop/history/I4-design.md`）
+  - I5 = run/watch sticky 输出 + per-task round + env 重组（已完成，归档见 `docs/features/ralph-loop/history/I5-FINAL-TASK.md`；设计见 `docs/features/ralph-loop/history/I5-design.md`）
   - 后续新议题由用户在下一轮启动前排序；runtime 统一使用 `round`，不暴露迭代元数据
   - 历史 T 编号仅作为"该文档阶段关联的 v0.1 规划项"保留
 
 ## Current State
 
 - **v0.1 已发布（2026-04-28）**。T6 全部子任务闭环，版本号 `0.1.0`。
-- **dogfood 历史（2026-04-30 起）**：本仓库曾使用 `.ralph/TASKS.md` 推进开发；release cleanup 后 `.ralph/TASKS.md` 恢复为部署首跑样例，root `task.md` 已封版作为 v0.1 历史归档。
-- **I1 已完成（2026-05-03）**：dogfood T5（status + watch 真实功能），归档见 `docs/requirements/ralph-loop/I1-FINAL-TASK.md`。
-- **I2 已完成（2026-05-04）**：T3（Codex adapter），归档见 `docs/requirements/ralph-loop/I2-FINAL-TASK.md`；设计方案见 `docs/requirements/ralph-loop/I2-design.md`。
-- **I3 已完成（2026-05-04）**：watch/status 观察面修复，归档见 `docs/requirements/ralph-loop/I3-FINAL-TASK.md`；checkpoint 为 `2641605 checkpoint: watch status surface fix`。
-- **I4 已完成（2026-05-04）**：T4（Gemini adapter），归档见 `docs/requirements/ralph-loop/I4-FINAL-TASK.md`；设计方案见 `docs/requirements/ralph-loop/I4-design.md`。
-- **I5 已完成（2026-05-07）**：run/watch sticky 输出 + per-task round + env 重组，含 REVIEW-1 + REVIEW-2 两轮 adversarial review 后续修订（DEV-12 retry × per-task TRY 守门 / watch 时钟冻结 / sticky 视觉契约调整 / 4 个 -v live tail 失效测试删除 / diagnose retry hang 修复）；归档见 `docs/requirements/ralph-loop/I5-FINAL-TASK.md`，设计方案 + 实施期 ChangeLog 见 `docs/requirements/ralph-loop/I5-design.md` §0。
+- **dogfood（2026-04-30 起）**：本仓库继续以 `.ralph/TASKS.md` 推进开发；release 构建另生成空任务模板，不复制本仓库任务状态。root `task.md` 已封版作为 v0.1 历史归档。
+- **I1 已完成（2026-05-03）**：dogfood T5（status + watch 真实功能），归档见 `docs/features/ralph-loop/history/I1-FINAL-TASK.md`。
+- **I2 已完成（2026-05-04）**：T3（Codex adapter），归档见 `docs/features/ralph-loop/history/I2-FINAL-TASK.md`；设计方案见 `docs/features/ralph-loop/history/I2-design.md`。
+- **I3 已完成（2026-05-04）**：watch/status 观察面修复，归档见 `docs/features/ralph-loop/history/I3-FINAL-TASK.md`；checkpoint 为 `2641605 checkpoint: watch status surface fix`。
+- **I4 已完成（2026-05-04）**：T4（Gemini adapter），归档见 `docs/features/ralph-loop/history/I4-FINAL-TASK.md`；设计方案见 `docs/features/ralph-loop/history/I4-design.md`。
+- **I5 已完成（2026-05-07）**：run/watch sticky 输出 + per-task round + env 重组，含 REVIEW-1 + REVIEW-2 两轮 adversarial review 后续修订（DEV-12 retry × per-task TRY 守门 / watch 时钟冻结 / sticky 视觉契约调整 / 4 个 -v live tail 失效测试删除 / diagnose retry hang 修复）；归档见 `docs/features/ralph-loop/history/I5-FINAL-TASK.md`，设计方案 + 实施期 ChangeLog 见 `docs/features/ralph-loop/history/I5-design.md` §0。
 - **Release cleanup（2026-05-20）**：runtime 不再解析、展示或写入迭代元数据；`.ralph/` 发布单元复扫无 `iteration`/`iter` 残留；`bash scripts/integration-test.sh` 完整通过 149 PASS / 0 FAIL。
-- 协作壳已初始化，`.spec/`、`docs/` 结构稳定。
-- Ralph v0.1 需求已收敛为 22 条决策，沉淀在 `requirements.md`（REQ-001 ~ REQ-016）。
-- 架构和稳定契约沉淀在 `docs/architecture/overview.md`；provider 集成细节沉淀在 `docs/architecture/integrations.md`；安全边界沉淀在 `docs/architecture/security.md`。
+- 当前项目版本为 v0.1.3；release 交付已实现的 Ralph、`.spec/` 和 agent 入口。Hook、Skills 的目标结构仍待实施。
+- `.spec/` 按当前协作规范维护；现行需求聚合在 `docs/features/`，项目级架构与专题位于 `docs/` 根部。历史设计和任务归档集中在 `docs/features/ralph-loop/history/`，正文保持归档时原貌。
+- Ralph 模块需求见 `docs/features/ralph-loop/requirements.md`（REQ-001 ~ REQ-032）；Codex Main Agent 协作需求见 `docs/features/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）。
+- 架构和稳定契约沉淀在 `docs/architecture.md`；provider 集成细节沉淀在 `docs/integrations.md`；安全边界沉淀在 `docs/security.md`。
 - 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude,adapter-codex,adapter-gemini}.sh`；对外部署单元由 `release/<version>/` 构建，包含 `.ralph/`、`.spec/`、agent 入口和 `docs/README.md` 模板。
 - T1（fake 闭环）、T2（Claude adapter + 单轮真实 smoke）、T6（v0.1 闭环 + 使用指南）均已完成。
 
@@ -40,7 +41,7 @@
 
 | Phase | 目标 | 主要交付 | 验收口径 |
 |---|---|---|---|
-| T0 Bootstrap | 协作规范、需求、设计、入口文档就位 | `.spec/`、`docs/requirements.md`、`docs/requirements/`、`docs/architecture/`、`scripts/check.sh` | `bash scripts/check.sh` 通过 |
+| T0 Bootstrap | 协作规范、需求、设计、入口文档就位 | `.spec/`、`docs/requirements.md`、需求与架构文档、`scripts/check.sh`（原始路径见历史归档） | `bash scripts/check.sh` 通过 |
 | **T1 Run 骨架 + Adapter 契约 + Fake 实现** | ralph run 主循环 + adapter 三函数契约 + fake adapter 跑通最小闭环 | `.ralph/lib/run.sh` / `tasks.sh` / `session.sh` / `adapter-fake.sh` | fake provider smoke：预置 TASKS，跑到 `exit_reason=done`；stall 和 locked 各有集成测试 |
 | T2 Claude Adapter | 把 fake 替换为真实 Claude adapter 实现 | `.ralph/lib/adapter-claude.sh`、chat/tools 派生视图 | 真实 workspace 跑一轮 `--provider=claude`，产生 session + 派生视图 |
 | **T6 v0.1 闭环验证 + 使用指南**（提前到 T2 之后）| 用 Claude 单 provider 把多任务长链路、stall、TASKS.md self-mutation、样板/使用指南**整体闭环**；暴露内核未验证假设并就地补丁 | `.ralph/PROMPT.md` + `.ralph/TASKS.md`（部署单元内入仓样板）、`docs/usage.md`、3+ 条 task 真实 smoke、内核 bug fix patches | 真实 multi-task workspace 跑到 `exit_reason=done`；stall / max_round / round_timeout 兜底在真实 Claude 下各触发一次 |
@@ -61,14 +62,14 @@
 每个 T 的共同交付：
 
 - 实现 `provider_oneshot` / `provider_collect_session` / `provider_diagnose` 三函数
-- 按 `docs/architecture/integrations.md` 构造 oneshot 命令
+- 按 `docs/integrations.md` 构造 oneshot 命令
 - 按 provider 协议采集 native session、派生 `session.history.log`
 - 按错误诊断矩阵识别 `auth` / `quota` / `rate_limit` / `network` / `api` / `concurrency`（仅 Claude）
 - 至少一次真实 workspace 单轮 smoke 验证
 
 ## Known Decisions（摘要）
 
-完整 22 条决策在 `requirements/ralph-loop/requirements.md` 的"澄清记录 / 澄清结论"段落。与 roadmap 直接相关的：
+完整 22 条决策在 `features/ralph-loop/requirements.md` 的"澄清记录 / 澄清结论"段落。与 roadmap 直接相关的：
 
 - Per-workspace 部署（TC-STK-002）
 - `.env` 路径写死 `.ralph/.env`（TC-STK-003）
@@ -78,7 +79,7 @@
 - approval/sandbox 写死在 adapter（NFR-SEC-002）
 - `--effort=low\|medium\|high\|none` 抽象（REQ-014）
 
-## T6 范围（提前的当前阶段）
+## T6 历史范围（当时提前执行）
 
 **目标**：用 Claude 单 provider 把 v0.1 内核的多任务长链路、stall 真触发、TASKS.md self-mutation、PROMPT 协议参考模板、使用指南整体闭环。**不引入新内核能力**——T6 是"暴露未验证假设并就地补丁"的阶段。
 
@@ -99,7 +100,7 @@
 ### 退出条件
 
 - `bash scripts/check.sh && bash scripts/integration-test.sh` 通过。
-- 真实 multi-task smoke `exit_reason=done`，证据贴 `task.md`。
+- 真实 multi-task smoke `exit_reason=done`，证据贴当时的 `task.md`（现已封版为历史任务）。
 - stall / max_round / round_timeout 在 Claude 真实环境各触发一次并记录证据。
 - `docs/usage.md` 可让一个新使用者照着把 workspace 准备好并跑通首轮。
 
@@ -119,9 +120,9 @@
 | 风险 | 影响 | 缓解 |
 |---|---|---|
 | Claude `~/.claude/projects/` cwd 哈希规则随版本变 | T2 session 采集失败 | fallback 按 mtime 扫描，记录 warning；在 session capture 测试中锁版本 |
-| Gemini `-p` 模式输出不稳定含 session id | T4 session 采集退化 | `architecture/integrations.md` 已定退化规则；I4 DEV-1 先用 Gemini CLI 0.39.1 + 官方 docs 重新校准 |
+| Gemini `-p` 模式输出不稳定含 session id | T4 session 采集退化 | `integrations.md` 已定退化规则；I4 DEV-1 先用 Gemini CLI 0.39.1 + 官方 docs 重新校准 |
 | Gemini CLI flag 漂移（`--yolo` deprecated、effort 映射未确认） | T4 命令构造或 docs 误导用户 | I4 DEV-1 必须先同步 requirements / integrations / overview，再写 adapter |
-| Codex `--json` 事件 schema 变动 | Codex 错误诊断失准 | I2 已按本机 Codex CLI `0.125.0` 校准，事件 schema 写进 `architecture/integrations.md` 随更新 |
+| Codex `--json` 事件 schema 变动 | Codex 错误诊断失准 | I2 已按本机 Codex CLI `0.125.0` 校准，事件 schema 写进 `integrations.md` 随更新 |
 | 三家 provider 同时使 `--allowedTools` / `--sandbox` 语义漂移 | 安全边界失效 | 每次 T2-T4 完成前重新读 provider CLI help，写进 PR 描述 |
 | stall 误判（agent 改了注释但没改勾选状态） | 提前 `blocked_by_human` | changed_files 并集规则覆盖未提交变更；阈值 5 有冗余 |
 | Per-workspace 部署导致多 workspace 升级繁琐 | 使用负担 | T7 skill 封装负责升级/同步，优先级 post-v0.1 |

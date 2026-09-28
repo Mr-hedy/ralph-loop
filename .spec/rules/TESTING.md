@@ -1,6 +1,6 @@
 # TESTING 规则
 
-本规则指导 agent 如何设计验证策略。项目长期测试规范按需写入 `docs/testing.md`；功能验证计划按需写入 `docs/features/<feature>/testing.md`。本轮具体验证动作写入当前任务事实源的对应任务。
+本规则指导 agent 如何设计验证策略。项目长期测试规范按需写入 `docs/testing.md`；功能验证计划按需写入 `docs/features/<feature>/testing.md`。用户已建立对应任务时，本轮具体验证动作写入该任务；否则在本次交付中报告。
 
 ## 进入条件
 
@@ -69,7 +69,7 @@ docs/testing.md
 docs/features/<feature>/testing.md
 ```
 
-项目级和功能级文档都按需创建，不生成空白文件。本轮执行命令、实际结果和未覆盖范围应记录到当前任务事实源的任务完成说明。
+项目级和功能级文档都按需创建，不生成空白文件。用户已建立对应任务时，本轮执行命令、实际结果和未覆盖范围记录到任务完成说明；没有对应任务时，在本次交付中报告，不因此创建或改写任务清单。
 
 旧项目的 `docs/architecture/testing.md` 在迁移完成前继续保持可读；新工作使用上述根级或 feature 路径。
 

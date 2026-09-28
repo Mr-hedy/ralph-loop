@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# session.sh — meta.json 读写骨架 + 派生视图 stub
+
+# write_meta <round_dir> <json_fragment>
+# 写或合并 round_dir/meta.json；json_fragment 是完整 JSON 对象字符串
+write_meta() {
+  local round_dir="$1"
+  local json="$2"
+  mkdir -p "$round_dir"
+  printf '%s\n' "$json" > "$round_dir/meta.json"
+}
+
+# init_meta <round_dir> <round> <provider> <exit_code> <duration_ms>
+# 写初始 meta.json 骨架
+init_meta() {
+  local round_dir="$1"
+  local round="$2"
+  local provider="$3"
+  local exit_code="$4"
+  local duration_ms="$5"
+  mkdir -p "$round_dir"
+  cat > "$round_dir/meta.json" <<EOF
+{
+  "round": ${round},
+  "provider": "$(ralph_json_escape "$provider")",
+  "session_id": null,
+  "provider_started_at": null,
+  "terminal_event": null,
+  "terminal_status": null,
+  "terminal_warning": null,
+  "runtime_block": null,
+  "session_source_path": null,
+  "session_copied_path": null,
+  "capture_status": "pending",
+  "capture_warning": null,
+  "exit_code": ${exit_code},
+  "duration_ms": ${duration_ms},
+  "error": null,
+  "changed_files_total": [],
+  "changed_files_round": [],
+  "tasks_before": null,
+  "tasks_after": null,
+  "stall_count": 0
+}
+EOF
+}
+
+# update_meta_jq <round_dir> <jq_filter> [jq_args...]
+# jq 原地重写 meta.json（tmp+mv），支持 string/object/array 等所有复杂值。
+# 示例：update_meta_jq "$dir" '.session_id = $sid' --arg sid "$uuid"
+update_meta_jq() {
+  local round_dir="$1"
+  local jq_filter="$2"
+  shift 2
+  local meta="$round_dir/meta.json"
+  [[ -f "$meta" ]] || return 1
+  local tmp
+  tmp="$(mktemp)"
+  jq "$@" "$jq_filter" "$meta" > "$tmp" && mv "$tmp" "$meta"
+}
+
+# update_meta_field <round_dir> <field> <json_value>
+# 用 sed 原地替换 meta.json 中的 "field": <oldval> 行；仅适用于简单标量字段
+# 保留原有尾逗号（非末尾字段有逗号，末尾字段无逗号）
+update_meta_field() {
+  local round_dir="$1"
+  local field="$2"
+  local json_val="$3"
+  local meta="$round_dir/meta.json"
+  [[ -f "$meta" ]] || return 1
+  # [^,}]* 匹配标量值（到逗号或右花括号为止），(,?) 捕获可选尾逗号并原样保留
+  sed -i.bak -E "s|\"${field}\": [^,}]*(,?)\$|\"${field}\": ${json_val}\1|" "$meta" 2>/dev/null || true
+  rm -f "${meta}.bak"
+}

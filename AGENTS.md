@@ -7,9 +7,9 @@
 ## Project Identity
 
 - `ralph-loop` 正在建设为面向 Codex Main Agent 的 vibecoding 协作脚手架；当前已实现核心是 shell-first Ralph CLI harness，用 provider CLI fresh oneshot 循环执行使用者 workspace `.ralph/TASKS.md` 中的长任务。
-- **项目最终产物 = `release/<version>/`**。目标组成包含 `.ralph/`、`.spec/`、`.agents/skills/`、必要的 `.codex/` 会话治理配置和 agent 入口文件；当前 release 在实施完成前仍以 v0.1.1 结构为准。开发工程中的 `.ralph/` 仅用于 dogfood，不直接对外复制。
+- **项目最终产物 = `release/<version>/`**。目标组成包含 `.ralph/`、`.spec/`、`.agents/skills/`、必要的 `.codex/` 会话治理配置和 agent 入口文件；当前 v0.1.3 release 仍只交付已实现部分。开发工程中的 `.ralph/` 仅用于 dogfood，不直接对外复制。
 - 本仓库是 ralph-loop 工具的开发工程；当前专项从需求澄清、run loop、provider adapter、status/watch 和 session capture 逐步推进。
-- 项目事实沉淀在 `README.md`、`docs/requirements.md`、`docs/requirements/`、`docs/architecture/`、`.ralph/TASKS.md` 和邻近代码中。
+- 项目事实沉淀在 `README.md`、`docs/requirements.md`、`docs/features/`、`docs/architecture.md`、`docs/security.md`、`docs/integrations.md`、`docs/testing.md`、`.ralph/TASKS.md` 和邻近代码中。
 - 本仓库自 v0.1 后使用 `.ralph/TASKS.md` dogfood 推进开发；release 中的 `.ralph/TASKS.md` 是等待首次项目会话补齐的空模板。root `task.md` 已封版作为 v0.1 历史归档。
 
 ## Top Rules
@@ -18,7 +18,8 @@
 - `.spec/` 承载协作模型、事实源边界、文档结构、非动作方法、流程质量门和模板。
 - `docs/` 承载项目事实、专题设计和运行过程文档。
 - `.ralph/TASKS.md` 是本仓库 dogfood 任务源；release 构建会生成无顶层任务的初始化模板，不复制本仓库任务状态。
-- `release/<version>/` 是对外部署单元；目标结构见 `docs/architecture/vibecoding-collaboration.md`，当前实现由 `scripts/build-release.sh` 决定。`runs/`、`lock`、`status.json`、真实 `.env` 和未脱敏会话状态不得进入 release 的版本控制内容。
+- 当前 dogfood 工作包始于新版 TASKS 模板之前；保留已写入任务的历史字段和勾选状态，新追加任务按 `.spec/rules/TASKS.md` 的现行指导写，不为格式统一改写旧记录。
+- `release/<version>/` 是对外部署单元；目标结构见 `docs/features/vibecoding-collaboration/solution.md`，当前实现由 `scripts/build-release.sh` 决定。`runs/`、`lock`、`status.json`、真实 `.env` 和未脱敏会话状态不得进入 release 的版本控制内容。
 - `.agents/skills/` 承载带明确运行产物或状态迁移的动作 workflow。
 - 不要把模板占位当成已确认项目事实。
 
@@ -27,8 +28,8 @@
 - 进入项目先读 `AGENTS.md`；需要了解项目过程文档时先读 `docs/README.md`，需要了解规范体系时再读 `.spec/README.md`。
 - 执行当前开发任务时先读用户请求、`handoff.md` 和相关项目事实源；只有明确在 dogfood/ralph 任务循环中工作时，才把 `.ralph/TASKS.md` 当作当前任务清单。查询 v0.1 历史读 root `task.md`（已封版）。
 - 需要查阅项目过程文档（需求、方案、架构、测试、研究、复盘、checkpoint）时，先读 `docs/README.md`，再按其中的入口地图打开具体文档；不要从目录猜测事实源。
-- 做 Ralph harness 需求相关工作时读 `docs/requirements/ralph-loop/requirements.md`；做设计或实现时读 `docs/architecture/`（`overview.md` 起步，provider 集成看 `integrations.md`，安全边界看 `security.md`）。
-- 历史 I<N> 设计方案和归档保留在 `docs/requirements/ralph-loop/`；这些编号是项目文档索引，不属于 ralph runtime 契约。
+- 做 Ralph harness 需求相关工作时读 `docs/features/ralph-loop/requirements.md`；做设计或实现时从 `docs/architecture.md` 起步，provider 集成看 `docs/integrations.md`，安全边界看 `docs/security.md`。
+- 历史 I<N> 设计方案和归档保留在 `docs/features/ralph-loop/history/`；这些编号是项目文档索引，不属于 ralph runtime 契约。
 - 写或移动项目文档时同步 `docs/README.md`；只有根 README 的项目入口内容发生变化时才同步根 `README.md`。
 - 遇到失败、回归、重复错误、校验异常或预防机制问题时，先读 `docs/postmortems/README.md`，再判断是否需要记录 postmortem。
 - 续接、回滚、创建 checkpoint 或判断稳定锚点时，先读 `docs/checkpoints/README.md`。

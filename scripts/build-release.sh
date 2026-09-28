@@ -2,20 +2,34 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-version="${1:-}"
-if [[ -z "$version" || ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-  echo "usage: $0 <version>" >&2
+mode="build"
+if [[ "${1:-}" == "--verify" ]]; then
+  mode="verify"
+  shift
+fi
+version="$(sed -n 's/^RALPH_VERSION="\([^"]*\)"$/\1/p' "$repo_root/.ralph/bin/ralph")"
+requested_version="${1:-$version}"
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ || "$requested_version" != "$version" || $# -gt 1 || ( "$mode" == "verify" && $# -ne 0 ) ]]; then
+  echo "usage: $0 [$version|--verify] (must match .ralph/bin/ralph)" >&2
   exit 2
 fi
 
 src_ralph="$repo_root/.ralph"
-out="$repo_root/release/$version"
-rm -rf "$out"
+current_release="$repo_root/release/$version"
+if [[ "$mode" == "build" && -e "$current_release" ]]; then
+  echo "release already exists: $current_release" >&2
+  exit 1
+fi
+if [[ "$mode" == "verify" && ! -d "$current_release" ]]; then
+  echo "release missing: $current_release" >&2
+  exit 1
+fi
+scratch="$(mktemp -d "$repo_root/release/.build-$version.XXXXXX")"
+trap 'rm -r -- "$scratch"' EXIT
+out="$scratch/package"
 mkdir -p "$out/.ralph/bin" "$out/.ralph/lib" "$out/.spec" "$out/docs"
 cp "$src_ralph/bin/ralph" "$out/.ralph/bin/ralph"
-sed -i.bak "s/^RALPH_VERSION=\"[^\"]*\"$/RALPH_VERSION=\"$version\"/" "$out/.ralph/bin/ralph"
-rm -f "$out/.ralph/bin/ralph.bak"
-grep -q "^RALPH_VERSION=\"$version\"$" "$out/.ralph/bin/ralph"
+grep -Fxq "RALPH_VERSION=\"$version\"" "$out/.ralph/bin/ralph"
 for file in "$src_ralph"/lib/*.sh; do
   base="$(basename "$file")"
   [[ "$base" == adapter-gemini.sh ]] && continue
@@ -25,9 +39,6 @@ cp "$src_ralph/PROMPT.md" "$out/.ralph/PROMPT.md"
 cp "$src_ralph/README.md" "$out/.ralph/README.md"
 cp "$src_ralph/.gitignore" "$out/.ralph/.gitignore"
 cp -R "$repo_root/.spec/." "$out/.spec/"
-if [[ -d "$repo_root/.codex" ]]; then
-  cp -R "$repo_root/.codex" "$out/.codex"
-fi
 
 cat > "$out/.ralph/TASKS.md" <<'EOF'
 # Tasks
@@ -44,7 +55,7 @@ cat > "$out/.ralph/TASKS.md" <<'EOF'
 
 > 首次项目会话根据已有文档填写；没有历史时留空。
 
-## 任务维护规则
+## 规则
 
 > 任务只能追加；每轮只执行一个顶层任务；完成任务必须记录完成、验证和未验证项。
 
@@ -54,8 +65,8 @@ cat > "$out/.ralph/TASKS.md" <<'EOF'
 > 本文件没有顶层未完成任务时，`ralph run` 不会启动 provider；这是预期的初始化状态。
 EOF
 
-cat > "$out/.ralph/.env" <<'EOF'
-# Ralph 配置文件（复制到项目后按需取消注释）。本文件不会执行 shell 代码。
+cat > "$out/.ralph/.env.example" <<'EOF'
+# Ralph 配置示例。复制为 .ralph/.env 后按需取消注释；本文件不会执行 shell 代码。
 # 配置优先级：命令行参数 > 当前进程环境变量 > 本文件 > 内置默认值。
 #
 # 必填：provider。当前正式支持 claude（Claude Code CLI）和 codex（Codex CLI）。
@@ -129,11 +140,24 @@ cat > "$out/README.md" <<'EOF'
 
 ## 部署
 
-目标 workspace 已存在 `AGENTS.md`、`CLAUDE.md`、`.ralph/`、`.spec/` 或 `docs/` 时，不要直接覆盖；先将本目录复制到临时位置，再逐项人工合并。全新 workspace 才可以直接复制本目录内容。首次项目会话先阅读 `AGENTS.md`、`docs/README.md` 和 `.spec/README.md`，再根据用户目标创建 feature 文档并补齐 `.ralph/TASKS.md`；清单准备好后才运行 Ralph。
+目标 workspace 已存在 `AGENTS.md`、`CLAUDE.md`、`.ralph/`、`.spec/` 或 `docs/` 时，不要直接覆盖；先将本目录复制到临时位置，再逐项人工合并。全新 workspace 才可以直接复制本目录内容。首次项目会话先阅读 `AGENTS.md`、`docs/README.md` 和 `.spec/README.md`，根据用户目标建立项目事实；用户决定生成任务清单后再补齐 `.ralph/TASKS.md`，用户要求执行且清单准备好后才运行 Ralph。
 
 正式支持 provider：Claude Code、Codex CLI；`fake` 仅用于测试。Gemini 暂停接入。
 EOF
-sed -i.bak "s/__VERSION__/${version}/" "$out/README.md"
-rm -f "$out/README.md.bak"
+sed "s/__VERSION__/${version}/" "$out/README.md" > "$out/README.md.new"
+mv "$out/README.md.new" "$out/README.md"
 
-printf 'release built: %s\n' "$out"
+if [[ "$mode" == "verify" ]]; then
+  if ! diff -rq "$out" "$current_release"; then
+    echo "release differs from generated output: $current_release" >&2
+    exit 1
+  fi
+  if [[ ! -x "$current_release/.ralph/bin/ralph" ]]; then
+    echo "release CLI is not executable: $current_release/.ralph/bin/ralph" >&2
+    exit 1
+  fi
+  printf 'release verified: %s\n' "$current_release"
+else
+  mv "$out" "$current_release"
+  printf 'release built: %s\n' "$current_release"
+fi

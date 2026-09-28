@@ -1,8 +1,8 @@
 # Integrations
 
 - 状态：已确认（I2 DEV-1 校准 2026-05-03 / I4 DEV-1 校准 2026-05-04）；**支持矩阵只有 Claude Code 与 Codex CLI 两家**，Gemini 段落标记为暂停接入的历史记录（REQ-028）。
-- 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-005 / REQ-006 / REQ-011 / FR-006 / FR-008 / NFR-SEC-002 / REQ-028 / REQ-029 / REQ-030 / REQ-031）、2026-04-20 三家官方文档、I2 DEV-1 本机 CLI help 与会话目录观测（2026-05-03）、I4 DEV-1 本机 Gemini CLI help 与会话目录观测（2026-05-04）、OpenAI 官方 non-interactive mode / command line options / config reference 文档。
-- 范围：本文定义 Ralph harness 与外部 provider CLI 的集成契约：命令构造、session 采集、错误诊断关键字、UUID 依赖和降级策略。**当前生效范围是 Claude Code 与 Codex CLI**；Gemini CLI 的内容只作为"adapter 保留、入口禁用"的历史契约存在，不构成当前支持声明。跨 provider 的公共主循环、运行目录 schema 在 [`overview.md`](./overview.md)；approval/sandbox 的安全边界在 [`security.md`](./security.md)。本文不重写需求正文、不描述 adapter 之外的命令封装形式。
+- 来源：`docs/features/ralph-loop/requirements.md`（REQ-005 / REQ-006 / REQ-011 / FR-006 / FR-008 / NFR-SEC-002 / REQ-028 / REQ-029 / REQ-030 / REQ-031）、2026-04-20 三家官方文档、I2 DEV-1 本机 CLI help 与会话目录观测（2026-05-03）、I4 DEV-1 本机 Gemini CLI help 与会话目录观测（2026-05-04）、OpenAI 官方 non-interactive mode / command line options / config reference 文档。
+- 范围：本文定义 Ralph harness 与外部 provider CLI 的集成契约：命令构造、session 采集、错误诊断关键字、UUID 依赖和降级策略。**当前生效范围是 Claude Code 与 Codex CLI**；Gemini CLI 的内容只作为"adapter 保留、入口禁用"的历史契约存在，不构成当前支持声明。跨 provider 的公共主循环、运行目录 schema 在 [`overview.md`](./architecture.md)；approval/sandbox 的安全边界在 [`security.md`](./security.md)。本文不重写需求正文、不描述 adapter 之外的命令封装形式。
 - 变更条件：任一 provider CLI 升级改变 session 路径、事件格式或 flag 语义；新增第四个 provider；NFR-SEC-002 变更导致 approval 策略调整；`.ralph/runs/` 布局变化影响 session 拷贝位置。
 
 ## 证据范围
@@ -313,7 +313,7 @@ Gemini `session.history.log` 从 `provider.stdout.log`（`--output-format stream
 
 ## 错误诊断
 
-provider exit code 0 不等于 agent 成功。Ralph 需要按 provider 协议做二次诊断。统一错误类别表见 [`overview.md#错误诊断类别`](./overview.md#错误诊断类别)；provider 特定字段和关键字如下：
+provider exit code 0 不等于 agent 成功。Ralph 需要按 provider 协议做二次诊断。统一错误类别表见 [`overview.md#错误诊断类别`](./architecture.md#错误诊断类别)；provider 特定字段和关键字如下：
 
 - **Claude**：stream-json events 末尾的 `result` 事件 (`{type:"result", ...}`) 如果 `is_error: true`，说明 provider 通道成功但 agent 逻辑失败。常见子类：
   - API 错误（401 / 5xx）：`result` 含 `unauthor`、`api`、`5xx` 等关键字 → 归入 `auth` 或 `api`。
@@ -360,7 +360,7 @@ REQ-029 契约（SC-029-1 / SC-029-2）：**进程退出码不等于 provider �
       session.history.log             # 跨 provider 人话视图（user / assistant / thinking / tool-use / tool-result / result）
 ```
 
-`meta.json` 权威 schema 在 [`overview.md#round-nnnmetajson-schema`](./overview.md#round-nnnmetajson-schema)；session 相关字段：
+`meta.json` 权威 schema 在 [`overview.md#round-nnnmetajson-schema`](./architecture.md#round-nnnmetajson-schema)；session 相关字段：
 
 - `provider`
 - `session_id`

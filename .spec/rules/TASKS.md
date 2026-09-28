@@ -1,10 +1,12 @@
 # 任务事实源（TASKS.md）规则
 
-本规则规范任务事实源（本仓库在 dogfood 时可使用 `.ralph/TASKS.md`，使用者 workspace = 同名）的**结构、模板、自修改规则、归档约定**。目标是让 agent 在 ralph oneshot 内能稳定按规则执行，让 reviewer 能快速读出每个任务的契约和验证状态。
+本规则规范项目入口声明的唯一任务事实源的**结构、模板、自修改规则、归档约定**。使用 Ralph 的 workspace 通常使用 `.ralph/TASKS.md`。目标是让 agent 在 ralph oneshot 内能稳定按规则执行，让 reviewer 能快速读出每个任务的契约和验证状态。
 
 ## 边界
 
 - 任务事实源是当前工作包的可执行任务集合 + 关键稳定结论 + 历史索引；不是 changelog、不是设计文档、不是 review findings 容器。
+- 用户决定何时建立任务清单；本规则只指导清单的写法。用户授权 Ralph 执行后，oneshot 可根据现场发现追加后续任务并记录依据，无需把正常执行问题逐条交回 Main Agent 重写；需要人类裁决的目标或取舍进入 HUMAN-N 阻塞。
+- 本文件不决定何时派发 Ralph；执行中的勾选由 oneshot 按完成与验证证据写入，Ralph 终态不自动触发 Main Agent 对整轮产物的验收。
 - 当前工作包的完成、验证和未验证细节保留在任务源中直至归档；跨工作包的稳定点和运行过程记录归档到 `docs/checkpoints/`。任务源本身只维护当前有效结论、历史索引和当前工作包。
 - feature 级最终任务包可归档到 `docs/features/<feature>/final-task.md`（工作包完成后由人类或项目归档 workflow 执行）；开放中的任务源可以暂不填写归档目标，开始归档前必须补齐。
 
@@ -25,11 +27,9 @@
 
 ## 历史索引
 
-- v0.1 历史：root `task.md`（封版后）
-- 需求事实源：`docs/features/<feature>/requirements.md`
-- 架构事实源：按需创建的根级架构或专题文档
-- Checkpoint 索引：`docs/checkpoints/README.md`
-- 失败模式索引：`docs/postmortems/README.md`
+- 需求事实源：`docs/features/<feature>/requirements.md`（存在时填写）
+- 架构事实源：项目已有的根级架构或专题文档（存在时填写）
+- 历史任务、Checkpoint、失败模式索引：仅填写项目实际存在的入口
 
 ## 规则
 
@@ -61,7 +61,7 @@
 | (空) / `DEV-N` | ralph oneshot 内 agent | 开发实施（默认） | 项目入口 + 代码事实 | 代码 / 文档 / 提示词 / 论文等任何"按已确认需求/方案产出具体交付物"的工作 |
 | `QA-N` | ralph oneshot 内 agent | 测试设计与实施 | `.spec/rules/TESTING.md` | `docs/features/<feature>/testing.md` 或 `docs/testing.md` + 测试代码 |
 | `REVIEW-N` | ralph oneshot 内 agent | 审查（见 §REVIEW-N 两种用法） | `.spec/rules/REVIEW.md` 或 `.spec/rules/ADVERSARIAL-REVIEW.md` | findings / 事实源修订 |
-| `HUMAN-N` | **main agent 对话内人类协作** | 必须人工介入决策；ralph oneshot 内不可执行不可勾选 | — | 答案落到对应 docs + HUMAN 任务里追加"答："摘要 + 由人类勾选 |
+| `HUMAN-N` | **main agent 对话内人类协作** | 必须人工介入决策；ralph oneshot 内不可执行不可勾选 | — | 答案落到对应 docs + HUMAN 任务里追加"答："摘要 + 由 Main Agent 按人类决定勾选 |
 
 **强约束**（ralph 启动校验，违反则启动失败 exit 1）：
 
@@ -95,7 +95,7 @@
   - 验证计划：<同未完成模板>
   - 完成：<阶段产出 1，含文件路径或 commit sha>
   - 完成：<阶段产出 2>
-  - 验证：<执行的命令 + 结果，e.g. "scripts/check.sh + integration-test.sh PASS=57">
+  - 验证：<项目实际执行的命令或人工检查 + 结果>
   - 未验证：<residual risk 或 None>
 ```
 
@@ -143,7 +143,7 @@ ralph oneshot 内 agent 触发 HUMAN-N 阻塞时，在阻塞任务**上方**插�
 **Escalation 路径 A**（DEV 等任务阻塞、需要先回炉修订需求/方案）：
 
 ```markdown
-- [ ] REVIEW-N [blocked-by <被阻塞任务>]: <一句问题陈述>
+- [ ] REVIEW-N: [blocked-by <被阻塞任务>] <一句问题陈述>
 ```
 
 必带 `[blocked-by <task>]` 标记，描述用一句话说清楚问题，**不带** `| review` / `| adversarial-review` 后缀。
@@ -165,9 +165,9 @@ ralph oneshot 内 agent 触发 HUMAN-N 阻塞时，在阻塞任务**上方**插�
 - **禁止勾选 HUMAN-N**——见上文强约束（ralph oneshot 内）
 - **禁止违反前缀全大写约束**——启动校验会拦住，但你写新任务时也要遵守
 
-## 归档契约（工作包完成时）
+## 归档契约（用户决定归档时）
 
-工作包完成（`ralph run` 退出 `exit_reason=done` + 所有任务 `[x]`）：
+`ralph run` 退出 `done` 不自动触发归档。用户要求归档后，先确认工作包执行完成（`exit_reason=done` + 所有任务 `[x]`），再按下列规则处理：
 
 - 如果项目已声明归档 workflow，按该 workflow 执行；workflow 必须保留下列归档原则。
 - 如果项目尚未声明归档 workflow，由 main agent 按以下手动步骤执行：
@@ -185,13 +185,10 @@ ralph oneshot 内 agent 触发 HUMAN-N 阻塞时，在阻塞任务**上方**插�
 
 ## 与 .ralph/PROMPT.md 的边界
 
-- 本文件（`.spec/rules/TASKS.md`）规定 **TASKS.md 的结构和格式契约**——是 spec 层
+- 本文件（`.spec/rules/TASKS.md`）指导 **TASKS.md 的结构、格式和执行期间的记录方式**，不决定何时建立任务清单，也不替 Ralph 勾选任务
 - `.ralph/PROMPT.md` 规定 **agent 在 oneshot 内的执行协议**——是 runtime 层
 - 重复内容（如自修改规则、HUMAN-N 触发条件、REVIEW-N 两种用法）以本文件为准；PROMPT.md 路由到本文件，不重复完整描述
 
 ## 验证
 
-本规则为 spec 文档。检查命令：
-
-- `bash scripts/check.sh`（验证 .spec/ 边界 + 文档结构）
-- `bash scripts/integration-test.sh`（验证启动校验前缀全大写规则触发）
+修改本规则后，运行项目入口声明的文档检查和必要的 Ralph 启动校验。检查命令由使用者项目决定；本规则不预设仓库内存在特定脚本。

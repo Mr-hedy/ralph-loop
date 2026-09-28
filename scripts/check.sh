@@ -10,7 +10,12 @@ bash -n "$ROOT/.ralph/bin/ralph" \
   "$ROOT/.ralph/lib/adapter-claude.sh" \
   "$ROOT/.ralph/lib/adapter-codex.sh" \
   "$ROOT/.ralph/lib/adapter-fake.sh" \
-  "$ROOT/.ralph/lib/run.sh"
+  "$ROOT/.ralph/lib/run.sh" \
+  "$ROOT/.ralph/lib/status.sh" \
+  "$ROOT/.ralph/lib/sticky.sh" \
+  "$ROOT/.ralph/lib/watch.sh" \
+  "$ROOT/.ralph/lib/adapter-gemini.sh" \
+  "$ROOT/scripts/build-release.sh"
 "$ROOT/.ralph/bin/ralph" help >/dev/null
 test -f "$ROOT/scripts/integration-test.sh"
 # 测试层语法检查（QA-1）：集成测试脚本与 mock fixture 都是 bash 脚本，
@@ -20,9 +25,14 @@ bash -n "$ROOT/scripts/integration-test.sh" \
   "$ROOT/tests/fixtures/mock-codex" \
   "$ROOT/tests/fixtures/mock-gemini"
 
-! grep -q "AGENTS.md" "$ROOT/README.md"
-! grep -q "npm run check" "$ROOT/README.md"
-! grep -q "AGENTS.md" "$ROOT/docs/README.md"
+if grep -q "npm run check" "$ROOT/README.md"; then
+  echo "README.md points to an unsupported npm check command" >&2
+  exit 1
+fi
+if grep -Eq '^[[:space:]]*![[:space:]]*grep([[:space:]]|$)' "$ROOT/scripts/check.sh"; then
+  echo "check.sh contains a negated grep gate that set -e may ignore" >&2
+  exit 1
+fi
 # Spec assets use uppercase filenames; docs and runtime naming are separate contracts.
 for spec_rule in ADVERSARIAL-REVIEW ARCHITECTURE DOCS REQUIREMENTS REVIEW ROADMAP SOLUTION TASKS TESTING TROUBLESHOOTING; do
   test -f "$ROOT/.spec/rules/$spec_rule.md"
@@ -53,18 +63,25 @@ if grep -REn '\.spec/rules/(adversarial-review|architecture|docs|requirements|re
   "$ROOT/AGENTS.md" \
   "$ROOT/README.md" \
   "$ROOT/docs/README.md" \
-  "$ROOT/docs/architecture/overview.md" \
-  "$ROOT/docs/architecture/testing.md" \
+  "$ROOT/docs/architecture.md" \
+  "$ROOT/docs/testing.md" \
   "$ROOT/scripts"; then
   echo "stale lowercase .spec rule reference in active files" >&2
   exit 1
 fi
-test -f "$ROOT/docs/requirements/ralph-loop/requirements.md"
+test -f "$ROOT/docs/features/ralph-loop/requirements.md"
+test -f "$ROOT/docs/features/ralph-loop/history/index.md"
+test -f "$ROOT/docs/features/vibecoding-collaboration/requirements.md"
+test -f "$ROOT/docs/features/vibecoding-collaboration/solution.md"
 test -f "$ROOT/docs/requirements.md"
-test -f "$ROOT/docs/architecture/overview.md"
-test -f "$ROOT/docs/architecture/integrations.md"
-test -f "$ROOT/docs/architecture/security.md"
+test -f "$ROOT/docs/architecture.md"
+test -f "$ROOT/docs/integrations.md"
+test -f "$ROOT/docs/security.md"
+test -f "$ROOT/docs/testing.md"
 test ! -d "$ROOT/docs/ralph"
+test ! -d "$ROOT/docs/requirements"
+test ! -d "$ROOT/docs/architecture"
+test ! -d "$ROOT/docs/collaboration"
 test -f "$ROOT/task.md"
 test ! -d "$ROOT/ralph"
 test -f "$ROOT/.ralph/PROMPT.md"
@@ -77,5 +94,32 @@ if ! diff -rq "$ROOT/.spec" "$current_release/.spec" >/dev/null; then
   echo "current release .spec is out of sync with root .spec: $current_release" >&2
   exit 1
 fi
+for source_file in "$ROOT/.ralph/bin/ralph" "$ROOT/.ralph/PROMPT.md" "$ROOT/.ralph/README.md" "$ROOT/.ralph/.gitignore"; do
+  package_file="$current_release/${source_file#"$ROOT"/}"
+  cmp -s "$source_file" "$package_file" || { echo "release file out of sync: $package_file" >&2; exit 1; }
+done
+for source_file in "$ROOT"/.ralph/lib/*.sh; do
+  [[ "${source_file##*/}" == adapter-gemini.sh ]] && continue
+  package_file="$current_release/${source_file#"$ROOT"/}"
+  cmp -s "$source_file" "$package_file" || { echo "release file out of sync: $package_file" >&2; exit 1; }
+done
+test ! -e "$current_release/.ralph/lib/adapter-gemini.sh"
+test ! -e "$current_release/.codex"
+test ! -e "$current_release/.agents"
+test -x "$current_release/.ralph/bin/ralph"
+test -L "$current_release/CLAUDE.md"
+[[ "$(readlink "$current_release/CLAUDE.md")" == AGENTS.md ]]
+cmp -s "$ROOT/templates/AGENTS.md" "$current_release/AGENTS.md"
+grep -Fxq "# Ralph Loop $current_version" "$current_release/README.md"
+test -f "$current_release/.ralph/.env.example"
+for runtime_file in .ralph/.env .ralph/status.json .ralph/lock; do
+  test ! -e "$current_release/$runtime_file"
+done
+test ! -d "$current_release/.ralph/runs"
+if grep -Eq '^[[:space:]]*-[[:space:]]+\[[ xX]\]' "$current_release/.ralph/TASKS.md"; then
+  echo "release TASKS.md must be an empty initialization template" >&2
+  exit 1
+fi
+bash "$ROOT/scripts/build-release.sh" --verify >/dev/null
 
 echo "ralph-loop check passed"

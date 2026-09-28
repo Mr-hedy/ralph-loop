@@ -3,7 +3,7 @@
 # 模拟 claude CLI `--output-format stream-json --verbose` 行为：
 # stdout 输出 JSONL events 流，末尾 result 事件含 is_error / result / session_id
 # cwd_hash 严格步骤顺序：先 realpath 解 symlink，再字符替换为 -
-# 参见 docs/architecture/integrations.md §Claude Session 机制
+# 参见 docs/integrations.md §Claude Session 机制
 set -euo pipefail
 
 session_id=""

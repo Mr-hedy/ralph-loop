@@ -3,7 +3,7 @@
 # 模拟 gemini CLI `--output-format stream-json` 行为：
 # stdout 输出 JSONL events 流（含 _received_* 字段用于测试断言）
 # 在 ${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/ 下写 native session（DEV-3 mock 扩展点）
-# 参见 docs/architecture/integrations.md §Gemini CLI Session 机制
+# 参见 docs/integrations.md §Gemini CLI Session 机制
 set -euo pipefail
 
 received_model=""

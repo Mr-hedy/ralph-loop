@@ -3,7 +3,7 @@
 # 模拟 codex exec --json 行为：
 # stdout 输出 JSONL events 流（thread.started / item.completed / turn.completed / turn.failed / error）
 # 在 ${CODEX_HOME:-$HOME/.codex}/sessions/ 下写 rollout 文件
-# 参见 docs/architecture/integrations.md §Codex Session 机制
+# 参见 docs/integrations.md §Codex Session 机制
 set -euo pipefail
 
 thread_id=""

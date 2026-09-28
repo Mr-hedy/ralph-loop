@@ -4,7 +4,7 @@
 # 退出：Ctrl+C
 #
 # **状态**：本 PoC 是 I5 启动前的视觉契约 v1，**不再跟踪实施期变更**。
-# 当前生效合约见 `docs/requirements/ralph-loop/I5-design.md` §0 ChangeLog
+# 当前生效合约见 `docs/features/ralph-loop/history/I5-design.md` §0 ChangeLog
 # 和实际实现 `.ralph/lib/sticky.sh`。主要差异：
 #   - live 模式高度 11 行（v1: 10 行）；新增 `(Ctrl+C to exit)` 提示行
 #   - 删除顶栏起始 `[HH:MM:SS]` 时间戳
@@ -315,7 +315,7 @@ render_frame() {
 # ── mock 事件 ───────────────────────────────────────────────────────────────
 EVENTS=(
   "💬 \"Reading requirements doc to understand sticky bar layout...\""
-  "🔧 Read docs/requirements/ralph-loop/requirements.md"
+  "🔧 Read docs/features/ralph-loop/requirements.md"
   "💭 thinking (892 tok)"
   "🔧 Bash bash -n .ralph/lib/watch.sh"
   "💬 \"Found the issue at line 142\""

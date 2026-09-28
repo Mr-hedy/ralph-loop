@@ -35,7 +35,7 @@
 | (空) / `DEV-N` | ralph oneshot 内 agent | 开发实施（默认） | `CLAUDE.md` + 代码事实 | 代码 / 文档 / 提示词 / 论文等任何"按已确认需求/方案产出具体交付物"的工作 |
 | `QA-N` | ralph oneshot 内 agent | 测试设计与实施 | `.spec/rules/TESTING.md` | `docs/features/<feature>/testing.md` 或 `docs/testing.md` + 测试代码 |
 | `REVIEW-N` | ralph oneshot 内 agent | 审查（见下文格式） | `.spec/rules/REVIEW.md` 或 `.spec/rules/ADVERSARIAL-REVIEW.md` | findings / 事实源修订 |
-| `HUMAN-N` | **main agent 对话内人类协作**（见下文 HUMAN-N 机制） | 必须人工介入决策；ralph oneshot 内不可执行不可勾选 | — | 答案落到对应 docs + HUMAN 任务里追加"答："摘要 + 由人类勾选 |
+| `HUMAN-N` | **main agent 对话内人类协作**（见下文 HUMAN-N 机制） | 必须人工介入决策；ralph oneshot 内不可执行不可勾选 | — | 答案落到对应 docs + HUMAN 任务里追加"答："摘要 + 由 Main Agent 按人类决定勾选 |
 
 **强约束（ralph 启动校验，违反则启动失败 exit 1）**：
 
@@ -62,7 +62,7 @@
 **Escalation 路径 A**（DEV 等 task 阻塞、需要先回炉修订需求/方案）：
 
 ```markdown
-- [ ] REVIEW-N [blocked-by <被阻塞任务>]: <一句问题陈述>
+- [ ] REVIEW-N: [blocked-by <被阻塞任务>] <一句问题陈述>
 ```
 
 必带 `[blocked-by <task>]` 标记，描述用一句话说清楚问题，不带 `| review` / `| adversarial-review` 后缀。详见 §Escalation 两条路径。
@@ -100,11 +100,11 @@ HUMAN-N 是任务类型之一，但和其他类型不同：**必须由人类在 
 - **不得执行 HUMAN-N 任务的内容**——HUMAN-N 是给人类的。
 - 看到 `- [ ]` HUMAN-N 在第一个未完成位置 → 本轮直接 exit，不做任何任务（双重保险，正常情况下 ralph 工具层已先于你 exit 7）。
 
-### 解锁动作（人类 + main agent 在 Claude Code 对话中执行）
+### 解锁动作（人类 + Main Agent 在主对话中执行）
 
-- 人类在 Claude Code 对话里和 main agent 协作得出共识。
+- 人类在 Main Agent 对话里协作得出共识。
 - 把答案落到对应 docs（requirements / architecture / etc）。
-- HUMAN-N 任务描述末尾追加 `答（<日期>）: <答案摘要>，落地: <docs 路径>`。
+- 按 `.spec/rules/TASKS.md` 的 HUMAN-N 模板分别追加 `答（YYYY-MM-DD）` 和 `落地` 条目。
 - main agent 把 HUMAN-N 改 `[x]` + commit（普通对话里没有 PROMPT.md 强约束，main agent 可以勾选）。
 - 重跑 `ralph run`，下一轮 ralph oneshot 内的 agent 看到 HUMAN-N 已 `[x]`，回到原阻塞任务按答案继续。
 
@@ -117,7 +117,7 @@ HUMAN-N 是任务类型之一，但和其他类型不同：**必须由人类在 
 1. 保持当前任务 `- [ ]`（不勾）。
 2. 在当前任务**上方**插入（必带 `[blocked-by]` 标记，区别于常规 REVIEW 任务）：
    ```markdown
-   - [ ] REVIEW-N [blocked-by <当前任务>]: <一句问题陈述>
+   - [ ] REVIEW-N: [blocked-by <当前任务>] <一句问题陈述>
    ```
 3. exit。下轮 agent pick REVIEW，settles 后当前任务 retry。
 

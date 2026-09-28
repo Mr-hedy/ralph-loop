@@ -1340,7 +1340,7 @@ SETUP_CLAUDE_HOME=""
 setup_claude_workspace() {
   SETUP_CLAUDE_WS="$(setup_workspace --provider claude)"
 
-  # HOME 隔离（强制要求，见 docs/architecture/testing.md §测试隔离规则）
+  # HOME 隔离（强制要求，见 docs/testing.md §测试隔离规则）
   local home_parent
   home_parent="$(mktemp -d)"
   SETUP_CLAUDE_HOME="$home_parent/home"
@@ -1796,9 +1796,10 @@ cleanup_claude_ws
 echo ""
 echo "-- ralph --version"
 rc=0
+expected_version="$(sed -n 's/^RALPH_VERSION="\([^"]*\)"$/\1/p' "$REPO_ROOT/.ralph/bin/ralph")"
 version_out=$(bash "$REPO_ROOT/.ralph/bin/ralph" --version 2>/dev/null) || rc=$?
-if [[ "$rc" -eq 0 && "$version_out" == *"0.1.1"* ]]; then
-  _pass "ralph --version: exit 0, contains 0.1.1"
+if [[ "$rc" -eq 0 && -n "$expected_version" && "$version_out" == "ralph $expected_version ("* ]]; then
+  _pass "ralph --version: exit 0, contains $expected_version"
 else
   _fail "ralph --version: rc=$rc out=$version_out"
 fi

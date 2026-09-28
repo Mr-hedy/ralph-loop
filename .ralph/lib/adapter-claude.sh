@@ -2,7 +2,7 @@
 # adapter-claude.sh — Claude provider adapter
 # source 本文件后即设置 RALPH_PROVIDER_CLI；三函数契约
 # stream-json 模式：stdout 是 JSONL events 流，逐行写入 provider.stdout.log
-# session 文件命名遵循 docs/architecture/integrations.md §Session 文件命名约定
+# session 文件命名契约见开发仓库 docs/integrations.md §Session 文件命名约定
 
 RALPH_PROVIDER_CLI="claude"
 
@@ -124,7 +124,7 @@ provider_oneshot() {
 
 # _claude_cwd_hash <path>
 # cwd_hash 严格步骤：先 realpath 解 symlink，再字符替换（步骤顺序固定，见 PM-0002）
-# 参见 docs/architecture/integrations.md §Claude Session 机制
+# 参见开发仓库 docs/integrations.md §Claude Session 机制
 _claude_cwd_hash() {
   local resolved
   resolved="$(realpath "$1")"
@@ -281,7 +281,7 @@ _claude_derive_history() {
 }
 
 # ── _claude_classify_error ───────────────────────────────────────────────────
-# 输入：result 字段原文；输出：错误分类标签（互斥优先级，见 docs/architecture/integrations.md）
+# 输入：result 字段原文；输出：错误分类标签（互斥优先级，见开发仓库 docs/integrations.md）
 _claude_classify_error() {
   local text="${1:-}"
   local lower

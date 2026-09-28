@@ -1,7 +1,7 @@
 # Security
 
 - 状态：已确认
-- 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-005 / REQ-010 / NFR-SEC-001 / NFR-SEC-002 / NFR-SEC-003 / TC-STK-003）、`docs/requirements.md`（跨模块约束）、[`overview.md`](./overview.md)、[`integrations.md`](./integrations.md)。
+- 来源：`docs/features/ralph-loop/requirements.md`（REQ-005 / REQ-010 / NFR-SEC-001 / NFR-SEC-002 / NFR-SEC-003 / TC-STK-003）、`docs/requirements.md`（跨模块约束）、[`overview.md`](./architecture.md)、[`integrations.md`](./integrations.md)。
 - 范围：本文定义 Ralph harness 的安全边界：workspace 信任域、approval/sandbox 固定策略、`.ralph/.env` 解析约束、session/日志敏感信息处置、仓库边界与 secrets 禁入规则。不覆盖 provider CLI 自身的密钥管理（登录、API key 轮换），也不覆盖使用者 workspace 的代码安全审查流程。
 - 变更条件：NFR-SEC-* 条目增删；新增 provider；增加 policy/白名单开关（会把"approval 写死"从稳定契约变为可配置）；支持跨 workspace 的 worker/daemon 模式。
 
@@ -26,7 +26,7 @@ Ralph 是无人值守的 oneshot harness，每轮都必须跑到 provider 自然
 
 Codex 沙箱模式取值来自 `codex exec --help`（`-s, --sandbox <SANDBOX_MODE>`，possible values: `read-only, workspace-write, danger-full-access`，语义为 "Select the sandbox policy to use when executing model-generated shell commands"）；`danger-full-access` 的展开描述见官方 Permissions 文档（"removes local sandbox restrictions and should be used only when that broad access is intentional"）。官方页面**未**就该 profile 单独声明网络访问行为，因此不把"网络可用"写进契约。
 
-Claude 侧结论核查于 Claude Code CLI `2.1.270` 的 `claude --help`（"`--dangerously-skip-permissions` Bypass all permission checks"；"`--allowedTools` ... list of tool names to allow"）与官方权限模式 / CLI reference 页面（"Allow rules have no effect in `bypassPermissions`"；"To restrict which tools are available, use `--tools` instead"）。该误读的失败模式与预防检查见 [`PM-0006`](../postmortems/pm-provider-flag-semantics-vs-boundary.md)。
+Claude 侧结论核查于 Claude Code CLI `2.1.270` 的 `claude --help`（"`--dangerously-skip-permissions` Bypass all permission checks"；"`--allowedTools` ... list of tool names to allow"）与官方权限模式 / CLI reference 页面（"Allow rules have no effect in `bypassPermissions`"；"To restrict which tools are available, use `--tools` instead"）。该误读的失败模式与预防检查见 [`PM-0006`](postmortems/pm-provider-flag-semantics-vs-boundary.md)。
 
 稳定契约（NFR-SEC-002）：
 

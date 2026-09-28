@@ -1,8 +1,8 @@
 # `.ralph/` 新手使用手册
 
-`.ralph/` 是 ralph-loop 的完整部署单元。你把这个目录复制到自己的 git
-workspace 里，就可以让 Claude / Codex CLI 按 `.ralph/TASKS.md`
-里的任务一轮一轮工作。
+`release/<version>/` 是 ralph-loop 的完整部署单元，其中的 `.ralph/` 承载 Ralph CLI、
+oneshot 协议和任务模板。部署到自己的 git workspace 后，可以让 Claude / Codex CLI
+按 `.ralph/TASKS.md` 里的任务一轮一轮工作。
 
 > 当前正式支持的 provider 只有 Claude Code 和 Codex CLI（测试另可用 `fake`）。
 > 开发工程可能保留 Gemini 历史 adapter 供未来重新接入，但当前 release 包不携带它；公共入口已禁用：传
@@ -13,7 +13,8 @@ workspace 里，就可以让 Claude / Codex CLI 按 `.ralph/TASKS.md`
 
 ```bash
 cd /path/to/your/workspace
-# 首次项目会话先补齐项目规则、docs 地图和任务清单
+# 首次项目会话先补齐项目规则和 docs 地图；用户决定生成任务清单后再填写任务
+# 用户要求执行且任务清单准备好后运行
 ./.ralph/bin/ralph run --provider claude
 ```
 
@@ -59,7 +60,8 @@ Ralph 只做一件事：反复启动 provider CLI 的 fresh oneshot，让 agent 
 ├── README.md              # 本文件
 ├── PROMPT.md              # 每轮发给 provider 的工作协议
 ├── TASKS.md               # 任务清单，使用时主要改这个文件
-├── .env                   # 注释配置模板；填写后由 .gitignore 忽略
+├── .env.example           # release 提供的配置示例
+├── .env                   # 首次按需创建的本地配置，由 .gitignore 忽略
 ├── .gitignore             # 忽略 runs/、lock、status.json、.env
 ├── bin/
 │   └── ralph              # CLI 入口
@@ -92,15 +94,15 @@ git status
 从 ralph-loop release 目录复制完整版本包：
 
 ```bash
-cp -R /path/to/ralph-loop/release/0.1.1/. ./
+cp -R /path/to/ralph-loop/release/0.1.3/. ./
 ```
 
 上面的命令只适用于全新 workspace。目标已有 `AGENTS.md`、`CLAUDE.md`、`.ralph/`、
 `.spec/` 或 `docs/` 时，先复制到临时目录再人工合并，不要静默覆盖已有入口或事实源。
 不要从 ralph-loop 开发工程直接复制 `.ralph/`；那是本仓库的 dogfood 工作区。
 release 包不会包含 `.ralph/runs/`、`.ralph/status.json` 或 `.ralph/lock`。
-`.ralph/.env` 是随 release 提供的注释配置模板，不属于运行产物；填写真实配置后会由
-`.ralph/.gitignore` 忽略。复制后可以检查运行态文件：
+release 提供 `.ralph/.env.example` 作为配置示例，不携带真实 `.ralph/.env`；在目标
+workspace 创建 `.ralph/.env` 后会由 `.ralph/.gitignore` 忽略。复制后可以检查运行态文件：
 
 ```bash
 ls .ralph/runs .ralph/status.json .ralph/lock 2>/dev/null
@@ -188,6 +190,10 @@ Gemini 暂停接入，写 `RALPH_PROVIDER=gemini` 会在启动阶段直接失败
 - 优先级：CLI flag > 当前终端 env > `.ralph/.env` > 默认值。
 
 ### 5. 写 `.ralph/TASKS.md`
+
+用户决定何时建立任务清单；清单就绪且用户要求执行后才启动 Ralph。运行中的
+oneshot 可根据现场发现追加任务、记录验证并勾选真正完成的任务；需要人类裁决时
+插入 HUMAN-N 阻塞。
 
 Ralph 只识别顶层 checkbox：
 
@@ -507,14 +513,14 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 
 权限参数本身**不会**写进 `meta.json`——它们是静态常量，不随 run 变化。若你需要
 "每次 run 都带权限指纹"，当前只能靠第 1 步的源码检查 + 部署副本的 git 版本。
-权威表述见 `docs/architecture/security.md` §Approval / Sandbox 固定策略与
-§权限参数的审计路径。
+本节给出随 release 部署的权限参数和审计步骤。开发仓库另在 `docs/security.md`
+维护项目级安全边界；它不随当前 release 部署。
 
 ## 退出原因怎么处理
 
 | exit_reason | exit code | 意思 | 你下一步做什么 |
 |---|---:|---|---|
-| `done` | 0 | 全部任务完成 | 看 commit、看 `result.json`，准备合并或继续写新任务 |
+| `done` | 0 | 全部任务执行结束，不表示需求已验收 | 看 commit 与最终产物；等待用户提出验收诉求，再由 Main Agent 按约定范围审查 |
 | `provider_failed` | 2 | provider CLI 报错或认证失败 | 看 `provider.stdout.log` 和 `exit-message.txt`，修 provider 环境后重跑 |
 | `timeout` | 3 | 单个 round 超过 `--round-timeout` | 放大 timeout、拆小任务，或人工处理当前任务 |
 | `locked` | 6 | 已经有一个 `ralph run` 在跑 | 用 `status` / `watch` 看现有 run，不要并发启动 |

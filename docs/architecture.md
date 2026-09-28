@@ -1,16 +1,16 @@
 # Architecture Overview
 
 - 状态：已确认
-- 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-001 ~ REQ-032）和 `docs/requirements/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）；本文在 design 层面给出总体系统入口。
-- 范围：本文承载项目总体上下文，以及 Ralph 执行引擎的主要组成和稳定契约（CLI、运行目录、adapter 接口、退出码、stall、lock、错误诊断类别）。Codex Main Agent 协作控制面、后台派发、最终验收和长期记忆边界见 [`vibecoding-collaboration.md`](./vibecoding-collaboration.md)。
+- 来源：`docs/features/ralph-loop/requirements.md`（REQ-001 ~ REQ-032）和 `docs/features/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）；本文在 design 层面给出总体系统入口。
+- 范围：本文承载项目总体上下文，以及 Ralph 执行引擎的主要组成和稳定契约（CLI、运行目录、adapter 接口、退出码、stall、lock、错误诊断类别）。Codex Main Agent 协作控制面、后台派发、用户触发验收和长期记忆边界见 [`Vibecoding 协作方案`](./features/vibecoding-collaboration/solution.md)。
 Provider 特定命令构造、session 路径和诊断关键字在 [`integrations.md`](./integrations.md)；approval / sandbox 策略和安全边界在 [`security.md`](./security.md)。
 - 变更条件：CLI 契约、退出原因枚举、adapter 函数签名或 `.ralph/runs/<id>/` schema 变化时必须同步更新；并触发下游 `integrations.md` / `security.md` / 模块需求 / roadmap / task 检查。
 
 ## 总体模型
 
-项目总体由 Codex Main Agent 协作控制面和 Ralph 后台执行面组成。Main Agent 负责需求、方案、任务和最终产物验收；Ralph 不做推理治理，只把已确认长任务组织成多轮 provider CLI fresh oneshot 执行。两者以任务事实源和最终 repository 状态交互，不以 provider 对话总结作为完成证据。
+项目总体由 Codex Main Agent 协作控制面和 Ralph 后台执行面组成。Main Agent 在用户要求时负责建立任务清单及按约定范围验收最终产物；Ralph 不做推理治理，只把已确认长任务组织成多轮 provider CLI fresh oneshot 执行。两者以任务事实源和最终 repository 状态交互，不以 provider 对话总结作为完成证据。
 
-详细协作模型见 [`vibecoding-collaboration.md`](./vibecoding-collaboration.md)。以下内容继续描述 Ralph 执行引擎的稳定契约。
+详细协作模型见 [`Vibecoding 协作方案`](./features/vibecoding-collaboration/solution.md)。以下内容继续描述 Ralph 执行引擎的稳定契约。
 
 每轮执行流程：
 
@@ -77,7 +77,7 @@ ralph watch   # 周期刷新 sticky TUI (TTY 默认，非 TTY 为 one-line bar)
 ralph help    # 帮助
 ```
 
-**没有** `ralph init`（全局非目标）。使用者自行创建 `.ralph/PROMPT.md`、`.ralph/TASKS.md`、`.ralph/.env`。
+**没有** `ralph init`（全局非目标）。release 提供 `.ralph/PROMPT.md` 协议、空的 `.ralph/TASKS.md` 初始化模板和 `.ralph/.env.example`；用户决定生成任务清单后再填写任务，并按需创建 `.ralph/.env` 或使用 CLI / 进程环境变量提供配置。
 
 ### `ralph run` 参数
 
@@ -127,10 +127,11 @@ ralph help    # 帮助
       adapter-claude.sh             # provider 实现
       adapter-codex.sh
       adapter-fake.sh               # T1 smoke test 用
-    PROMPT.md                       # 使用者输入（必需）
-    TASKS.md                        # 使用者输入（必需）
-    .env                            # 使用者输入（必需，至少含 RALPH_PROVIDER）
-    .gitignore                      # 建议
+    PROMPT.md                       # release 提供的 oneshot 协议
+    TASKS.md                        # release 提供空模板，用户决定生成任务清单后填写
+    .env.example                    # release 提供的配置示例
+    .env                            # 可选本地配置，或改用 CLI / 进程环境变量
+    .gitignore                      # release 提供，忽略本地运行状态与 .env
     runs/                           # 运行期产物
     status.json                     # 运行期产物
     lock                            # 运行期产物
@@ -284,7 +285,7 @@ RALPH_UI_HEALTH_RED_SEC=
 
 ## PROMPT.md 协议模板
 
-PROMPT.md 由使用者编写，但以下协议段落是 Ralph 的硬契约（REQ-003 SC-003-1），使用者在自己的 PROMPT.md 中必须包含等价表述：
+release 提供 PROMPT.md；使用者可以按项目情况补充，但以下协议段落是 Ralph 的硬契约（REQ-003 SC-003-1），修改后的 PROMPT.md 必须保留等价表述：
 
 ```markdown
 # Ralph Loop 硬契约
@@ -431,7 +432,7 @@ v0.1.1 引入的协作协议层约定，承载 ralph + 人类 + main agent 三�
 
 - ralph oneshot 内**不得勾选 `[x]` HUMAN-N 任务**（人类的动作）。
 - ralph oneshot 内**不得执行 HUMAN-N 任务的内容**（HUMAN-N 是给人类的）。
-- 普通 Claude Code 对话里 PROMPT.md 不被加载，无此约束（人类主导对话时可勾选）。
+- Main Agent 与人类的对话不加载 oneshot 的 PROMPT.md；HUMAN-N 由人类决策后，Main Agent 按任务协议记录答案并勾选。
 
 **ralph 工具层动作**：
 
@@ -441,7 +442,7 @@ v0.1.1 引入的协作协议层约定，承载 ralph + 人类 + main agent 三�
 
 **人类侧解锁**：
 
-- Claude Code 对话里和 agent 协作得出共识；落地到对应 docs（requirements / architecture）。
+- 在 Main Agent 对话里与人类协作得出共识；落地到对应的 feature 需求或项目架构文档。
 - HUMAN-N 任务描述末尾追加 `答（<日期>）: <答案摘要>，落地: <docs 路径>`。
 - HUMAN-N 改 `[x]` + commit；重跑 `ralph run`，agent 回到原阻塞任务按答案继续。
 
@@ -511,7 +512,7 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 - Claude：从 `session.claude.jsonl` 派生，包含 user / assistant / thinking / tool_use / tool_result。
 - Codex：从 `provider.stdout.log` 的 `codex exec --json` stdout JSONL events 派生，当前包含 assistant / tool_use / tool_result；`session.codex.jsonl` 保留为 raw evidence 和派生 bug 回滚 anchor，不作为 history parser 主输入。
 - Gemini（**暂停接入**）：从 `provider.stdout.log` 的 `--output-format stream-json` stdout 事件流派生（I4 DEV-1 校准）；`session.gemini.json` 保留为 native session 副本。该分支当前不可达（REQ-028）。
-- 新增 provider 必须在 `docs/architecture/integrations.md` 明确 history source；不得默认假设 `session.<provider>.jsonl` 可解析成人话视图。
+- 新增 provider 必须在 `docs/integrations.md` 明确 history source；不得默认假设 `session.<provider>.jsonl` 可解析成人话视图。
 
 ### `session.history.log` 格式
 
@@ -612,20 +613,20 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 
 | 领域 | 文档 | 状态 | 范围 |
 |---|---|---|---|
-| Overview | [`overview.md`](./overview.md) | 已确认 | 本文 |
-| API | `api.md` | 当前不适用 | Ralph 是 CLI 工具，无 HTTP/RPC API |
-| Backend | `backend.md` | 当前不适用 | Bash 模块结构已在本文 [运行目录](#运行目录) 段落覆盖 |
-| Frontend | `frontend.md` | 当前不适用 | 无前端 |
-| Database | `database.md` | 当前不适用 | 无持久化业务实体；运行期状态在 `.ralph/runs/` 文件中 |
-| UI | `ui.md` | 当前不适用 | `ralph watch` 终端 UI 细节已在本文 [状态观察](#状态观察) 段落覆盖 |
+| Overview | [`architecture.md`](./architecture.md) | 已确认 | 本文 |
+| API | — | 当前不适用 | Ralph 是 CLI 工具，无 HTTP/RPC API |
+| Backend | — | 当前不适用 | Bash 模块结构已在本文 [运行目录](#运行目录) 段落覆盖 |
+| Frontend | — | 当前不适用 | 无前端 |
+| Database | — | 当前不适用 | 无持久化业务实体；运行期状态在 `.ralph/runs/` 文件中 |
+| UI | — | 当前不适用 | `ralph watch` 终端 UI 细节已在本文 [状态观察](#状态观察) 段落覆盖 |
 | Security | [`security.md`](./security.md) | 已确认 | approval / sandbox 策略、secrets 边界、provider 侧权限收敛（当前不存在：Claude 走 bypass、Codex 走 `danger-full-access`） |
 | Testing | [`testing.md`](./testing.md) | 已建立（T2 阶段持续扩展） | 测试入口、基础设施、隔离规则、单一来源、运行平台、当前覆盖范围 |
-| Deployment | `deployment.md` | 当前不适用 | per-workspace 部署方式已在本文 [部署形态](#部署形态per-workspacereq-008) 段落覆盖 |
+| Deployment | — | 当前不适用 | per-workspace 部署方式已在本文 [部署形态](#部署形态per-workspacereq-008) 段落覆盖 |
 | Integrations | [`integrations.md`](./integrations.md) | 已确认 | Claude / Codex 原生 session 路径、采集命令、退化策略、UUID 依赖（Gemini 段落为暂停接入的历史契约） |
 
-## 待落实
+## Fake Provider 测试行为
 
 - `adapter-fake.sh` 由 `RALPH_FAKE_SCENARIO` 环境变量 select 场景（不依赖"第 N 轮"模式），核心场景：`happy`（勾第 1 条未勾选任务，`exit=0`）/ `stall`（不改 TASKS + 不改 git，`exit=0`）/ `crash`（`exit=非零`，无结构化错误，诊断为 `unknown`）/ `api-error`（`exit=非零` + stderr 含 api 错误关键字，诊断为 `api`）/ `slow`（`sleep` 远超 `--round-timeout`，用于 `timeout` 用例）/ `slow_child`（启动外部 child 并等待，用于 timeout/interrupted 进程树清理）/ `append_task_once`（运行中追加任务，用于任务总数刷新）。
 接受 `RALPH_FAKE_CLI` 覆盖 `RALPH_PROVIDER_CLI`、`RALPH_FAKE_SLEEP` 控制 sleep 时长。
 - Skill 封装（REQ-016）的具体接口在 v0.1 完成后单独设计。
-- `docs/architecture/testing.md` 在 T1 集成测试脚本成形后补齐。
+- `docs/testing.md` 在 T1 集成测试脚本成形后补齐。

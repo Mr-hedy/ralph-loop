@@ -56,7 +56,7 @@
 
 - 功能取舍：写入相关 `docs/features/<feature>/solution.md`。
 - 长期技术结构取舍：写入按需创建的根级 `docs/architecture.md` 或明确专题文档。
-- 本轮落地取舍：写入当前任务事实源的对应任务说明。
+- 本轮落地取舍：已有对应任务时写入该任务说明；否则在本次交付中说明，不因此创建任务清单。
 
 不维护独立的根级 `docs/solution.md`。需要保留功能方案时，按 `.spec/rules/templates/SOLUTION.md` 的结构写入对应 feature 的 `solution.md`，并在 `docs/README.md` 中索引该 feature。
 

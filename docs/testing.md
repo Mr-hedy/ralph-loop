@@ -1,19 +1,31 @@
 # Testing
 
-- 状态：2026-09-17 实测 `bash scripts/integration-test.sh` 为 PASS=156 FAIL=0。
-- 来源：`docs/requirements/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/architecture/overview.md`（启动校验、退出原因、运行目录 schema）、`docs/architecture/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
-- 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/TESTING.md`），不写具体用例的验证计划（写到当前任务事实源 `.ralph/TASKS.md` 对应任务的“验证计划”段；root `task.md` 已封版）。
+- 状态：2026-09-28 实测 `bash scripts/integration-test.sh` 为 PASS=156 FAIL=0；当前 release 的完整生成内容比对与临时 workspace fake smoke 已通过。
+- 来源：`docs/features/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/architecture.md`（启动校验、退出原因、运行目录 schema）、`docs/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
+- 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/TESTING.md`），不写具体用例的验证计划；用户已建立对应任务时，计划写入 `.ralph/TASKS.md` 的“验证计划”段，其他工作在交付中报告。root `task.md` 已封版。
 - 变更条件：测试入口脚本变化、新增 fixture 或 mock 类型、隔离规则失效、新平台支持、测试覆盖目标变化。
 
 ## 测试入口
 
 | 命令 | 用途 | 通过标准 |
 |---|---|---|
-| `bash scripts/check.sh` | 静态检查（`bash -n` 全 lib 文件 + integration-test.sh 存在性） | stdout 含 `ralph-loop check passed` |
+| `bash scripts/check.sh` | 静态检查、现行文档位置、发布包从源文件重建后的完整比对 | stdout 含 `ralph-loop check passed` |
+| `bash scripts/build-release.sh --verify` | 单独核对当前版本 release 的文件清单和全部生成内容，不修改现有发布包 | stdout 含 `release verified`；多文件、少文件或内容不同均失败 |
 | `bash scripts/integration-test.sh` | 端到端集成测试（mock workspace + 退出原因 + 启动校验 + adapter 各分支） | `PASS=N FAIL=0`，N 随阶段扩展（T1：14；T2：34；T6：41） |
 | `git diff --check` | 空白错误检查 | 无输出 |
 
-完整验证 = 三条命令全过。文档/协作规则改动至少跑前两条；脚本/代码改动跑全套。
+完整验证 = `check.sh`、`integration-test.sh`、`git diff --check` 全过；`check.sh` 已调用发布包完整比对。文档/协作规则改动至少跑前两项；脚本/代码改动跑全套。
+
+## Release 部署验证
+
+发布包不仅要和构建脚本逐文件一致，还要在新 workspace 中可用。修改 `.spec/`、`.ralph/`、模板、构建脚本或发布入口时：
+
+1. 运行 `bash scripts/build-release.sh --verify`，确认当前包没有多余或缺失文件，生成内容逐项一致，CLI 入口保持可执行。
+2. 将 `release/<version>/.` 复制到仓库内的临时 Git workspace，确认 `CLAUDE.md` 软链、`ralph --version`，再用临时测试任务和 fake provider 跑到 `exit_reason=done`。不得使用本仓库真实 `.ralph/TASKS.md`。
+3. 逐项核对发布版 `AGENTS.md`、`.spec/README.md`、`.ralph/README.md` 和 `README.md` 中要求用户或 agent **立即读取**的本地文件：必须存在于包内，或明确写成首次会话按需创建、仅在项目已有时读取、或仅存在于开发仓库。示例路径与未来目标结构不按已交付文件处理。
+4. 检查包内无 `.ralph/runs/`、`status.json`、`lock`、真实 `.env`、本仓库任务状态，以及未实施的 Hook / Skills。
+
+真实 Claude/Codex provider smoke 与上述 fake 部署验证分开报告；fake 通过不表示真实 provider 已验证。
 
 ## 测试基础设施
 
@@ -107,7 +119,7 @@ tests/
 
 **诱饵（decoy）用例的判别力**：配置目录隔离两例由 mock 在**采集期内**（`provider_started_at` 之后）向真实 HOME 配置目录写入与 `session_id` / `thread_id` 同名的诱饵 session（scenario `home_decoy`），刻意忽略 `CLAUDE_CONFIG_DIR` / `CODEX_HOME`。诱饵必须写在采集期之后，否则时间锚点不命中，用例会退化成恒真。已做变异验证——去掉 `CODEX_HOME` / `CLAUDE_CONFIG_DIR` 后诱饵确实被采成 `capture_status=ok`（Claude 走 `fallback by mtime`），说明用例能区分「隔离生效」与「回落泄露」。
 
-**权限的已知缺口（不计入失败）**：REQ-031 字面要求把沙箱 / approval 参数记录到 `meta.json`，当前 meta 无权限字段；实际可审计通道是 adapter 源码声明 + `provider.stdout.log` 中 provider 回显的 argv + `docs/architecture/security.md`。缺口本体已在 security.md 记录，属新 REQ 决策而非测试问题。
+**权限的已知缺口（不计入失败）**：REQ-031 字面要求把沙箱 / approval 参数记录到 `meta.json`，当前 meta 无权限字段；实际可审计通道是 adapter 源码声明 + `provider.stdout.log` 中 provider 回显的 argv + `docs/security.md`。缺口本体已在 security.md 记录，属新 REQ 决策而非测试问题。
 
 **Gemini 测试层状态**：`mock-gemini` 与历史 Gemini 用例组保留在 `integration-test.sh` 的 `if false; then` 块内（`--provider gemini` 已在入口被 REQ-028 拒绝），当前不计入回归门；重新接入 Gemini 时需同时恢复该块并新增兼容性验证。
 
@@ -145,5 +157,5 @@ I5 引入了复杂的 TUI 渲染和 per-task 熔断逻辑，测试策略扩展�
 ## 与方法论的边界
 
 - 通用测试方法论（如何设计验证策略、追踪矩阵、报告口径）在 `.spec/rules/TESTING.md`，是协作规则。
-- 项目具体测试规范（本文）和具体任务的验证计划（`.ralph/TASKS.md` 各任务“验证计划”段）是实施事实。
+- 项目具体测试规范（本文）和用户已建立任务的验证计划（`.ralph/TASKS.md` 对应任务“验证计划”段）是实施事实；没有对应任务时在交付中说明实际验证。
 - 当通用方法论与本项目实际不一致时，以本文为准；同时考虑是否需要更新方法论。

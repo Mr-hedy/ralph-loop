@@ -1,20 +1,20 @@
 # Vibecoding Collaboration Architecture
 
 - 状态：草案
-- 来源：`docs/requirements/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）；2026-09-16 用户确认的 Codex Main Agent / Ralph 黑盒执行模型。
+- 来源：`docs/features/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）；2026-09-16 用户确认的 Codex Main Agent / Ralph 黑盒执行模型。
 - 范围：Main Agent 协作控制面、Ralph 后台执行面、最终产物验收、handoff/checkpoint/postmortem 记忆面的长期结构和稳定边界。
-- 不负责：Ralph 内部 run loop、provider adapter、round schema 和错误诊断细节；这些继续由 `overview.md`、`integrations.md` 和 `security.md` 管理。
+- 不负责：Ralph 内部 run loop、provider adapter、round schema 和错误诊断细节；这些继续由 `docs/architecture.md`、`docs/integrations.md` 和 `docs/security.md` 管理。
 - 变更条件：Main Agent 产品、后台执行托管方式、事实源、会话生命周期事件、release 组成或动作 workflow 发生变化时重新评估。
 
 ## 1. 架构目标
 
-本架构让 Codex Main Agent 像 Team Leader 一样保留需求、方案和验收上下文，把高噪声任务执行交给 Ralph。两者不通过模型总结交接工作，而通过已确认任务和最终 repository 状态交互。
+本架构让 Codex Main Agent 像 Team Leader 一样保留需求、方案和用户提出的验收诉求，把高噪声任务执行交给 Ralph。两者不通过模型总结交接工作，而通过已确认任务和最终 repository 状态交互。
 
 ```text
 人类
   ↕
 Codex Main Agent
-  需求澄清 → 方案设计 → 任务拆解 → 派发 → 最终验收
+  需求澄清 → 方案设计 → 用户要求任务拆解 → 派发 → 用户要求验收
        │                              ↑
        └────── 已确认任务 ──→ Ralph ─┘
                               │
@@ -60,11 +60,11 @@ Ralph 的运行状态：只用于启动、等待、停止和失败诊断
 负责：
 
 - 与用户通过自然语言澄清目标和约束；
-- 按 `.spec/` 生成和维护需求、架构、任务与 Review；
+- 按 `.spec/` 维护需求和架构，在用户决定生成任务清单后拆解任务；
 - 在用户明确要求后派发 Ralph；
 - Ralph 运行期间保持单写入者边界；
-- 运行结束后审查最终 repository 产物并重新执行必要验证；
-- 根据验收结果结束、返工或请求人工决策；
+- 用户提出验收诉求后，按约定范围审查最终 repository 产物并重新执行必要验证；
+- 与用户沟通验收结果，再按用户决定追加返工任务或请求人工决策；
 - 在适用时执行 handoff、checkpoint 和 postmortem 动作 workflow。
 
 不负责：
@@ -92,7 +92,7 @@ Ralph 的运行状态：只用于启动、等待、停止和失败诊断
 | `checkpoint` | 在已验收安全点创建稳定锚点 | Git commit、checkpoint note |
 | `postmortem` | 沉淀重复/系统性失败和预防机制 | postmortem entry、提炼后的规则/检查 |
 
-需求澄清、方案设计、任务拆解和 Review 继续由 `.spec/` 隐式驱动，不新增同名动作 Skills。
+需求澄清、方案设计、任务写作和 agent 对自身交付物的 Review 继续由 `.spec/` 指导，不新增同名动作 Skills。生成任务清单及整轮 Ralph 产物验收的时机由用户决定。
 
 ### 3.4 Ralph 执行引擎
 
@@ -104,12 +104,13 @@ Ralph 继续遵守既有稳定契约：
 - 一轮一个任务；
 - 运行态写入 `.ralph/runs/` 和 `.ralph/status.json`；
 - provider session 只作为诊断证据，不作为完成事实。
+- oneshot 执行者可根据现场发现向任务源追加后续任务，按完成标准记录验证并勾选；需要人类裁决的目标或取舍进入 HUMAN 阻塞。
 
 本协作层不修改 adapter 和 run loop，只新增 Main Agent 如何托管 Ralph 的外部协议。
 
 ### 3.5 最终产物验收器
 
-验收是 Main Agent workflow，不由 Ralph 执行。它至少检查：
+整轮产物验收由用户提出诉求后启动，是 Main Agent workflow，不由 Ralph 执行。Main Agent 先确定本次范围和深度；若要给整个工作包 `accepted` 结论，至少检查：
 
 1. 读取需求成功标准、方案约束和任务完成标准；
 2. 确认 Ralph 已结束且 workspace 不再被写入；
@@ -117,10 +118,10 @@ Ralph 继续遵守既有稳定契约：
 4. 阅读关键实现和测试；
 5. 重新运行与风险匹配的验证；
 6. 检查文档、generated output 和稳定契约；
-7. 输出 `accepted`、`accepted-with-residual-risk`、`rework-required` 或 `blocked`；
-8. 将失败差距转成新的可验证任务，而不是直接在 Review 中混入大规模修复。
+7. 输出标明范围的 `accepted`、`accepted-with-residual-risk`、`rework-required` 或 `blocked`；局部验收不声明整个工作包通过；
+8. 与用户沟通失败差距，再按用户决定追加可验证的返工任务。
 
-Codex 原生 diff/review 能力可以作为代码审查证据，但不能替代需求级验收。
+局部或快速 Review 可以只检查用户指定范围，但必须列明未覆盖的需求与未运行的验证，不得给整个工作包 `accepted` 结论。Codex 原生 diff/review 能力可以作为代码审查证据，但不能替代需求级验收。
 
 ## 4. 关键流程
 
@@ -131,6 +132,7 @@ Codex 原生 diff/review 能力可以作为代码审查证据，但不能替代�
   → `.spec` 需求澄清
   → 需求事实源
   → 方案取舍 / 架构
+  → 用户决定生成任务清单
   → 唯一任务事实源
   → Task Readiness Gate
 ```
@@ -158,21 +160,23 @@ Task Readiness Gate 必须确认：
 
 正常路径不调用 `ralph watch`，也不把 provider stdout 注入主会话。非正常结束时先读 `exit_reason`、阻塞任务和最小错误摘要；只有这些不足以定位问题时才按需查看日志。
 
-### 4.3 最终验收和返工
+### 4.3 用户触发的验收和返工
 
 ```text
 Ralph 结束
+  → 执行已结束，等待用户提出验收诉求
+  → 用户确定验收范围和深度
   → Main Agent 取得唯一写入权
   → 读取最终 workspace
   → 追踪 REQ / SC / 方案 / TASK
-  → 复跑验证
-     ├─ 通过：accepted → 可创建 checkpoint
+  → 按本次范围审查；宣称整体通过前复跑风险匹配验证
+     ├─ 通过：标明范围的 accepted → 可讨论 checkpoint
      ├─ 有剩余风险：accepted-with-residual-risk → 用户裁决
-     ├─ 不通过：rework-required → 追加返工任务
-     └─ 无法验证：blocked → HUMAN
+     ├─ 不通过：rework-required → 与用户沟通后追加返工任务
+     └─ 无法验证：blocked → 与用户沟通
 ```
 
-Ralph 的 `done`、`tasks_checked_end == tasks_total` 或 exit code 0 只表示可以开始验收，不表示验收通过。
+Ralph 的 `done`、`tasks_checked_end == tasks_total` 或 exit code 0 只表示执行流程结束，不触发 Main Agent 自动验收，也不表示需求完成。用户可在长时间运行期间与 Main Agent 讨论其他事项；同一 checkout 的业务文件仍遵守单写入者边界。
 
 ### 4.4 Main Agent Handoff
 
@@ -230,7 +234,7 @@ Postmortem 必须回答：现象、直接触发、根因、修复、适用范围
 | 信息 | 权威位置 | 生命周期 | 不得替代 |
 |---|---|---|---|
 | 协作方法和质量门 | `.spec/` | 随 release 演进 | 项目需求正文 |
-| 项目需求和架构 | `docs/requirements*`、`docs/architecture*` | 项目长期 | 当前任务状态 |
+| 项目需求和架构 | `docs/requirements.md`、`docs/architecture.md`、`docs/features/` 及相关专题文档 | 项目长期 | 当前任务状态 |
 | 当前执行任务 | 项目声明的唯一任务事实源 | 当前工作包 | requirement/architecture |
 | Ralph 运行状态 | `.ralph/status.json`、`.ralph/runs/` | 单次 run | 完成事实 |
 | 最终工程产物 | Git workspace、代码、测试、文档 | 项目长期 | Ralph 自报结论 |
@@ -325,7 +329,7 @@ release/<version>/
 ### 必须修复后才能实施
 
 - **双写保护尚未实现**：后台派发前必须定义并验证写入权协议，否则 Main Agent 可在 Ralph 运行时破坏工作区一致性。
-- **验收入口缺失**：当前有 review 规则但没有明确的 Ralph 后最终产物验收 workflow；不能用 `ralph` Skill 的运行结果报告代替。
+- **验收入口缺失**：当前有 review 规则但没有明确的用户触发式最终产物验收 workflow；不能用 `ralph` Skill 的运行结果报告代替。
 - **Hook 信任和路径尚未做真实 smoke**：文档已确认 Codex 事件契约，但项目级配置的信任提示、Git 根路径解析和 turn 中间自动压缩续跑仍需在当前 Codex/macOS 版本验证后才能进入 release。
 
 ### 可观察风险
@@ -340,9 +344,9 @@ release/<version>/
 
 ## 12. 验证方向
 
-- 临时 workspace 端到端：自然语言需求 → 方案/任务 → 后台 Ralph → 最终产物验收 → checkpoint。
+- 临时 workspace 端到端：自然语言需求 → 用户要求任务清单 → 后台 Ralph → 用户要求验收 → 按范围审查产物 → 可讨论 checkpoint。
 - 上下文隔离：正常执行不向 Main Agent 注入完整 provider 输出；失败只返回最小诊断。
-- 故障注入：Ralph `done` 但代码故意不满足 SC，Main Agent 必须输出 `rework-required`。
+- 故障注入：Ralph `done` 后不自动启动验收；用户要求验收时，若代码故意不满足 SC，Main Agent 输出标明范围的 `rework-required` 并与用户沟通返工。
 - 并发保护：Ralph running 时阻止或明确拒绝 Main Agent 业务写入。
 - Handoff fixture：`SessionStart(source=compact)`、未信任/禁用退化、延后、授权和接手核验状态迁移。
 - Postmortem 演练：重复失败能形成 prevention check 并提炼到正确载体。

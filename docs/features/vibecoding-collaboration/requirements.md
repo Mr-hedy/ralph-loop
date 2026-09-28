@@ -7,7 +7,7 @@
 
 ## 摘要
 
-本模块把 `ralph-loop` 从单一 CLI harness 扩展为面向 Codex Main Agent 的 vibecoding 协作脚手架。Codex 在主会话中承担需求澄清、方案设计、任务拆解、执行派发和最终验收；Ralph 作为后台黑盒执行器，通过 provider fresh oneshot 完成任务；Main Agent 不消费 Ralph 的执行过程，而是直接检查最终代码、测试、文档和 Git 状态。
+本模块把 `ralph-loop` 从单一 CLI harness 扩展为面向 Codex Main Agent 的 vibecoding 协作脚手架。Codex 在主会话中承担需求澄清和方案设计，并在用户要求时建立任务清单、派发执行和验收产物；Ralph 作为后台黑盒执行器，通过 provider fresh oneshot 完成任务；Main Agent 不消费 Ralph 的正常执行过程，验收时直接检查最终代码、测试、文档和 Git 状态。
 
 Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验收稳定锚点和可复用失败模式。它们可以互相引用，但不共享触发条件或状态机。
 
@@ -20,10 +20,10 @@ Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验�
 
 ## 目标
 
-- 让人类和 Codex Main Agent 以日常口语化沟通完成需求澄清、方案设计和任务拆解，并由 `.spec/` 作为持续生效的协作 harness 约束产物质量。
+- 让人类和 Codex Main Agent 以日常口语化沟通完成需求澄清和方案设计，在用户决定生成任务清单后拆解任务，并由 `.spec/` 作为持续生效的协作 harness 约束产物质量。
 - 让 Main Agent 在用户明确要求后后台启动 Ralph，使 provider oneshot 的执行过程不进入 Main Agent 上下文。
-- 让 Main Agent 在 Ralph 结束后直接按需求、方案和任务验收最终仓库产物，而不是信任 Ralph 的运行结论或模型自报完成。
-- 让不满足验收的结果能够形成明确返工任务并再次交给 Ralph 执行，直到目标完成或进入人工决策边界。
+- 让 Main Agent 在用户提出验收诉求后，按约定范围检查 Ralph 的最终仓库产物，而不是信任 Ralph 的运行结论或模型自报完成。
+- 让不满足验收的结果先与用户沟通，再形成明确返工任务并按用户指令继续执行。
 - 让 handoff 基于 Main Agent 会话的真实压缩状态触发评估，在用户授权下保存或切换到新会话。
 - 让 checkpoint 保存已经验收的安全状态，让 postmortem 把重复或系统性失败转化为未来可执行的预防机制。
 - 让上述能力随版本化 release 部署到新的使用者 workspace。
@@ -37,12 +37,13 @@ Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验�
 - 不使用 Codex subagent 替代 Ralph 的核心任务执行职责。
 - 不在首期依赖 MCP、外部项目管理系统、云端 agent 或不可版本化记忆完成核心流程。
 - 不因 Ralph 正常结束自动创建 checkpoint、postmortem 或 handoff。
+- 不因 Ralph 正常结束自动启动 Main Agent 对整轮产物的验收。
 - 不允许 handoff 在没有用户授权时自动创建新 Main Agent 会话或转移修改权。
 
 ## 受众与角色
 
 - **人类负责人**：确认目标和关键取舍，决定何时派发 Ralph，验收高影响结果并授权会话切换。
-- **Codex Main Agent**：作为 Team Leader，执行需求澄清、方案设计、任务拆解、后台派发、最终产物 Review 和协作记忆维护。
+- **Codex Main Agent**：作为 Team Leader，执行需求澄清、方案设计，并在用户要求时拆解任务、后台派发和按约定范围验收产物；维护协作记忆。
 - **Ralph 执行引擎**：读取已确认任务，在后台通过 provider fresh oneshot 修改 workspace；不参与 Main Agent 会话治理。
 - **Provider oneshot agent**：每轮按 Ralph 协议完成一个任务并退出，其内部会话不是 Main Agent 的事实源。
 - **项目维护者**：维护 release、`.spec/`、动作 Skills、会话事件适配器、Ralph runtime 和验证门。
@@ -57,10 +58,11 @@ Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验�
 
 ### 轮次 2：Main Agent 与 Ralph 边界
 
-- 已确认：需求澄清、方案设计和任务拆解在 Codex Main Agent 主会话完成。
+- 已确认：需求澄清和方案设计在 Codex Main Agent 主会话完成；用户决定生成任务清单后，由 Main Agent 在主会话拆解。
 - 已确认：只有用户明确要求时，Main Agent 才后台运行 Ralph。
 - 已确认：Ralph 具体执行过程对 Main Agent 不可见且不需要可见；正常验收不读取 provider 过程会话。
 - 已确认：Main Agent 验收的是最终代码、测试、文档和 Git 状态，不是 Ralph 的运行报告。
+- 已确认（2026-09-28）：用户决定何时生成任务清单及何时要求 Main Agent 验收；Ralph oneshot 可根据执行现场追加任务并记录依据，按验证结果勾选完成。Ralph 结束不自动启动整轮验收；验收发现的返工先与用户沟通，再追加任务。
 
 ### 轮次 3：协作记忆边界
 
@@ -73,7 +75,9 @@ Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验�
 
 - 项目定位：Codex Main Agent 协作脚手架，Ralph 是其中独立的后台执行引擎。
 - 主接口：Main Agent 向 Ralph 交付已确认任务；Ralph 向 workspace 交付最终工程产物。
+- 任务边界：用户决定何时建立任务清单；Ralph oneshot 在已授权的执行过程中可根据现场发现追加任务，遇到需要人类裁决的目标或取舍则插入 HUMAN 阻塞。
 - 验收原则：仓库产物和重新执行的验证是完成证据，运行日志和 Agent 自报只用于运行控制或失败诊断。
+- 验收触发：Ralph 结束只表示执行终态；用户提出诉求后，Main Agent 按约定范围验收。局部验收不等于整个工作包通过。
 - 上下文原则：Main Agent 不吸收 Ralph 正常执行过程；handoff 只观察 Main Agent 会话本身。
 - 记忆原则：handoff 是可刷新接续状态，checkpoint 是稳定锚点，postmortem 是可复用失败知识；三者不互相替代。
 - 授权原则：Ralph 派发、完整 handoff 和破坏性动作仍由用户或既有明确授权控制。
@@ -82,12 +86,12 @@ Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验�
 
 | 需求编号 | 名称 | 描述 | 优先级 | 类型 | 来源 |
 |---|---|---|---|---|---|
-| REQ-033 | Codex Main Agent 协作 | Codex Main Agent 必须负责需求澄清、方案设计、任务拆解、执行派发和最终验收，并保持这些决定可追溯到项目事实源 | P0-必须 | 协作 | 澄清轮次 2 |
+| REQ-033 | Codex Main Agent 协作 | Codex Main Agent 必须负责需求澄清、方案设计，以及在用户要求时建立任务清单、派发执行和验收产物，并保持这些决定可追溯到项目事实源 | P0-必须 | 协作 | 澄清轮次 2；2026-09-28 用户澄清 |
 | REQ-034 | `.spec/` 隐式 harness | `.spec/` 必须在日常自然语言协作中约束需求、方案、任务、Review 和文档质量，不要求用户逐阶段显式调用 Skill | P0-必须 | 协作 | 澄清轮次 3 |
 | REQ-035 | 用户授权后后台派发 | 只有用户明确要求使用 Ralph 执行已准备任务时，Main Agent 才能后台启动 `ralph run`；启动后应立即回到可交互状态 | P0-必须 | 功能 | 澄清轮次 2 |
 | REQ-036 | Ralph 过程隔离 | Ralph 的 provider oneshot 对话、工具事件和常规运行输出不得在正常路径持续进入 Main Agent 上下文 | P0-必须 | 非功能 | 澄清轮次 2 |
-| REQ-037 | Workspace 最终产物验收 | Ralph 结束后，Main Agent 必须直接检查最终代码、测试、文档、Git diff/commit 和需求成功标准；不得以 Ralph 自报完成代替验收 | P0-必须 | 功能 | 澄清轮次 2 |
-| REQ-038 | 验收返工闭环 | 最终产物不满足需求时，Main Agent 必须把差距转成可验证的返工任务，再按用户指令交给 Ralph 或在人工边界停止 | P0-必须 | 功能 | 用户协作模型确认 |
+| REQ-037 | Workspace 最终产物验收 | Ralph 结束不自动触发验收；用户提出诉求后，Main Agent 按约定范围和深度检查相关代码、测试、文档、Git 状态及成功标准。只有覆盖整体成功标准并完成风险匹配验证，才能宣称整个工作包已验收；局部 Review 必须标明未覆盖范围，不得以 Ralph 自报完成代替证据 | P0-必须 | 功能 | 澄清轮次 2；2026-09-28 用户澄清 |
+| REQ-038 | 验收返工闭环 | 验收发现最终产物不满足需求时，Main Agent 必须先与用户沟通差距，再按用户决定追加可验证的返工任务或在人工边界停止 | P0-必须 | 功能 | 2026-09-28 用户澄清 |
 | REQ-039 | 单写入者边界 | Ralph 后台运行期间，Main Agent 不得并行修改同一 workspace 的业务文件；需要修改时必须先确认 Ralph 已停止或使用隔离 checkout | P0-必须 | 约束 | 并发一致性要求 |
 | REQ-040 | Main Agent handoff 评估 | Handoff 必须仅根据 Main Agent 会话的真实压缩事件、当前任务阶段和已确认的上下文混淆进行评估，不读取 Ralph round 作为触发信号 | P0-必须 | 功能 | 澄清轮次 1-3 |
 | REQ-041 | Handoff 授权与接续 | 系统可以自动要求进行 handoff 评估，但保存材料、创建新会话和转移修改权必须遵守用户授权；接手会话应先核对事实再继续 | P0-必须 | 协作 | 澄清轮次 1-3 |
@@ -104,7 +108,7 @@ Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验�
 
 - 触发：用户在 Codex 主会话提出新的开发目标。
 - 输入：用户目标、现有仓库事实和约束。
-- 预期结果：Main Agent 按 `.spec/` 完成需求、方案和可验证任务拆解。
+- 预期结果：Main Agent 按 `.spec/` 完成需求和方案，在用户要求时完成可验证任务拆解。
 - 验收：文档和任务之间可追溯，且用户不需要逐个显式调用需求或方案 Skill。
 
 ### US-002：后台执行并保持主会话干净
@@ -114,9 +118,9 @@ Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验�
 - 预期结果：Ralph 在后台运行，Main Agent 不持续接收执行过程；同一 workspace 不发生双写。
 - 验收：执行完成前 Main Agent 仍可交互，正常路径的主会话不包含 provider 完整输出。
 
-### US-003：验收最终产物
+### US-003：按用户诉求验收最终产物
 
-- 触发：Ralph 已结束。
+- 触发：Ralph 已结束，且用户提出验收诉求并明确范围。
 - 输入：需求、方案、任务完成标准和最终 workspace。
 - 预期结果：Main Agent 通过代码审查、验证命令和必要的行为检查判断目标是否完成。
 - 验收：结论能追溯到真实文件和验证证据，而不是 Ralph 退出码或任务勾选。
@@ -143,8 +147,8 @@ Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验�
 | SC-034-1 | REQ-034 | 用户只用自然语言沟通时，Main Agent 仍按 `.spec/` 产生正确阶段产物 | 显式 Skill 调用次数 | 需求/方案阶段为 0 | 对话演练 + 文档 Review |
 | SC-035-1 | REQ-035 | 未收到明确 Ralph 执行请求时不会启动；收到后以后台方式启动且主会话可继续交互 | 行为观察 | 两项均满足 | macOS 端到端演练 |
 | SC-036-1 | REQ-036 | 正常 Ralph run 的 provider 过程输出不进入 Main Agent 交付上下文 | 上下文审查 | 无完整过程输出 | 端到端演练 |
-| SC-037-1 | REQ-037 | `done` 或任务全勾选但最终产物不符合成功标准时，Main Agent 不得判定需求完成 | 负向用例 | 正确拒绝完成 | 故障注入 + Review |
-| SC-038-1 | REQ-038 | 每个验收失败项都能形成有范围、完成标准和验证方式的返工任务 | 返工任务审查 | 100% 高优先级差距覆盖 | 文档 Review |
+| SC-037-1 | REQ-037 | Ralph `done` 不自动启动验收；用户要求验收后，即使任务全勾选，产物不符合成功标准时 Main Agent 也不得判定需求完成；局部验收不宣称整体通过 | 正反场景 | 三项均满足 | 对话演练 + 故障注入 |
+| SC-038-1 | REQ-038 | 验收失败项先与用户沟通；获用户决定后追加的返工任务具有范围、完成标准和验证方式 | 返工任务审查 | 无未经沟通自动追加，已追加任务均可验证 | 对话演练 + 文档 Review |
 | SC-039-1 | REQ-039 | 同一 checkout 中不会同时存在 Ralph 与 Main Agent 的业务文件写入 | 并发检查 | 0 次双写 | 集成演练 |
 | SC-040-1 | REQ-040 | Handoff 的自动评估由真实 Main Agent 压缩/会话事件触发，Ralph round 变化不会单独触发 | 事件序列测试 | 规则全部通过 | 生命周期事件 fixture 测试 |
 | SC-041-1 | REQ-041 | 未经授权不会创建接手会话；获批后接手会话先核对关键事实再修改 | 正反场景 | 两项均满足 | 端到端演练 |
@@ -162,11 +166,11 @@ Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验�
 - 关联需求：REQ-033、REQ-034、REQ-035、REQ-036、REQ-037、REQ-038、REQ-039、REQ-045。
 - 涉及角色：人类负责人、Codex Main Agent、Ralph、provider oneshot agent。
 - 触发条件：用户提出开发目标。
-- 主流程：Main Agent 澄清需求 → 形成方案 → 拆解任务 → 用户要求执行 → Main Agent 后台启动 Ralph 并停止业务写入 → Ralph 修改 workspace → Main Agent 确认运行结束 → 直接审查最终产物并复跑验证 → 通过则结束或 checkpoint，不通过则形成返工任务。
-- 异常分支：任务未准备好则不启动；Ralph 阻塞则读取最小诊断并交还用户；执行期间需要 Main Agent 修改时先停止或隔离 Ralph；验收失败进入返工而非伪装完成。
+- 主流程：Main Agent 澄清需求 → 形成方案 → 用户决定生成任务清单 → Main Agent 拆解任务 → 用户要求执行 → Main Agent 后台启动 Ralph 并停止业务写入 → Ralph oneshot 执行并可根据现场发现追加任务 → Ralph 结束后等待用户验收诉求 → Main Agent 按约定范围审查产物并复跑验证 → 与用户沟通结论及必要返工。
+- 异常分支：任务未准备好则不启动；Ralph 遇到需要人类裁决的问题则插入 HUMAN 阻塞；执行期间需要 Main Agent 修改同一 workspace 时先停止或隔离 Ralph；局部验收不声明整个工作包通过。
 - 输入：用户目标、项目事实、需求、方案、任务源、workspace。
-- 输出：已验收工程产物，或明确返工/人工阻塞。
-- 业务规则：Ralph 运行结论不等于需求完成；同一 checkout 单写入者。
+- 输出：Ralph 执行终态，以及用户要求验收后有证据的验收结论或明确返工/人工阻塞。
+- 业务规则：Ralph 运行结论不等于需求完成；整轮验收由用户触发；同一 checkout 单写入者。
 
 ### BPF-004：Main Agent Handoff
 
@@ -219,7 +223,7 @@ Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验�
 - 用户故事：作为人类负责人，我希望 Main Agent 按需求和成功标准检查最终 workspace，以便 Ralph 的自报完成不会掩盖缺陷。
 - 输入：需求、方案、任务、派发前基线、最终代码/测试/文档/Git 状态。
 - 输出：`accepted`、`accepted-with-residual-risk`、`rework-required` 或 `blocked`，以及证据和未验证范围。
-- 业务规则：必须重新执行与风险匹配的验证；高优先级差距必须形成返工任务。
+- 业务规则：用户提出验收诉求后按要求确定审查深度；宣称整体通过前须重新执行与风险匹配的验证。结论标明覆盖范围及未执行的验证；发现差距先与用户沟通，再按用户决定追加返工任务。
 
 ### FR-011：会话健康跟踪与 Handoff
 
@@ -312,7 +316,7 @@ Handoff、checkpoint、postmortem 分别治理 Main Agent 会话交接、已验�
 ## 变更影响
 
 - 项目级定位：`docs/requirements.md`、根 `README.md`、`AGENTS.md` 和 release README。
-- 长期架构：`docs/architecture/overview.md`、`docs/architecture/vibecoding-collaboration.md`、testing/security/deployment 相关章节。
+- 长期架构：`docs/architecture.md`、`docs/features/vibecoding-collaboration/solution.md`、testing/security/deployment 相关章节。
 - 动作 workflow：`.agents/skills/ralph`、`handoff`、`checkpoint`、`postmortem`。
 - 发布单元：`scripts/build-release.sh`、`release/<version>/` 完整性检查和新 workspace smoke。
 - 当前任务事实源：实施前按本需求和架构另行拆解，不在本文维护任务列表。

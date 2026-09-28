@@ -2,7 +2,7 @@
 # adapter-codex.sh — Codex CLI provider adapter
 # source 本文件后即设置 RALPH_PROVIDER_CLI；三函数契约
 # --json 模式：stdout 是 JSONL events 流，逐行写入 provider.stdout.log
-# session 文件命名遵循 docs/architecture/integrations.md §Session 文件命名约定
+# session 文件命名契约见开发仓库 docs/integrations.md §Session 文件命名约定
 
 RALPH_PROVIDER_CLI="codex"
 

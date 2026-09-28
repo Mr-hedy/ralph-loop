@@ -23,3 +23,5 @@
 | PM-0004 | [pm-real-provider-smoke-permission-gap.md](pm-real-provider-smoke-permission-gap.md) | Mock provider 集成通过但真实 provider 权限/信任边界不一致，发布前 smoke 才暴露 | active |
 | PM-0005 | [pm-integration-test-env-inheritance.md](pm-integration-test-env-inheritance.md) | 集成测试继承 dogfood 进程的 RALPH_* 环境变量，产生与代码无关的假失败 | active |
 | PM-0006 | [pm-provider-flag-semantics-vs-boundary.md](pm-provider-flag-semantics-vs-boundary.md) | 把 provider CLI 的 flag 参数形状当成权限边界，未核查官方语义，文档长期声明了不存在的工具限制 | active |
+| PM-0007 | [pm-negated-grep-check-bypass.md](pm-negated-grep-check-bypass.md) | `! grep` 在 `set -e` 下未形成可靠失败门，静态检查假通过 | active |
+| PM-0008 | [pm-release-consistency-sampled-checks.md](pm-release-consistency-sampled-checks.md) | 抽样校验使发布包与现行协作入口同时保留旧事实 | active |
