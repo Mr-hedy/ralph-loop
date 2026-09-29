@@ -4,7 +4,7 @@
 
 ## 摘要
 
-让 Ralph 通过 Antigravity CLI（可执行文件 `agy`）执行与 Claude Code、Codex CLI 同一套 fresh oneshot 任务协议，并按现有 round 证据契约采集过程、会话、终态和错误数据。新增 provider 不改变现有 provider 的数据 schema，也不恢复已暂停的 Gemini CLI 入口。
+让 Ralph 通过 Antigravity CLI（可执行文件 `agy`）执行与 Claude Code、Codex CLI 同一套 fresh oneshot 任务协议，并按现有 round 证据契约采集过程、会话、终态和错误数据。新增 provider 不改变现有 provider 的数据 schema。
 
 ## 背景
 
@@ -25,7 +25,7 @@
 - 不改为跨 round 续接 Antigravity 会话；每轮仍是 fresh oneshot。
 - 不新增跨 provider 的 token、耗时或工具调用汇总 schema；Antigravity 输出中的 usage 保留在原始证据中，是否统一统计另立需求。
 - 不改变 Claude/Codex 的既有采集格式、权限策略或任务完成判据。
-- 不恢复 `gemini` 公开入口，不把 Antigravity CLI 当作 Gemini CLI 的别名。
+- 不将 Antigravity CLI 作为其他 provider 的别名；其命令和证据采集采用独立 adapter。
 - 不把 provider 会话或 usage 当作任务完成、代码质量或 Main Agent 验收结论。
 
 ## 受众

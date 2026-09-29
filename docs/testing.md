@@ -1,7 +1,7 @@
 # Testing
 
 - 状态：已确认。
-- 最近验证：2026-09-29 实测 `bash scripts/integration-test.sh` 为 PASS=174 FAIL=0；当前源码修复后的 `release/0.1.5` 完整生成内容比对、`check.sh` 和独立 fake 部署烟测均通过。真实 AGY smoke 使用修复前的 0.1.5 候选包；最终包未重复调用真实 AGY。
+- 最近验证：2026-09-29 实测 `bash scripts/integration-test.sh` 为 PASS=174 FAIL=0；`release/0.1.6` 完整生成内容比对、`check.sh` 和独立 fake 部署烟测均通过。0.1.6 未调用真实 AGY；真实 AGY 端到端证据仍来自 0.1.5 阶段。
 - 来源：`docs/features/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/features/antigravity-cli/requirements.md`（REQ-048 ~ REQ-053）、`docs/architecture.md`（启动校验、退出原因、运行目录 schema）、`docs/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
 - 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/TESTING.md`），不写具体用例的验证计划；用户已建立对应任务时，计划写入 `.ralph/TASKS.md` 的“验证计划”段，其他工作在交付中报告。root `task.md` 已封版。
 - 变更条件：测试入口脚本变化、新增 fixture 或 mock 类型、隔离规则失效、新平台支持、测试覆盖目标变化。
@@ -41,7 +41,6 @@ tests/
     mock-claude                         # claude CLI 测试替身（单一来源）
     mock-codex                          # codex CLI 测试替身（单一来源）
     mock-antigravity                    # antigravity CLI (agy) 测试替身（单一来源，REQ-048 ~ REQ-053）
-    mock-gemini                         # gemini CLI 测试替身（单一来源，I4 DEV-2 建立）
     claude-session-sample.jsonl         # Claude session jsonl 样本（T2.4 起）
 ```
 
@@ -85,32 +84,7 @@ tests/
 
 ## 当前覆盖范围
 
-| 阶段 | PASS 数 | 覆盖类别 |
-|---|---|---|
-| T1 已完成 | 14 | 7 退出原因 + 6 启动校验 + api-error 变体 |
-| T2.0 完成期 | +3（实际 17） | 依赖框架 happy / 单缺失 / 多缺失 |
-| T2.1 完成期 | +1（实际 18） | claude adapter 骨架 happy |
-| T2.2 完成期 | +3（实际 21） | session 采集 happy / mtime fallback / missing |
-| T2.3 完成期 | +6（实际 28） | 错误诊断 6 种类别 |
-| T2.4 完成期 | +0（复用 T2.1/T2.2 用例加派生视图断言） | `session.history.log` 内容与格式符合现行 `architecture.md` schema |
-| T2.5 完成期 | +2（实际 30） | dep_missing_jq + claude+jq 双缺失非 fail-fast |
-| T2.6 完成期 | +4（实际 34） | --version + --help + run --help + status placeholder；真实 smoke 手动通过（2026-04-27，claude 2.1.119） |
-| T2 总目标 | ≥33（实际 34） | 上述累计；schema 修正：real Claude JSONL tool_result 在 type:"user" 而非 type:"tool" |
-| T6.1 完成期 | +2（实际 36） | partial_progress stall（stall_count 累加）+ happy stall_count=0（不误触发） |
-| T6.2 完成期 | +4（实际 40） | SC-014-1：effort=low/medium/high/none 各触发一次；mock-claude `_received_effort` 回显 |
-| T6.6 完成期 | +1（实际 41） | ralph --version 含 0.1.0（从 0.1.0-dev 提升） |
-| T6 总目标 | ≥41（实际 41） | 上述累计；macOS 实测通过 |
-| I1 status/watch + dogfood prep | +16（实际 57） | SC-023 status、SC-024 watch 自动化部分、HUMAN-N、legacy 迭代字段隔离、任务前缀、Provider 配置目录、exit-message |
-| M1 live tail regression | +2（实际 59） | `ralph run -v` happy/error stream-json filter marker 回归覆盖 |
-| I2 Codex adapter | +20（实际 79） | Codex happy path、CODEX_HOME 翻译/隔离、history 派生、诊断矩阵、effort/model 参数、动态任务总数、Codex `run -v` live tail |
-| I2 observability fix | +4（实际 83） | 长 provider oneshot 默认 heartbeat；timeout/interrupted 清理 provider 子进程树；`watch` 运行中 tail 当前 round |
-| I3 watch surface fix | 0（实际 83） | `watch` 非 TTY fallback 改为 one-line watch bar，并断言不泄漏 `status` 详情字段 |
-| I4 Gemini mock tests | +17（实际 100） | Gemini happy path + run -v markers、GEMINI_CLI_HOME 翻译/隔离/空值鲁棒、session capture（精确/mtime fallback/missing）、错误诊断矩阵 7 类、model 参数、依赖缺失 |
-| I5 sticky/plain/round | +20（实际 120） | sticky 渲染（首帧/重绘/健康灯/事件区/退出还原）、plain 模式回归（heartbeat/marker）、per-task round/stall 触发、HUMAN 自动插入、legacy 命名到 round 的回归、env 分组重命名 |
-| Release cleanup | +29（实际 149） | runtime 不暴露迭代元数据、Gemini/Codex 事件区回归、sticky UX、旧 flag/env 拒绝、release 文档口径 |
-| 当前基线（2026-09-17） | +7（实际 156） | provider retry 与 task_try 边界、终态解析和既有回归门增补 |
-| Antigravity 集成 (QA-3) | +8（实际 164） | Antigravity happy path、model/effort 与 --dangerously-skip-permissions 审计、原生 transcript 缺失降级 warning、诱饵会话 0 误采、denied_actions 软拒绝覆写退出码、CLI rc 1 覆写 SUCCESS、坏行截断容错、显式 CONFIG_DIR 拒绝 |
-| Antigravity 边界加固（2026-09-29） | +10（实际 174） | 异常终态、路径穿越、字符串与空消息错误、输出交错、会话复制失败、文件与目录软链，以及 `run -v` / `watch` 异常终态展示 |
+完整集成测试覆盖启动校验、任务循环与退出原因、超时和进程清理、状态观察、Claude/Codex/Antigravity adapter 的成功及失败分支、会话采集安全、权限参数和发布包行为。当前通过数量以 `bash scripts/integration-test.sh` 实测汇总为准；过去版本的用例数量保留在 Git 历史中，不再作为当前基线相加。
 
 ## Antigravity 回归门（QA-3）
 
@@ -133,7 +107,7 @@ tests/
 
 | 维度 | 用例 | 断言要点 |
 |---|---|---|
-| 入口收敛（REQ-028 / SC-028-1） | `gate gemini` × 4（`--provider` flag / `.env RALPH_PROVIDER` / 进程 env / mock CLI 在 PATH 上） | rc=1、stderr 含 `temporarily disabled` + `claude, codex or fake`，且 `.ralph/` 下无 `runs/`、`lock`、`status.json` |
+| 入口收敛（REQ-028 / SC-028-1） | `gate unknown` × 4（`--provider` flag / `.env RALPH_PROVIDER` / 进程 env / 同名 CLI 在 PATH 上） | rc=1、stderr 含 `unsupported provider` 与当前四个合法值，且 `.ralph/` 下无 `runs/`、`lock`、`status.json` |
 | session 采集鲁棒性（REQ-030 / SC-030-1） | `codex archived session`、`codex no session`、Codex/Claude 配置目录隔离诱饵各 1 | 归档 rollout 靠内嵌 id 命中（文件名不匹配）且复制件与原件逐字节一致；采集失败落 `capture_status=warning` + 非空 `capture_warning` 且 run 仍 `done`、`session.history.log` 仍从 stdout 派生；`CODEX_HOME` / `CLAUDE_CONFIG_DIR` 不可达时不得回落到 `$HOME` 配置目录 |
 | 权限参数审计（REQ-031 / SC-031-1） | Claude 权限参数运行时审计、扩权参数文件扫描 | mock 回显的 `--dangerously-skip-permissions` / `--allowedTools` 与 adapter 源码声明一致；扩权 flag 只允许出现在 provider adapter 文件内（防第四个文件隐式扩权） |
 | 非零退出 × 终态（REQ-029） | `codex completed_then_rc1` | `turn.completed` + 进程非零退出 → `exit_reason=provider_failed`；success 终态不得掩盖退出码 |
@@ -141,8 +115,6 @@ tests/
 **诱饵（decoy）用例的判别力**：配置目录隔离两例由 mock 在**采集期内**（`provider_started_at` 之后）向真实 HOME 配置目录写入与 `session_id` / `thread_id` 同名的诱饵 session（scenario `home_decoy`），刻意忽略 `CLAUDE_CONFIG_DIR` / `CODEX_HOME`。诱饵必须写在采集期之后，否则时间锚点不命中，用例会退化成恒真。已做变异验证——去掉 `CODEX_HOME` / `CLAUDE_CONFIG_DIR` 后诱饵确实被采成 `capture_status=ok`（Claude 走 `fallback by mtime`），说明用例能区分「隔离生效」与「回落泄露」。
 
 **权限的已知缺口（不计入失败）**：REQ-031 字面要求把沙箱 / approval 参数记录到 `meta.json`，当前 meta 无权限字段；实际可审计通道是 adapter 源码声明 + `provider.stdout.log` 中 provider 回显的 argv + `docs/security.md`。缺口本体已在 security.md 记录，属新 REQ 决策而非测试问题。
-
-**Gemini 测试层状态**：`mock-gemini` 与历史 Gemini 用例组保留在 `integration-test.sh` 的 `if false; then` 块内（`--provider gemini` 已在入口被 REQ-028 拒绝），当前不计入回归门；重新接入 Gemini 时需同时恢复该块并新增兼容性验证。
 
 **真实 provider smoke**：本回归门只跑 mock/fake。真实 Claude/Codex CLI 端到端 smoke 属人工触发项（见下文「未覆盖范围」），不阻塞本门结论，但必须在报告里显式声明是否执行。
 

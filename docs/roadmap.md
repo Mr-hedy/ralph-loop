@@ -28,13 +28,14 @@
 - **I2 已完成（2026-05-04）**：T3（Codex adapter），归档见 `docs/features/ralph-loop/history/I2-FINAL-TASK.md`；设计方案见 `docs/features/ralph-loop/history/I2-design.md`。
 - **I3 已完成（2026-05-04）**：watch/status 观察面修复，归档见 `docs/features/ralph-loop/history/I3-FINAL-TASK.md`；checkpoint 为 `2641605 checkpoint: watch status surface fix`。
 - **I4 已完成（2026-05-04）**：T4（Gemini adapter），归档见 `docs/features/ralph-loop/history/I4-FINAL-TASK.md`；设计方案见 `docs/features/ralph-loop/history/I4-design.md`。
+- **旧集成已撤销（2026-09-29）**：I4 仍是历史归档；当前代码和发布包不再携带其 adapter，支持矩阵以 Claude、Codex、Antigravity 为准。
 - **I5 已完成（2026-05-07）**：run/watch sticky 输出 + per-task round + env 重组，含 REVIEW-1 + REVIEW-2 两轮 adversarial review 后续修订（DEV-12 retry × per-task TRY 守门 / watch 时钟冻结 / sticky 视觉契约调整 / 4 个 -v live tail 失效测试删除 / diagnose retry hang 修复）；归档见 `docs/features/ralph-loop/history/I5-FINAL-TASK.md`，设计方案 + 实施期 ChangeLog 见 `docs/features/ralph-loop/history/I5-design.md` §0。
 - **Release cleanup（2026-05-20）**：runtime 不再解析、展示或写入迭代元数据；`.ralph/` 发布单元复扫无 `iteration`/`iter` 残留；`bash scripts/integration-test.sh` 完整通过 149 PASS / 0 FAIL。
-- 当前项目版本为 v0.1.5；release 交付已实现的 Ralph、`.spec/` 和 agent 入口。Hook、Skills 的目标结构仍待实施。
+- 当前项目版本为 v0.1.6；release 交付已实现的 Ralph、`.spec/` 和 agent 入口。Hook、Skills 的目标结构仍待实施。
 - `.spec/` 按当前协作规范维护；现行需求聚合在 `docs/features/`，项目级架构与专题位于 `docs/` 根部。历史设计和任务归档集中在 `docs/features/ralph-loop/history/`，正文保持归档时原貌。
 - Ralph 模块需求见 `docs/features/ralph-loop/requirements.md`（REQ-001 ~ REQ-032）；Codex Main Agent 协作需求见 `docs/features/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）。
 - 架构和稳定契约沉淀在 `docs/architecture.md`；provider 集成细节沉淀在 `docs/integrations.md`；安全边界沉淀在 `docs/security.md`。
-- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude,adapter-codex,adapter-gemini,adapter-antigravity}.sh`；对外部署单元由 `release/<version>/` 构建，包含 `.ralph/`、`.spec/`、agent 入口和 `docs/README.md` 模板。
+- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude,adapter-codex,adapter-antigravity}.sh`；对外部署单元由 `release/<version>/` 构建，包含 `.ralph/`、`.spec/`、agent 入口和 `docs/README.md` 模板。
 - T1（fake 闭环）、T2（Claude adapter + 单轮真实 smoke）、T6（v0.1 闭环 + 使用指南）均已完成。
 
 ## Phased Delivery
@@ -46,7 +47,7 @@
 | T2 Claude Adapter | 把 fake 替换为真实 Claude adapter 实现 | `.ralph/lib/adapter-claude.sh`、chat/tools 派生视图 | 真实 workspace 跑一轮 `--provider=claude`，产生 session + 派生视图 |
 | **T6 v0.1 闭环验证 + 使用指南**（提前到 T2 之后）| 用 Claude 单 provider 把多任务长链路、stall、TASKS.md self-mutation、样板/使用指南**整体闭环**；暴露内核未验证假设并就地补丁 | `.ralph/PROMPT.md` + `.ralph/TASKS.md`（部署单元内入仓样板）、`docs/usage.md`、3+ 条 task 真实 smoke、内核 bug fix patches | 真实 multi-task workspace 跑到 `exit_reason=done`；stall / max_round / round_timeout 兜底在真实 Claude 下各触发一次 |
 | T3 Codex Adapter（I2 已完成）| 在已闭环的内核上接入 Codex 真实 adapter | `.ralph/lib/adapter-codex.sh` | 真实 workspace 跑一轮 `--provider=codex` |
-| T4 Gemini Adapter | 同上，Gemini 实现 | `.ralph/lib/adapter-gemini.sh` | 真实 workspace 跑一轮 `--provider=gemini` |
+| T4 历史阶段（已撤销） | 旧 provider 集成历史 | 归档见 `docs/features/ralph-loop/history/I4-FINAL-TASK.md` | 当前不属于交付范围 |
 | T5 Status + Watch（I1 已完成） | 观察性子命令 | `.ralph/lib/status.sh` / `watch.sh` | `ralph status` 一次性输出；`ralph watch` 2 秒刷新 sticky bar |
 | T7 Skill 封装（post-v0.1） | `ralph-loop` skill | `.agents/skills/ralph-loop/` | skill 能在空 workspace 引导生成 `.ralph/` 结构 |
 
@@ -120,9 +121,7 @@
 | 风险 | 影响 | 缓解 |
 |---|---|---|
 | Claude `~/.claude/projects/` cwd 哈希规则随版本变 | T2 session 采集失败 | fallback 按 mtime 扫描，记录 warning；在 session capture 测试中锁版本 |
-| Gemini `-p` 模式输出不稳定含 session id | T4 session 采集退化 | `integrations.md` 已定退化规则；I4 DEV-1 先用 Gemini CLI 0.39.1 + 官方 docs 重新校准 |
-| Gemini CLI flag 漂移（`--yolo` deprecated、effort 映射未确认） | T4 命令构造或 docs 误导用户 | I4 DEV-1 必须先同步 requirements / integrations / overview，再写 adapter |
 | Codex `--json` 事件 schema 变动 | Codex 错误诊断失准 | I2 已按本机 Codex CLI `0.125.0` 校准，事件 schema 写进 `integrations.md` 随更新 |
-| 三家 provider 同时使 `--allowedTools` / `--sandbox` 语义漂移 | 安全边界失效 | 每次 T2-T4 完成前重新读 provider CLI help，写进 PR 描述 |
+| provider 的 `--allowedTools` / `--sandbox` 等参数语义漂移 | 安全边界失效 | 更新 adapter 时重新读对应 provider CLI help 并验证实际参数 |
 | stall 误判（agent 改了注释但没改勾选状态） | 提前 `blocked_by_human` | changed_files 并集规则覆盖未提交变更；阈值 5 有冗余 |
 | Per-workspace 部署导致多 workspace 升级繁琐 | 使用负担 | T7 skill 封装负责升级/同步，优先级 post-v0.1 |

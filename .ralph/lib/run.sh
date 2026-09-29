@@ -462,15 +462,9 @@ ralph_run() {
   max_retry="${RALPH_LOOP_MAX_RETRY:-$max_retry}"
   retry_schedule="${RALPH_LOOP_RETRY_SCHEDULE:-$retry_schedule}"
 
-  # REQ-028 / REQ-048：公开入口接受 claude / codex / antigravity / fake。Gemini adapter 保留在 lib/
-  # 供未来重新接入，但在拿到当前真实 provider smoke 结论之前，入口一律拒绝：
-  # 该分支位于 lock / run 目录创建之前，因此拒绝时不产生任何 run 产物。
+  # 公开入口只接受当前支持的 provider；校验发生在创建 lock/run 目录之前。
   case "$provider" in
     claude|codex|antigravity|fake) ;;
-    gemini)
-      echo "${_STARTUP_FAIL_PREFIX} provider 'gemini' is temporarily disabled; use claude, codex, antigravity or fake" >&2
-      exit 1
-      ;;
     *)
       echo "${_STARTUP_FAIL_PREFIX} unsupported provider: ${provider:-<empty>} (choices: claude, codex, antigravity, fake)" >&2
       exit 1

@@ -14,15 +14,15 @@
 | 项目级需求 | `requirements.md` | 已确认 | 项目全局目标、跨模块边界和模块索引 |
 | Vibecoding 协作需求 | `features/vibecoding-collaboration/requirements.md` | 已确认 | Codex Main Agent、Ralph 黑盒执行、用户触发验收、handoff/checkpoint/postmortem 边界，REQ-033 ~ REQ-047 |
 | Ralph 模块需求 | `features/ralph-loop/requirements.md` | 已确认 | Ralph harness 模块 REQ-001 ~ REQ-032 及历史决策追踪 |
-| Antigravity CLI 接入需求 | `features/antigravity-cli/requirements.md` | 已确认 | 新 provider 的执行、证据采集、权限、诊断与发布验收，REQ-048 ~ REQ-053；随 release/0.1.5 交付 |
+| Antigravity CLI 接入需求 | `features/antigravity-cli/requirements.md` | 已确认 | 新 provider 的执行、证据采集、权限、诊断与发布验收，REQ-048 ~ REQ-053；自 release/0.1.5 起交付 |
 | Antigravity CLI 接入方案 | `features/antigravity-cli/solution.md` | 已确认 | 流式输出优先的采集映射、原生会话校验、终态与配置域取舍；已由真实 AGY smoke 校准闭环 |
 | 架构 Overview | `architecture.md` | 已确认 | 总体系统入口；Ralph CLI 契约、运行目录 schema、adapter 函数签名、退出原因、stagnation、lock、错误诊断类别 |
 | Vibecoding 协作方案 | `features/vibecoding-collaboration/solution.md` | 草案 | Codex Main Agent 控制面、Ralph 后台执行面、用户触发验收和长期协作记忆 |
-| 外部集成 | `integrations.md` | 已确认 | Claude / Codex 原生 session 路径、采集命令、退化策略、UUID 依赖（Gemini 段落为暂停接入的历史契约） |
+| 外部集成 | `integrations.md` | 已确认 | Claude / Codex / Antigravity 原生 session 路径、采集命令、退化策略、UUID 依赖 |
 | 安全边界 | `security.md` | 已确认 | approval/sandbox 固定策略、`.env` 解析约束、secrets 禁入规则、攻击面 |
 | 测试规范 | `testing.md` | 已确认 | 测试入口、基础设施、隔离规则、运行平台和当前覆盖范围 |
 | Roadmap | `roadmap.md` | 已确认 | T1→T7 阶段目标、验收口径和风险 |
-| 发布包 | `../release/<version>/` | 已确认 | 对外部署使用同一项目版本的生成目录；当前包内容以构建脚本和实际受版本控制文件为准，开发工程运行数据不进入包 |
+| 发布包 | `../release/<version>/` | 已确认 | 对外部署使用同一项目版本的生成目录；当前包 README 包含完整使用指南和版本更新记录，开发工程运行数据不进入包 |
 | 使用指南 | `../README.md#快速开始` | 已确认 | 前置依赖、部署、.env 配置、首跑、结果查看、退出原因速查、v0.1 行为说明 |
 
 ## 模块索引

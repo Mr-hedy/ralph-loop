@@ -1,8 +1,8 @@
 # Integrations
 
-- 状态：已确认（I2 DEV-1 校准 2026-05-03 / I4 DEV-1 校准 2026-05-04 / Antigravity DEV-9 校准 2026-09-28）；**支持矩阵包含 Claude Code、Codex CLI 和 Antigravity CLI**，Gemini 段落标记为暂停接入的历史记录（REQ-028, REQ-048）。
-- 来源：`docs/features/ralph-loop/requirements.md`（REQ-005 / REQ-006 / REQ-011 / FR-006 / FR-008 / NFR-SEC-002 / REQ-028 / REQ-029 / REQ-030 / REQ-031）、`docs/features/antigravity-cli/requirements.md`（REQ-048 ~ REQ-053）、2026-04-20 三家官方文档、I2 DEV-1 本机 CLI help 与会话目录观测（2026-05-03）、I4 DEV-1 本机 Gemini CLI help 与会话目录观测（2026-05-04）、本机 Antigravity CLI 观测（2026-09-28）、OpenAI 官方 non-interactive mode / command line options / config reference 文档。
-- 范围：本文定义 Ralph harness 与外部 provider CLI 的集成契约：命令构造、session 采集、错误诊断关键字、UUID 依赖和降级策略。**当前生效范围是 Claude Code、Codex CLI 与 Antigravity CLI**；Gemini CLI 的内容只作为"adapter 保留、入口禁用"的历史契约存在，不构成当前支持声明。跨 provider 的公共主循环、运行目录 schema 在 [`architecture.md`](./architecture.md)；approval/sandbox 的安全边界在 [`security.md`](./security.md)。本文不重写需求正文、不描述 adapter 之外的命令封装形式。
+- 状态：已确认（Codex DEV-1 校准 2026-05-03 / Antigravity DEV-9 校准 2026-09-28）；**支持矩阵包含 Claude Code、Codex CLI 和 Antigravity CLI**。
+- 来源：`docs/features/ralph-loop/requirements.md`（REQ-005 / REQ-006 / REQ-011 / FR-006 / FR-008 / NFR-SEC-002 / REQ-028 / REQ-029 / REQ-030 / REQ-031）、`docs/features/antigravity-cli/requirements.md`（REQ-048 ~ REQ-053）、本机 provider CLI help 与会话目录观测、相关官方文档。
+- 范围：本文定义 Ralph harness 与外部 provider CLI 的集成契约：命令构造、session 采集、错误诊断关键字、UUID 依赖和降级策略。当前生效范围是 Claude Code、Codex CLI 与 Antigravity CLI。跨 provider 的公共主循环、运行目录 schema 在 [`architecture.md`](./architecture.md)；approval/sandbox 的安全边界在 [`security.md`](./security.md)。本文不重写需求正文、不描述 adapter 之外的命令封装形式。
 - 变更条件：任一 provider CLI 升级改变 session 路径、事件格式或 flag 语义；新增 provider；NFR-SEC-002 变更导致 approval 策略调整；`.ralph/runs/` 布局变化影响 session 拷贝位置。
 
 ## 证据范围
@@ -14,7 +14,6 @@
 - Claude Code：`2.1.114`
 - Codex CLI：`0.125.0`（CLI）；Desktop app 内核 `0.128.0-alpha.1`
 - Antigravity CLI：`1.2.12`（CLI 名称 `agy`）
-- Gemini CLI：当前未纳入支持矩阵（adapter 保留，入口暂时禁用）
 
 参考资料：
 
@@ -24,8 +23,6 @@
 - Codex CLI command line options: <https://developers.openai.com/codex/cli/reference>
 - Codex non-interactive mode: <https://developers.openai.com/codex/noninteractive>
 - Antigravity CLI 集成方案: `docs/features/antigravity-cli/solution.md`
-- Gemini CLI session management: <https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/session-management.md>
-- Gemini CLI reference: <https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/cli-reference.md>
 
 ## round 目录文件结构（4 文件契约）
 
@@ -35,14 +32,13 @@
 |---|---|---|
 | `meta.json` | round 元数据（含 session_id / provider_started_at / runtime_block / capture_status / error / 任务进度 / changed_files / stall_count 等） | 始终 |
 | `provider.stdout.log` | provider CLI stdout + stderr 合流原始输出（含 stream-json 事件、错误信息） | 始终 |
-| `session.<provider>.jsonl` | provider 原生 session 文件副本（保留 30 天后过期 / 派生视图 bug 回滚 / 跨机器 evidence 自包含三个用途；Gemini 为 `.json` 而非 `.jsonl`） | session 安全采集成功；Antigravity 不使用 mtime fallback |
-| `session.history.log` | 跨 provider 人话视图（provider 间内容有差异：Claude 含 user/assistant/thinking/tool-use/tool-result，Codex 含 assistant/tool-use/tool-result 但无 user/thinking，Antigravity 含 session/assistant/tool-use/tool-result/subagent/result，Gemini 含 assistant/tool-use/tool-result/result），Claude 从 `session.claude.jsonl` 派生，Codex 从 `provider.stdout.log`（`--json` stdout 事件流）派生，Antigravity 从 `provider.stdout.log`（`--output-format stream-json` 事件流）派生，Gemini 从 `provider.stdout.log`（`--output-format stream-json` 事件流）派生；完整 tool input 保留在各派生源中 | 始终；Antigravity 原生 session 缺失时仍可从 stdout 派生 |
+| `session.<provider>.jsonl` | provider 原生 session 文件副本（保留 30 天后过期 / 派生视图 bug 回滚 / 跨机器 evidence 自包含三个用途） | session 安全采集成功；Antigravity 不使用 mtime fallback |
+| `session.history.log` | 跨 provider 人话视图（provider 间内容有差异：Claude 含 user/assistant/thinking/tool-use/tool-result，Codex 含 assistant/tool-use/tool-result 但无 user/thinking，Antigravity 含 session/assistant/tool-use/tool-result/subagent/result），Claude 从 `session.claude.jsonl` 派生，Codex 从 `provider.stdout.log`（`--json` stdout 事件流）派生，Antigravity 从 `provider.stdout.log`（`--output-format stream-json` 事件流）派生；完整 tool input 保留在各派生源中 | 始终；Antigravity 原生 session 缺失时仍可从 stdout 派生 |
 
 各 provider native session 文件实例：
 - Claude：`session.claude.jsonl`（从 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/<cwd_hash>/<session_id>.jsonl` 复制；stream-json 模式下与 stdout 事件流内容相同，但保留独立副本作为 30 天后回看 anchor）
 - Codex（T3 落地）：`session.codex.jsonl`（从 `~/.codex/sessions/rollout-*-<thread_id>.jsonl` 复制；另有归档目录兼容与 id 校验路径，见 REQ-030）
 - Antigravity（T5 落地）：`session.antigravity.jsonl`（默认优先从 `$HOME/.gemini/antigravity-cli/brain/<conversation_id>/.system_generated/logs/transcript.jsonl` 复制；再检查 `$HOME/.gemini/antigravity/`，显式设置 `ANTIGRAVITY_APP_DATA_DIR` 时优先检查该目录；仅复制与本轮 `conversation_id` 对应且通过路径安全校验的文件，缺失时降级为 warning）
-- Gemini（T4 落地，**暂停接入**）：`session.gemini.json`（从 `${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/*/chats/*.json` 复制；native session 为 JSON 格式，与其他 provider 的 JSONL 不同；与 `provider.stdout.log` 事件流互补，不可替代）
 
 不再保留：
 - `session.<provider>.stdout.<ext>`（与 `provider.stdout.log` 字节相同，重复）
@@ -58,16 +54,16 @@ Ralph 默认使用 provider 的 fresh oneshot 执行，不默认 resume。sessio
 每轮至少保存两类证据：
 
 - process log：provider CLI 的 stdout/stderr 原始输出，保存到 `rounds/round-NNN/provider.stdout.log`。
-- native session：provider 自己持久化的会话文件；安全采集成功时复制到 `rounds/round-NNN/session.<provider>.<ext>`（Claude/Codex/Antigravity 为 `.jsonl`，Gemini 为 `.json`）。
+- native session：provider 自己持久化的会话文件；安全采集成功时复制到 `rounds/round-NNN/session.<provider>.jsonl`。
 
 采集失败不能直接判定任务失败。失败时应记录 warning，并继续使用 process log 和 `.ralph/TASKS.md` 判断 run 状态。
 
 ## Adapter 配置目录翻译契约
 
-REQ-022 引入的隐式契约（不增三函数签名）。每个 adapter 在 source 时执行：
+REQ-022 引入的隐式契约（不增三函数签名）。支持独立配置目录的 adapter 在 source 时执行：
 
 - 检查 ralph 中立变量 `RALPH_PROVIDER_CONFIG_DIR` 是否非空。
-- 非空 → `export <provider 原生环境变量>="$RALPH_PROVIDER_CONFIG_DIR"`，让 provider CLI 子进程读独立 config dir。
+- 非空 → `export <provider 原生环境变量>="$RALPH_PROVIDER_CONFIG_DIR"`，让 provider CLI 子进程读独立 config dir；Antigravity 无已验证的配置覆盖方式，因此拒绝非空值。
 - 空或未设 → 不 export（避免空值干扰 provider 默认行为）。
 
 各 provider 翻译目标：
@@ -77,10 +73,9 @@ REQ-022 引入的隐式契约（不增三函数签名）。每个 adapter 在 so
 | Claude Code | `CLAUDE_CONFIG_DIR` | 官方 [authentication.md](https://code.claude.com/docs/en/authentication.md)；macOS 上当 settings.json 含 API key / apiKeyHelper / `ANTHROPIC_BASE_URL` 时切换该目录 = 切换账号（OAuth/Keychain 不参与） |
 | Codex CLI | `CODEX_HOME` | 官方 config-reference `log_dir` 说明"defaults to `$CODEX_HOME/log`"；CLI `--ignore-user-config` help 明确"auth still uses `CODEX_HOME`"；默认 `~/.codex` |
 | Antigravity CLI | 暂无（显式设值报错） | 官方暂未提供可验证的独立配置目录覆盖参数；显式设置 `RALPH_PROVIDER_CONFIG_DIR` 时 fail-fast 报错退出（exit 1），防止未隔离运行 |
-| Gemini CLI | `GEMINI_CLI_HOME` | 官方 configuration 文档 `GEMINI_CLI_HOME` 条目："Specifies the root directory for Gemini CLI's user-level configuration and storage. The CLI will create a `.gemini` folder inside this directory."；实际配置目录 = `$GEMINI_CLI_HOME/.gemini/`（默认 `~/.gemini/`）；session 采集路径 = `$GEMINI_CLI_HOME/.gemini/tmp/...` |
 | fake adapter | n/a | 测试用，不读真实 provider 配置 |
 
-实现位置：`.ralph/lib/adapter-<provider>.sh` 顶部 source 时执行的 if 块（不放进 `provider_oneshot` / `provider_collect_session` / `provider_diagnose` 函数体内，避免每次调用重复 export）。
+实现位置：`.ralph/lib/adapter-<provider>.sh` 顶部 source 时执行的检查或翻译逻辑（不放进 `provider_oneshot` / `provider_collect_session` / `provider_diagnose` 函数体内）。
 
 子进程继承走 bash 默认行为：父进程 export 的环境变量自动透传给所有 fork+exec 出来的子进程。无需在 `provider_oneshot` 用命令前缀语法（`VAR=val command...`）显式注入。
 
@@ -270,105 +265,6 @@ agy --print "$prompt" \
 - `--effort`：`low` / `medium` / `high` 有值时透传给 `agy --effort`；`none` 或留空时不传。
 - `RALPH_PROVIDER_CONFIG_DIR`：Antigravity CLI 暂无独立配置覆盖支持，显式设置时在启动校验阶段报错（exit 1），防止未隔离运行。
 
-## Gemini CLI（暂停接入）
-
-> 本节是 adapter 保留阶段的历史契约记录。REQ-028 之后 `gemini` 在启动校验阶段即被拒绝（exit 1，不产生 run 目录），公共入口只接受 `claude` / `codex` / `fake`。以下内容描述**若重新接入**时需要满足的采集与诊断契约，不代表当前支持。
-
-### Session 机制
-
-Gemini CLI 支持交互和 headless 两类入口：
-
-```bash
-gemini
-gemini -p "query"
-```
-
-官方文档明确 Gemini 会自动保存 session，并支持：
-
-- `--resume` / `-r`：恢复历史 session。
-- `--resume latest`：恢复最近 session。
-- `--resume <index>`：按 `--list-sessions` 中的 index 恢复。
-- `--resume <uuid>`：按 session UUID 恢复。
-- `/resume`：交互模式打开 Session Browser。
-- `--list-sessions`：列出当前 project 的 session。
-- `--delete-session`：删除 session。
-- `--output-format text|json|stream-json`：输出格式（I4 DEV-1 校准：`stream-json` 支持，可用于结构化输出和实时事件流）。
-
-I4 DEV-1（2026-05-04）本机 Gemini CLI `0.39.1` 校准结果：
-
-- `--yolo` 已被官方 CLI reference 标记为 deprecated，推荐使用 `--approval-mode=yolo`（二者行为等价，`--yolo` 仍可用但不建议新代码使用）。
-- 新 workspace 必须带 `--skip-trust`，否则真实 Gemini CLI 会把 `--approval-mode yolo` 降回 `default`。
-- `--thinking-budget` 不是 CLI flag；`thinkingBudget` 是 `settings.json` 中 `modelConfigs` 的内部配置，不暴露命令行入口。Ralph `--effort` 无法翻译为 Gemini CLI flag，暂不传递。
-- `--output-format stream-json` 支持，可用于结构化错误诊断和 live tail（与 Claude/Codex 对齐）。
-
-官方文档说明 session 存储在：
-
-```text
-${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/<project-identifier>/chats/
-```
-
-scope 是 project-specific。切换目录会切换 session history。
-
-本机 Gemini CLI 通过 `~/.gemini/projects.json` 管理 project root 到 project identifier 的映射（如 `/Users/hedy/Develop/code/trantor-project` → `trantor-project`），并会迁移旧 hash 目录。Ralph 不应自行计算或拼接 `<project_hash>` 或 `<project-identifier>`。
-
-本机观测到的文件形态：
-
-```text
-${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/<project-identifier>/chats/session-YYYY-MM-DDTHH-MM-<session-id-prefix>.json
-```
-
-JSON 内容包含 `sessionId`、`projectHash`、`startTime`、`lastUpdated`、`messages` 和 `kind`。
-
-### Ralph 采集方式
-
-推荐执行策略：
-
-```bash
-gemini -p "$prompt" --approval-mode yolo --skip-trust --output-format stream-json
-```
-
-采集步骤：
-
-- 在 workspace root 下执行 Gemini。
-- 不传 `--resume`。
-- stdout/stderr 全量保存为 `rounds/round-NNN/provider.stdout.log`。
-- 优先方式：若 `--output-format stream-json` 输出包含 session id（初始化事件），精确匹配 `${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/*/chats/` 下 `sessionId` 等于该 ID 的文件。
-- 退化方式：按 `${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/*/chats/` 筛选 mtime 大于 started_at 的 JSON 文件，按 mtime 升序排列，取最后一个作为本轮 session。
-- 找到后复制为 `rounds/round-NNN/session.gemini.json`。
-- 若候选为空，记录 warning。
-
-`GEMINI_CLI_HOME` 隔离说明（I4 DEV-1 校准）：
-
-- `GEMINI_CLI_HOME` 由 `RALPH_PROVIDER_CONFIG_DIR` 翻译而来（adapter source 时 export）。
-- 该变量改变 Gemini CLI 的根目录（CLI 在该目录下创建 `.gemini/`），影响配置、认证存储和 session 位置。
-- adapter session 采集路径必须感知该变量：`${GEMINI_CLI_HOME:-$HOME}/.gemini/tmp/...`。
-
-### Effort 映射
-
-Gemini CLI 无 `--thinking-budget` 或等价 CLI flag。`thinkingBudget` 仅可通过 `settings.json` 的 `modelConfigs` 配置，不在命令行暴露。
-
-Ralph `--effort` 对 Gemini **不传递**（`none` 或留空同样不传）。未来若 Gemini CLI 新增 CLI 入口，再扩展映射。
-
-### History 派生
-
-Gemini `session.history.log` 从 `provider.stdout.log`（`--output-format stream-json` stdout 事件流）派生。真实 CLI 事件类型（2026-05-06 校准 stdout 实测）：
-
-- `init`：含 `session_id` + `model` 字段（session capture 用），history 派生跳过
-- `message`：含 `role`（`user` / `assistant`）+ `delta`（boolean）+ `content`（字符串）字段；assistant 消息为流式 delta 片段，派生时按相邻 delta 聚合为单个 `[assistant]` 块
-- `tool_use`：含 `tool_name` + `tool_id` + `parameters` 字段，标记为 `[tool-use <tool_name>]`，parameters 截断 2000 字符
-- `tool_result`：含 `tool_id` + `status` + `output` 字段，标记为 `[tool-result]`，output 截断 2000 字符
-- `result`：含 `status` + `stats`（total_tokens / tool_calls / duration_ms 等）字段，标记为 `[result]`，无独立 text 字段
-
-### 错误诊断（Gemini，暂停接入）
-
-- **Gemini**（I4 DEV-1 校准）：`--output-format stream-json` 模式下，stdout 为 JSONL 事件流，可解析结构化错误事件。退化模式（`text` 或无 `stream-json`）依赖 exit code + stderr 关键字。按以下互斥优先级（case-insensitive）匹配，命中第一条即止：
-  1. `401` / `unauthor` / `not logged in` → `auth`
-  2. `429` / `rate.?limit` / `too many requests` → `rate_limit`
-  3. `quota` / `credits exhausted` / `billing` → `quota`
-  4. `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `fetch failed` / `connection refused` / `network error` → `network`
-  5. 其他 provider 明确错误（含 5xx） → `api`
-  6. 无明确错误 → `unknown`
-
 ## 错误诊断
 
 provider exit code 0 不等于 agent 成功。Ralph 需要按 provider 协议做二次诊断。统一错误类别表见 [`architecture.md#错误诊断类别`](./architecture.md#错误诊断类别)；provider 特定字段和关键字如下：
@@ -392,7 +288,6 @@ provider exit code 0 不等于 agent 成功。Ralph 需要按 provider 协议做
     5. `denied_actions` / `permission` → `permission`
     6. 其他 provider 明确错误（含 5xx） → `api`
     7. 否则 → `unknown`
-- **Gemini**（暂停接入）：`--output-format stream-json` 模式下从 stdout 事件流诊断；退化时依赖 exit code + stderr 关键字。详细规则见上文 §Gemini CLI（暂停接入）→ 错误诊断。真实 `gemini` 入口当前在启动校验即被拒绝，该分支不可达。
 
 诊断结果写入 `rounds/round-NNN/meta.json`，并作为 `result.json` 的聚合错误摘要。
 
@@ -425,7 +320,7 @@ REQ-029 契约（SC-029-1 / SC-029-2 / SC-051-1）：**进程退出码不等于 
     round-001/
       meta.json                       # 元数据 + runtime_block + provider_started_at + capture_status
       provider.stdout.log             # provider stdout (events 流) + stderr 全量 tee
-      session.<provider>.<ext>        # native session 副本（Claude/Codex 为 .jsonl，Gemini 为 .json；命名见上文 §round 目录文件结构）
+      session.<provider>.jsonl       # native session 副本（采集成功时存在）
       session.history.log             # 跨 provider 人话视图（user / assistant / thinking / tool-use / tool-result / result）
 ```
 

@@ -32,7 +32,6 @@ cp "$src_ralph/bin/ralph" "$out/.ralph/bin/ralph"
 grep -Fxq "RALPH_VERSION=\"$version\"" "$out/.ralph/bin/ralph"
 for file in "$src_ralph"/lib/*.sh; do
   base="$(basename "$file")"
-  [[ "$base" == adapter-gemini.sh ]] && continue
   cp "$file" "$out/.ralph/lib/$base"
 done
 cp "$src_ralph/PROMPT.md" "$out/.ralph/PROMPT.md"
@@ -69,9 +68,10 @@ cat > "$out/.ralph/.env.example" <<'EOF'
 # Ralph 配置示例。复制为 .ralph/.env 后按需取消注释；本文件不会执行 shell 代码。
 # 配置优先级：命令行参数 > 当前进程环境变量 > 本文件 > 内置默认值。
 #
-# 必填：provider。当前正式支持 claude（Claude Code CLI）、codex（Codex CLI）和 antigravity（Antigravity CLI / agy）。
-# fake 仅用于测试 Ralph；gemini 当前暂停接入，填写后会在启动阶段失败。
+# 必填：provider。当前正式支持 claude（Claude Code CLI）、codex（Codex CLI）和 antigravity（Antigravity CLI / agy）。任选其一。
+# fake 仅用于测试 Ralph；其他 provider 名称会在启动阶段失败。
 # RALPH_PROVIDER=claude
+# RALPH_PROVIDER=antigravity
 
 # Provider 模型名称。可选；留空时使用 provider 自身默认模型。
 # RALPH_PROVIDER_MODEL=
@@ -106,7 +106,9 @@ cat > "$out/.ralph/.env.example" <<'EOF'
 # RALPH_UI_HEALTH_RED_SEC=300
 
 # 独立 provider 配置目录：Claude → CLAUDE_CONFIG_DIR，Codex → CODEX_HOME。
-# 用于隔离账号、凭据和 native session；留空使用 provider 默认目录。
+# Claude/Codex 留空时使用各自默认目录。
+# Antigravity 当前不支持独立配置目录：选择 antigravity 时不要设置此变量，
+# 使用 agy 的默认登录态。显式设置非空值会在启动前报错退出，不会回退到默认账号。
 # RALPH_PROVIDER_CONFIG_DIR=
 EOF
 
@@ -133,19 +135,7 @@ cat > "$out/docs/README.md" <<'EOF'
 新增文档时必须同步更新本地图；本文件只做导航，不承载正文。
 EOF
 
-cat > "$out/README.md" <<'EOF'
-# Ralph Loop __VERSION__
-
-这是 Ralph Loop 的可部署 release 包，包含 `.ralph/` 运行单元、`.spec/` 协作规范和 agent 启动入口。
-
-## 部署
-
-目标 workspace 已存在 `AGENTS.md`、`CLAUDE.md`、`.ralph/`、`.spec/` 或 `docs/` 时，不要直接覆盖；先将本目录复制到临时位置，再逐项人工合并。全新 workspace 才可以直接复制本目录内容。首次项目会话先阅读 `AGENTS.md`、`docs/README.md` 和 `.spec/README.md`，根据用户目标建立项目事实；用户决定生成任务清单后再补齐 `.ralph/TASKS.md`，用户要求执行且清单准备好后才运行 Ralph。
-
-正式支持 provider：Claude Code、Codex CLI、Antigravity CLI；`fake` 仅用于测试。Gemini 暂停接入。
-EOF
-sed "s/__VERSION__/${version}/" "$out/README.md" > "$out/README.md.new"
-mv "$out/README.md.new" "$out/README.md"
+sed "s/__VERSION__/${version}/g" "$repo_root/templates/RELEASE-README.md" > "$out/README.md"
 
 if [[ "$mode" == "verify" ]]; then
   if ! diff -rq "$out" "$current_release"; then

@@ -15,6 +15,8 @@
 
 ## 快速开始
 
+面向部署使用者的完整功能说明、操作步骤、升级方法和版本更新记录见 [`release/0.1.6/README.md`](release/0.1.6/README.md)。
+
 ### 前置依赖
 
 | 依赖 | 用途 |
@@ -27,21 +29,21 @@
 | Antigravity CLI (`agy`) | Antigravity provider CLI —— 参考 [官方文档](https://www.antigravity.google/docs/cli) |
 
 这是当前生效的 provider 支持矩阵：公共入口接受 `claude` / `codex` / `antigravity` / `fake`，
-`gemini` 在启动校验阶段即被拒绝（exit 1，不产生 run 目录）。权限边界
+其他取值在启动校验阶段即被拒绝（exit 1，不产生 run 目录）。权限边界
 （Codex 固定 `--sandbox danger-full-access`，Antigravity 固定 `--dangerously-skip-permissions`）与审计路径见
 `.ralph/README.md` §Provider 权限边界与审计证据 和 `docs/security.md`。
 
 ### 1. 部署到 workspace
 
 ```bash
-cp -R <ralph-loop-repo>/release/0.1.5/. <your-workspace>/
+cp -R <ralph-loop-repo>/release/0.1.6/. <your-workspace>/
 ```
 
 部署包同时带入 `.ralph/`、`.spec/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md` 文档地图模板。已有同名文件时先人工合并，不要静默覆盖。
 
 ### 2. 配置 workspace
 
-按 `release/0.1.5/.ralph/.env.example` 在 workspace 创建 `.ralph/.env`（最小配置）：
+按 `release/0.1.6/.ralph/.env.example` 在 workspace 创建 `.ralph/.env`（最小配置）：
 
 ```bash
 RALPH_PROVIDER=claude                         # claude / codex / antigravity
@@ -51,9 +53,10 @@ RALPH_PROVIDER=claude                         # claude / codex / antigravity
 # RALPH_LOOP_ROUND_TIMEOUT=3600          # 单 round 超时秒数，0 = 无限（默认 0）
 # RALPH_LOOP_STALL_LIMIT=5               # 单任务连续无进展 round 数（默认 5）
 # RALPH_PROVIDER_MODEL=<name>            # 覆盖 provider 默认模型
-# RALPH_PROVIDER_CONFIG_DIR=~/.claude-x  # 用独立账号 / API 配置跑 ralph
+# RALPH_PROVIDER_CONFIG_DIR=~/.claude-x  # 仅 Claude/Codex 可隔离账号配置
                                          # ralph 自动翻译为 provider 原生变量：
                                          # Claude → CLAUDE_CONFIG_DIR；Codex → CODEX_HOME
+                                         # Antigravity 显式设置此变量会启动失败；使用 agy 默认登录态
                                          # 该目录必须已包含对应 provider 登录态 / 配置
                                          # 只改变凭据/配置来源，不改变权限或沙箱模式
 ```
@@ -109,7 +112,7 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 
 ## 当前状态
 
-- 项目版本：v0.1.5
+- 项目版本：v0.1.6
 - 当前开发任务：`.ralph/TASKS.md`（dogfood 模式，root `task.md` 已封版）
 - 续接状态：`handoff.md`
 - 工具入口：`.ralph/bin/ralph`
@@ -140,7 +143,7 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 
 - 本仓库是 ralph-loop 工具的**开发工程**。**v0.1 后切换为 dogfood 模式** — 自用 ralph 驱动后续开发；`.ralph/TASKS.md` 是当前任务源。
 - 对外部署只使用 `release/<version>/`；开发工程中的 `.ralph/` 是 dogfood 工作区，不直接复制到其他项目。
-- 当前 v0.1.5 release 包含 `.ralph/`、`.spec/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md`；目标协作脚手架还将加入 `.agents/skills/` 与必要的 `.codex/` 会话治理配置，实施状态以对应需求与架构文档为准。运行时产物不得进入 release。
+- 当前 v0.1.6 release 包含 `.ralph/`、`.spec/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md`；目标协作脚手架还将加入 `.agents/skills/` 与必要的 `.codex/` 会话治理配置，实施状态以对应需求与架构文档为准。运行时产物不得进入 release。
 - Ralph 需求沉淀在 `docs/requirements.md`（项目级）和 `docs/features/ralph-loop/requirements.md`（模块级）；架构和外部集成分别见 `docs/architecture.md` 与 `docs/integrations.md`。
 - 历史设计方案放 `docs/features/ralph-loop/history/I<N>-design.md`；历史任务归档放 `I<N>-FINAL-TASK.md`。
 - 项目过程事实写入 `docs/`，并从 `docs/README.md` 保持可发现；根 README 只在项目自身入口内容变化时更新。

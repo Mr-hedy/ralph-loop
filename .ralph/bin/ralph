@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RALPH_VERSION="0.1.5"
+RALPH_VERSION="0.1.6"
 
 RALPH_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 RALPH_ROOT="$(cd "$RALPH_BIN_DIR/.." && pwd -P)"
@@ -52,10 +52,7 @@ Options:
   --provider <name>        Provider to use (env: RALPH_PROVIDER)
                            Required. Choices: claude, codex, antigravity, fake.
                            Any other value is rejected at startup with
-                           exit 1 and no run directory. In particular
-                           `gemini` is temporarily unavailable (its
-                           adapter is kept in lib/ for future
-                           re-integration).
+                           exit 1 and no run directory.
   --model <name>           Model name passed to provider (env: RALPH_PROVIDER_MODEL)
   --effort <level>         Effort level: low|medium|high|none (env: RALPH_PROVIDER_EFFORT)
   --max-round <n>          Max rounds per task; 0 = unlimited

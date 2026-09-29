@@ -38,7 +38,7 @@
 | 原生会话缺失时 | `capture_status=warning/missing`，保留原始流与派生历史 | 符合现有 best-effort 契约，原始流已有完整外部事件 | 把缺失视为 run 失败会让私有存储格式变化阻断任务执行 |
 | CLI `--log-file` | 不作为原生 session 来源 | 该参数属于 CLI 诊断日志覆盖；没有证据证明它是会话 transcript | 混用诊断日志会制造虚假的 session 证据 |
 | token usage | 原样保留在 `result.usage` 和各 step 的 `usage`，本轮不增公共元数据字段 | 用户要求与现有 provider 等价的采集，公共汇总 schema 尚无需求 | 把 step usage 相加再与 result usage 相加会重复统计 |
-| 配置域覆盖 | 只接受经官方资料和真实 smoke 验证的 AGY 原生方式；否则显式配置时启动失败 | 避免忽略 `RALPH_PROVIDER_CONFIG_DIR` 后误用默认账号 | 直接复用 Gemini 的变量缺少 AGY 证据 |
+| 配置域覆盖 | 只接受经官方资料和真实 smoke 验证的 AGY 原生方式；否则显式配置时启动失败 | 避免忽略 `RALPH_PROVIDER_CONFIG_DIR` 后误用默认账号 | 直接复用其他 CLI 的配置变量缺少 AGY 证据 |
 
 研究依据：[AGY Headless 协议](https://www.antigravity.google/docs/cli/headless/)、[AGY 状态行字段](https://www.antigravity.google/docs/cli/statusline/)、[AGY CLI 诊断日志说明](https://www.antigravity.google/docs/enterprise)。
 

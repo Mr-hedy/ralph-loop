@@ -15,7 +15,6 @@ bash -n "$ROOT/.ralph/bin/ralph" \
   "$ROOT/.ralph/lib/status.sh" \
   "$ROOT/.ralph/lib/sticky.sh" \
   "$ROOT/.ralph/lib/watch.sh" \
-  "$ROOT/.ralph/lib/adapter-gemini.sh" \
   "$ROOT/scripts/build-release.sh"
 "$ROOT/.ralph/bin/ralph" help >/dev/null
 test -f "$ROOT/scripts/integration-test.sh"
@@ -24,7 +23,6 @@ test -f "$ROOT/scripts/integration-test.sh"
 bash -n "$ROOT/scripts/integration-test.sh" \
   "$ROOT/tests/fixtures/mock-claude" \
   "$ROOT/tests/fixtures/mock-codex" \
-  "$ROOT/tests/fixtures/mock-gemini" \
   "$ROOT/tests/fixtures/mock-antigravity"
 
 if grep -q "npm run check" "$ROOT/README.md"; then
@@ -101,11 +99,9 @@ for source_file in "$ROOT/.ralph/bin/ralph" "$ROOT/.ralph/PROMPT.md" "$ROOT/.ral
   cmp -s "$source_file" "$package_file" || { echo "release file out of sync: $package_file" >&2; exit 1; }
 done
 for source_file in "$ROOT"/.ralph/lib/*.sh; do
-  [[ "${source_file##*/}" == adapter-gemini.sh ]] && continue
   package_file="$current_release/${source_file#"$ROOT"/}"
   cmp -s "$source_file" "$package_file" || { echo "release file out of sync: $package_file" >&2; exit 1; }
 done
-test ! -e "$current_release/.ralph/lib/adapter-gemini.sh"
 test ! -e "$current_release/.codex"
 test ! -e "$current_release/.agents"
 test -x "$current_release/.ralph/bin/ralph"

@@ -16,7 +16,7 @@
 - 提供 Codex Main Agent 协作 harness，让人类通过自然语言完成需求、方案和任务准备，并在用户授权后把执行交给后台 Ralph。
 - 隔离 Main Agent 决策上下文和 Ralph/provider 执行上下文，以最终 repository 产物作为两者交付接口。
 - 通过 handoff、checkpoint 和 postmortem 分别治理主会话接续、已验收稳定状态和可复用失败知识。
-- 覆盖 Claude Code、Codex CLI、Antigravity CLI 三家 provider（Gemini CLI adapter 保留但暂停接入，公共入口禁用，见 REQ-028），通过统一 adapter 抽象解耦 provider 差异。
+- 覆盖 Claude Code、Codex CLI、Antigravity CLI 三家 provider，通过统一 adapter 抽象解耦 provider 差异。
 - Antigravity CLI 接入已在 v0.1.5 完成实施与真实环境验收，支持流式事件监听、Native Transcript 安全采集与人类历史派生（见 docs/features/antigravity-cli/requirements.md）。
 - 工具本身以 shell 实现,降低部署和运行环境成本；不引入包管理器、编译步骤或额外 runtime。
 - 项目文档、方案取舍和实现任务按 `.spec/` 规范沉淀，让后续迭代有稳定事实源。
@@ -72,7 +72,7 @@
 
 - 系统总体架构与稳定契约：[`architecture.md`](./architecture.md)。
 - Codex Main Agent 协作、后台派发和最终验收：[`features/vibecoding-collaboration/solution.md`](./features/vibecoding-collaboration/solution.md)。
-- 外部系统集成（Claude / Codex session 采集；Gemini 为暂停接入的历史契约）：[`integrations.md`](./integrations.md)。
+- 外部系统集成（Claude / Codex / Antigravity session 采集）：[`integrations.md`](./integrations.md)。
 - 安全边界（approval / sandbox 策略）：[`security.md`](./security.md)。
 - 阶段规划：[`roadmap.md`](./roadmap.md)。
 

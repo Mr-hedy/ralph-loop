@@ -5,9 +5,6 @@ oneshot 协议和任务模板。部署到自己的 git workspace 后，可以让
 按 `.ralph/TASKS.md` 里的任务一轮一轮工作。
 
 > 当前正式支持的 provider 包含 Claude Code、Codex CLI 和 Antigravity CLI（测试另可用 `fake`）。
-> 开发工程可能保留 Gemini 历史 adapter 供未来重新接入，但当前 release 包不携带它；公共入口已禁用：传
-> `--provider gemini` 会在启动校验阶段失败（exit 1）且不产生任何 run 目录。
-> 文中相关段落均标注为暂停接入，仅作历史参考。
 
 安装后最短路径：
 
@@ -96,7 +93,7 @@ git status
 从 ralph-loop release 目录复制完整版本包：
 
 ```bash
-cp -R /path/to/ralph-loop/release/0.1.5/. ./
+cp -R /path/to/ralph-loop/release/0.1.6/. ./
 ```
 
 上面的命令只适用于全新 workspace。目标已有 `AGENTS.md`、`CLAUDE.md`、`.ralph/`、
@@ -137,10 +134,6 @@ Provider 认证提示：
 - Claude: 先按 Claude Code CLI 自己的方式登录。
 - Codex: 先按 Codex CLI 自己的方式登录，或在 CI 里配置 `CODEX_API_KEY`。
 - Antigravity: 先按 Antigravity CLI 自己的方式登录（终端/IDE 完成认证或 `agy auth login`）。
-- Gemini: **暂停接入**（见下文 FAQ）。当前 release 不携带 Gemini adapter，公共入口不接受
-  `--provider gemini`，因此现在不需要为 Gemini 配认证。历史要求是
-  `~/.gemini/settings.json` 里有 auth method，或配置 `GEMINI_API_KEY` /
-  `GOOGLE_GENAI_USE_VERTEXAI` / `GOOGLE_GENAI_USE_GCA`。
 
 ### 4. 创建 `.ralph/.env`
 
@@ -177,6 +170,8 @@ Antigravity 示例：
 ```bash
 cat > .ralph/.env <<'EOF'
 RALPH_PROVIDER=antigravity
+# 不设置 RALPH_PROVIDER_CONFIG_DIR；使用 agy 默认登录态。
+# 显式设置非空值会在启动检查阶段失败，不会回退到默认账号。
 RALPH_LOOP_MAX_ROUND=0
 RALPH_LOOP_ROUND_TIMEOUT=0
 RALPH_LOOP_STALL_LIMIT=5
@@ -193,8 +188,6 @@ EOF
 
 Fake provider 只适合检查 Ralph 的循环和状态文件，不代表 Claude / Codex 真实可用。
 准备 release 或验证真实项目时，必须跑真实 provider。
-
-Gemini 暂停接入，写 `RALPH_PROVIDER=gemini` 会在启动阶段直接失败，不产生 run。
 
 `.env` 规则：
 
@@ -371,7 +364,7 @@ cat .ralph/runs/<run_id>/rounds/round-001/session.history.log
 ./.ralph/bin/ralph run --provider fake
 ```
 
-`--provider` 只接受这四个值；其他取值（含 `gemini`）会在启动校验阶段被拒绝，
+`--provider` 只接受这四个值；其他取值会在启动校验阶段被拒绝，
 exit 1，且不创建 run 目录。
 
 带模型：
@@ -379,7 +372,7 @@ exit 1，且不创建 run 目录。
 ```bash
 ./.ralph/bin/ralph run --provider claude --model sonnet
 ./.ralph/bin/ralph run --provider codex --model gpt-5.2
-./.ralph/bin/ralph run --provider antigravity --model gemini-2.5-pro
+./.ralph/bin/ralph run --provider antigravity --model "AGY_MODEL_NAME"
 ```
 
 带推理强度：
@@ -477,7 +470,7 @@ provider 临时失败时最多重试 5 次：
 
 | 参数 | `.env` 变量 | 默认 | 说明 |
 |---|---|---|---|
-| `--provider <name>` | `RALPH_PROVIDER` | 无 | 必填，只接受 `claude` / `codex` / `antigravity` / `fake`；其他取值（含 `gemini`）启动即失败，exit 1 |
+| `--provider <name>` | `RALPH_PROVIDER` | 无 | 必填，只接受 `claude` / `codex` / `antigravity` / `fake`；其他取值启动即失败，exit 1 |
 | `--model <name>` | `RALPH_PROVIDER_MODEL` | 无 | 传给 provider 的模型名 |
 | `--effort <level>` | `RALPH_PROVIDER_EFFORT` | 无 | `low` / `medium` / `high` / `none` |
 | `--max-round <n>` | `RALPH_LOOP_MAX_ROUND` | `0` | 单个 task 最多 round 数，0 表示无限 |
@@ -509,7 +502,6 @@ Ralph 是无人值守循环，所以 provider 不允许弹交互式 approval。�
 | Claude | `--dangerously-skip-permissions` + `--allowedTools "Bash,Read,Edit,Write,Glob,Grep"` | 绕过全部 permission 检查，所有工具直接执行。`--allowedTools` 只是免询问清单，在该模式下不生效，**不构成工具限制** |
 | Codex | `codex exec --sandbox danger-full-access` | 移除本地沙箱限制，shell 命令以当前用户身份执行，**不受 workspace 边界约束** |
 | Antigravity | `--dangerously-skip-permissions` | 绕过全部 permission 确认，工具以当前用户身份直接执行，**不受 workspace 边界约束** |
-| Gemini | 无（暂停接入） | 入口拒绝，不会执行 |
 
 一句话总结：**真实路径都等于"以你的用户身份无限制执行"，Ralph 没有 provider 侧
 的能力收窄层。**
@@ -625,26 +617,6 @@ printf 'RALPH_PROVIDER=claude\n' > .ralph/.env
 - [ ] DEV-1: 写代码并提交。
 - [ ] 写代码并提交。
 ```
-
-### `--provider gemini` 直接失败
-
-Gemini 暂停接入。你现在会看到：
-
-```text
-ralph: startup check failed: provider 'gemini' is temporarily disabled; use claude, codex or fake
-```
-
-这是预期行为，进程 exit 1，且不会创建 `.ralph/runs/`、`.ralph/lock`、
-`.ralph/status.json`。改回 `--provider claude` 或 `--provider codex` 即可。
-
-下面的内容只在未来重新接入 Gemini 后才适用（历史记录）：Gemini CLI 认证失败时常见错误是
-
-```text
-Please set an Auth method in your ~/.gemini/settings.json
-```
-
-修法：按 Gemini CLI 要求写 `~/.gemini/settings.json`，或设置
-`GEMINI_API_KEY` / `GOOGLE_GENAI_USE_VERTEXAI` / `GOOGLE_GENAI_USE_GCA`。
 
 ### `watch` 没有详细字段
 
