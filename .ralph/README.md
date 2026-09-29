@@ -477,7 +477,7 @@ provider 临时失败时最多重试 5 次：
 | `--round-timeout <sec>` | `RALPH_LOOP_ROUND_TIMEOUT` | `0` | 单个 round 超时秒数，0 表示无限 |
 | `--stall-limit <n>` | `RALPH_LOOP_STALL_LIMIT` | `5` | 单个 task 连续无进展 round 上限 |
 | `--max-retry <n>` | `RALPH_LOOP_MAX_RETRY` | `3` | rate limit / network 这类临时错误的重试次数 |
-| `--retry-schedule "<s...>"` | `RALPH_LOOP_RETRY_SCHEDULE` | `60 120 300` | 重试等待秒数序列 |
+| `--retry-schedule "<s...>"` | `RALPH_LOOP_RETRY_SCHEDULE` | `60 120 300` | 仅暂态错误触发；第 1/2/3 次重试前分别等 60/120/300 秒，不影响正常轮次 |
 | `--verbose` / `-v` | `RALPH_VERBOSE=1` | 关闭 | run 时显示 sticky 事件界面 |
 | `--help` | 无 | 无 | 查看帮助 |
 
@@ -486,7 +486,7 @@ provider 临时失败时最多重试 5 次：
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `RALPH_PROVIDER_CONFIG_DIR` | 无 | 隔离 provider 配置目录；Claude → `CLAUDE_CONFIG_DIR`，Codex → `CODEX_HOME`。只改变凭据/配置来源，**不改变权限或沙箱模式**。注意：Antigravity 暂无独立配置目录覆盖参数，显式设置会在启动校验失败（exit 1） |
-| `RALPH_PROGRESS_HEARTBEAT_SEC` | `60` | 普通文本模式 heartbeat 间隔，设成 `0` 关闭 |
+| `RALPH_PROGRESS_HEARTBEAT_SEC` | `60` | 普通文本模式下，同一轮仍在执行时每 60 秒打印进度提示；不重启 provider，设成 `0` 关闭 |
 | `RALPH_UI_STICKY_EVENT_LINES` | `6` | sticky 事件区行数 |
 | `RALPH_UI_HEALTH_GREEN_SEC` | `60` | provider 日志静默超过该秒数后健康灯变黄 |
 | `RALPH_UI_HEALTH_RED_SEC` | `300` | provider 日志静默超过该秒数后健康灯变红 |

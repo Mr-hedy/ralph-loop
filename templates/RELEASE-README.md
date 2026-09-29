@@ -59,8 +59,8 @@ printf '\nRALPH_PROVIDER=antigravity\n' >> .ralph/.env
 | `RALPH_LOOP_ROUND_TIMEOUT` | `0`，单轮没有超时上限 | 担心 provider 卡住，或运行环境有时间限制时设置秒数 |
 | `RALPH_LOOP_STALL_LIMIT` | `5`，连续无进展后交给人处理 | 希望更早介入时调低；已确认任务需要较多探索轮次时调高 |
 | `RALPH_LOOP_MAX_RETRY` | `3` 次暂态错误重试 | 要让 rate limit / network 错误立即暴露时设 `0`；网络不稳时按预算调高 |
-| `RALPH_LOOP_RETRY_SCHEDULE` | 依次等待 `60 120 300` 秒 | 需要匹配 provider 限流窗口或调整恢复速度时 |
-| `RALPH_PROGRESS_HEARTBEAT_SEC` | 普通文本模式每 `60` 秒提示仍在运行 | 需要更频繁的提示时调低；不需要提示时设 `0` |
+| `RALPH_LOOP_RETRY_SCHEDULE` | 仅在 `rate_limit` / `network` 失败后，第一次等 `60` 秒再试、第二次等 `120` 秒、第三次等 `300` 秒 | 需要匹配 provider 限流窗口或调整恢复速度时；重试次数由 `MAX_RETRY` 控制 |
+| `RALPH_PROGRESS_HEARTBEAT_SEC` | 普通文本模式中，同一轮超过 `60` 秒仍未结束，就每 `60` 秒打印“仍在运行”、耗时和日志路径；不重启 provider | 想更频繁看到提示时调低；不需要提示时设 `0`；`run -v` 不使用此心跳 |
 | `RALPH_UI_STICKY_EVENT_LINES` | sticky/watch 事件区显示 `6` 行 | 终端空间有限或想看更多事件时 |
 | `RALPH_UI_HEALTH_GREEN_SEC`、`RALPH_UI_HEALTH_RED_SEC` | 日志静默 `60` 秒变黄、`300` 秒变红 | provider 正常输出间隔导致健康提示误判时；这两个值只影响显示 |
 | `RALPH_PROVIDER_CONFIG_DIR` | 使用 provider 默认配置和登录态 | Claude/Codex 需要隔离账号时指向已准备的目录；Antigravity 不支持非空值，使用 `agy` 默认登录态 |
