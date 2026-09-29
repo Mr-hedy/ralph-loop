@@ -1,7 +1,7 @@
 # Testing
 
 - 状态：已确认。
-- 最近验证：2026-09-29 实测 `bash scripts/integration-test.sh` 为 PASS=174 FAIL=0；当前源码修复后的 `release/0.1.5` 完整生成内容比对将在发布步骤执行。
+- 最近验证：2026-09-29 实测 `bash scripts/integration-test.sh` 为 PASS=174 FAIL=0；当前源码修复后的 `release/0.1.5` 完整生成内容比对、`check.sh` 和独立 fake 部署烟测均通过。真实 AGY smoke 使用修复前的 0.1.5 候选包；最终包未重复调用真实 AGY。
 - 来源：`docs/features/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/features/antigravity-cli/requirements.md`（REQ-048 ~ REQ-053）、`docs/architecture.md`（启动校验、退出原因、运行目录 schema）、`docs/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
 - 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/TESTING.md`），不写具体用例的验证计划；用户已建立对应任务时，计划写入 `.ralph/TASKS.md` 的“验证计划”段，其他工作在交付中报告。root `task.md` 已封版。
 - 变更条件：测试入口脚本变化、新增 fixture 或 mock 类型、隔离规则失效、新平台支持、测试覆盖目标变化。

@@ -6,7 +6,7 @@
 
 # 当前阶段与范围
 
-- 阶段：Antigravity CLI 接入、`release/0.1.5` 真实隔离烟测及 Codex 后续审查修复已完成；准备提交源码、核验发布包并提交发布产物。
+- 阶段：Antigravity CLI 接入、真实隔离烟测、Codex 后续审查修复及 `release/0.1.5` 发布包构建和核验已完成。
 - 影响：`.ralph/` 核心脚本、`release/0.1.5/` 发布单元、`release/0.1.4/` 历史归档、`tests/fixtures/mock-antigravity`、`scripts/` 校验与构建脚本、`docs/` 核心文档与 `README.md`。
 - 变更类型：新增 provider adapter、扩展 stream-json 事件过滤器、新增集成测试与测试替身、补齐架构与安全契约、升级版本号至 0.1.5 并生成 release 0.1.5 交付包。
 
@@ -42,10 +42,11 @@
 
 # 最新验证
 
-- `bash scripts/check.sh`：待当前源码修复同步到 `release/0.1.5/` 后复验；上一候选包曾通过。
-- `bash scripts/build-release.sh --verify`：待当前源码修复同步到 `release/0.1.5/` 后复验；上一候选包曾通过。
+- `bash scripts/check.sh`：通过，输出 `ralph-loop check passed`。
+- `bash scripts/build-release.sh --verify`：通过，输出 `release verified: release/0.1.5`；`run.sh` / `watch.sh` 与源码逐字节一致。
 - `bash scripts/integration-test.sh`：通过，`PASS=174 FAIL=0`（覆盖终态、双视图展示、软拒绝、空消息错误、文件与目录软链接等场景）。
 - `git diff --check`：通过，无空白异常。
+- **最终发布包独立 fake 部署烟测**：在 `.tmp/release-0.1.5-final-smoke.HiVOA5` 中部署新生成的 `release/0.1.5/.`，`CLAUDE.md` 软链和 CLI 入口有效，1 round 将临时任务从 0/1 推进至 1/1，`result.json.exit_reason=done`。
 - **Release 0.1.5 真实环境端到端部署验证（无 Mock 全链路实跑）**：
   - 在全新隔离 Git 测试工作区（`.tmp/real-agy-0.1.5-smoke`）部署 `release/0.1.5/.`，由系统真实登录的 `agy 1.2.13` 驱动 `ralph run` 执行。
   - **任务推进**：真实驱动 `DEV-1: 实现 string_utils.py 并完成单测验证`，`agy` 自动创建 `string_utils.py` 与 `test_string_utils.py`、执行 `python3 -m unittest -v`（2 tests ok）、按 `.spec/rules/TASKS.md` 规范将 `.ralph/TASKS.md` 打钩为 `[x]` 并补充完成/验证记录、自动创建 `.gitignore` 过滤缓存、自动提交 Git commit（`51c379c`）。
@@ -54,19 +55,19 @@
 
 # 已验证与未验证
 
-- 已验证：Antigravity adapter 代码与契约、事件流解析、错误诊断矩阵、174 项自动化回归测试、此前 `release/0.1.5` 候选包的独立隔离环境真实模型 smoke、Codex 审查发现的边界与安全问题修复。
-- 未验证：当前事件展示修复后的发布包尚待重新生成与逐字节核验，未重复执行真实 AGY smoke；超长时间运行下的上游大模型配额耗尽处理未实测（QA-3 mock 已验证重试调度）。
+- 已验证：Antigravity adapter 代码与契约、事件流解析、错误诊断矩阵、174 项自动化回归测试、最终 `release/0.1.5` 包的官方构建与逐字节核验、最终包的独立 fake 部署烟测、此前候选包的独立真实 AGY smoke、Codex 审查发现的边界与安全问题修复。
+- 未验证：最终包未重复执行真实 AGY smoke（相对已实测候选包的运行时代码变更限于事件区展示）；超长时间运行下的上游大模型配额耗尽处理未实测（QA-3 mock 已验证重试调度）。
 
 # Checkpoint 与 Postmortem 状态
 
 - Checkpoint：无新建。
-- Postmortem：已查阅既有 postmortems；本次捕获的所有设计与边界缺陷已沉淀为自动化集成测试（共 9 项针对性回归门），形成长效防回归机制。
+- Postmortem：已按现有 PM-0008 更新“provider 实现与现行集成文档逐项核对”预防检查；异常终态展示由新增自动化断言守护。
 
 # 工作区状态
 
 - 分支：`main`。
-- 源码和文档待首次提交；`release/0.1.5/` 待按最新源码重新生成并进行第二次提交。以 `git status` 为准确认提交状态。
+- 源码、测试和文档已在 `b7e4d1e` 提交；`release/0.1.5/` 由该提交的源码官方生成，最终提交状态以 `git status` 为准。
 
 # 建议下一步
 
-- 完成二次 adversarial-review；提交源码与文档，重新生成并验证 `release/0.1.5/`，最后提交发布产物。
+- 对外部署使用 `release/0.1.5/`；若需同步 GitHub，按用户决定单独推送本地提交。
