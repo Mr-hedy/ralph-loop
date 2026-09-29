@@ -462,17 +462,17 @@ ralph_run() {
   max_retry="${RALPH_LOOP_MAX_RETRY:-$max_retry}"
   retry_schedule="${RALPH_LOOP_RETRY_SCHEDULE:-$retry_schedule}"
 
-  # REQ-028：公开入口只接受 claude / codex / fake。Gemini adapter 保留在 lib/
+  # REQ-028 / REQ-048：公开入口接受 claude / codex / antigravity / fake。Gemini adapter 保留在 lib/
   # 供未来重新接入，但在拿到当前真实 provider smoke 结论之前，入口一律拒绝：
   # 该分支位于 lock / run 目录创建之前，因此拒绝时不产生任何 run 产物。
   case "$provider" in
-    claude|codex|fake) ;;
+    claude|codex|antigravity|fake) ;;
     gemini)
-      echo "${_STARTUP_FAIL_PREFIX} provider 'gemini' is temporarily disabled; use claude, codex or fake" >&2
+      echo "${_STARTUP_FAIL_PREFIX} provider 'gemini' is temporarily disabled; use claude, codex, antigravity or fake" >&2
       exit 1
       ;;
     *)
-      echo "${_STARTUP_FAIL_PREFIX} unsupported provider: ${provider:-<empty>} (choices: claude, codex, fake)" >&2
+      echo "${_STARTUP_FAIL_PREFIX} unsupported provider: ${provider:-<empty>} (choices: claude, codex, antigravity, fake)" >&2
       exit 1
       ;;
   esac
@@ -1017,6 +1017,20 @@ _ralph_filter_verbose() {
     printf '%s\n' "$line" | jq -r '
       def flat: tostring | gsub("\\s+"; " ");
       def trunc($n): flat | if length > $n then .[0:$n] else . end;
+      def agy_error: (.result.error // .error // null);
+      def agy_has_error:
+        agy_error as $e |
+        if $e == null then false
+        elif ($e | type) == "string" or ($e | type) == "object" then ($e | length) > 0
+        else false end;
+      def agy_error_text:
+        agy_error as $e |
+        if ($e | type) == "object" then
+          if (($e.message // "") | length) > 0 then ($e.message | tostring)
+          elif (($e.type // "") | length) > 0 then "error type: " + ($e.type | tostring)
+          else ($e | tostring) end
+        elif ($e | type) == "string" then $e
+        else "provider result status ERROR" end;
       if .type == "system" and .subtype == "init" then
         "  ⚙ session " + ((.session_id // "") | .[0:8])
       elif .type == "assistant" then
@@ -1064,6 +1078,19 @@ _ralph_filter_verbose() {
         "  ✓ result " + ((.text // "") | trunc(120))
       elif .type == "error" then
         "  ❌ error: " + ((.error.message // .message // "") | trunc(120))
+      elif .event == "init" then
+        "  ⚙ session " + ((.conversation_id // .init.conversation_id // "") | .[0:12])
+      elif .event == "step_update" then
+        if (((.step_update.agent_response.text_delta // .agent_response.text_delta // .step_update.text_delta // .text_delta // "") | length) > 0) then "  💬 " + ((.step_update.agent_response.text_delta // .agent_response.text_delta // .step_update.text_delta // .text_delta) | trunc(120))
+        elif (((.step_update.tool_name // .tool_name // "") | length) > 0) then "  🔧 " + (.step_update.tool_name // .tool_name) + " " + ((((.step_update.tool_info.command // .step_update.tool_info.parameters // .step_update.tool_info // .tool_info.command // .tool_info) // {}) | tostring) | trunc(80))
+        elif ((.step_update.subagent_info // .subagent_info // null) != null) then "  ⚙ subagent " + (((.step_update.subagent_info // .subagent_info) | tostring) | trunc(80))
+        else empty end
+      elif .event == "result" then
+        if ((((.result.denied_actions // .denied_actions // []) | length)) > 0) then "  ❌ denied tools: " + (((.result.denied_actions // .denied_actions) | tostring) | trunc(100))
+        elif agy_has_error then "  ❌ error: " + (agy_error_text | trunc(120))
+        elif ((.result.status // .status // "") == "SUCCESS") then "  ✓ result"
+        elif ((.result.status // .status // "") == "ERROR") then "  ❌ error: provider result status ERROR"
+        else "  ⚠ unknown result status: " + ((.result.status // .status // "missing") | tostring | trunc(80)) end
       else empty end
     ' 2>/dev/null
   done

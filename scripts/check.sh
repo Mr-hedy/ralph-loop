@@ -10,6 +10,7 @@ bash -n "$ROOT/.ralph/bin/ralph" \
   "$ROOT/.ralph/lib/adapter-claude.sh" \
   "$ROOT/.ralph/lib/adapter-codex.sh" \
   "$ROOT/.ralph/lib/adapter-fake.sh" \
+  "$ROOT/.ralph/lib/adapter-antigravity.sh" \
   "$ROOT/.ralph/lib/run.sh" \
   "$ROOT/.ralph/lib/status.sh" \
   "$ROOT/.ralph/lib/sticky.sh" \
@@ -23,7 +24,8 @@ test -f "$ROOT/scripts/integration-test.sh"
 bash -n "$ROOT/scripts/integration-test.sh" \
   "$ROOT/tests/fixtures/mock-claude" \
   "$ROOT/tests/fixtures/mock-codex" \
-  "$ROOT/tests/fixtures/mock-gemini"
+  "$ROOT/tests/fixtures/mock-gemini" \
+  "$ROOT/tests/fixtures/mock-antigravity"
 
 if grep -q "npm run check" "$ROOT/README.md"; then
   echo "README.md points to an unsupported npm check command" >&2

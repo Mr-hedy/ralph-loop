@@ -30,11 +30,11 @@
 - **I4 已完成（2026-05-04）**：T4（Gemini adapter），归档见 `docs/features/ralph-loop/history/I4-FINAL-TASK.md`；设计方案见 `docs/features/ralph-loop/history/I4-design.md`。
 - **I5 已完成（2026-05-07）**：run/watch sticky 输出 + per-task round + env 重组，含 REVIEW-1 + REVIEW-2 两轮 adversarial review 后续修订（DEV-12 retry × per-task TRY 守门 / watch 时钟冻结 / sticky 视觉契约调整 / 4 个 -v live tail 失效测试删除 / diagnose retry hang 修复）；归档见 `docs/features/ralph-loop/history/I5-FINAL-TASK.md`，设计方案 + 实施期 ChangeLog 见 `docs/features/ralph-loop/history/I5-design.md` §0。
 - **Release cleanup（2026-05-20）**：runtime 不再解析、展示或写入迭代元数据；`.ralph/` 发布单元复扫无 `iteration`/`iter` 残留；`bash scripts/integration-test.sh` 完整通过 149 PASS / 0 FAIL。
-- 当前项目版本为 v0.1.4；release 交付已实现的 Ralph、`.spec/` 和 agent 入口。Hook、Skills 的目标结构仍待实施。
+- 当前项目版本为 v0.1.5；release 交付已实现的 Ralph、`.spec/` 和 agent 入口。Hook、Skills 的目标结构仍待实施。
 - `.spec/` 按当前协作规范维护；现行需求聚合在 `docs/features/`，项目级架构与专题位于 `docs/` 根部。历史设计和任务归档集中在 `docs/features/ralph-loop/history/`，正文保持归档时原貌。
 - Ralph 模块需求见 `docs/features/ralph-loop/requirements.md`（REQ-001 ~ REQ-032）；Codex Main Agent 协作需求见 `docs/features/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）。
 - 架构和稳定契约沉淀在 `docs/architecture.md`；provider 集成细节沉淀在 `docs/integrations.md`；安全边界沉淀在 `docs/security.md`。
-- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude,adapter-codex,adapter-gemini}.sh`；对外部署单元由 `release/<version>/` 构建，包含 `.ralph/`、`.spec/`、agent 入口和 `docs/README.md` 模板。
+- 工具代码：`.ralph/bin/ralph` + `.ralph/lib/{common,run,session,tasks,adapter-fake,adapter-claude,adapter-codex,adapter-gemini,adapter-antigravity}.sh`；对外部署单元由 `release/<version>/` 构建，包含 `.ralph/`、`.spec/`、agent 入口和 `docs/README.md` 模板。
 - T1（fake 闭环）、T2（Claude adapter + 单轮真实 smoke）、T6（v0.1 闭环 + 使用指南）均已完成。
 
 ## Phased Delivery

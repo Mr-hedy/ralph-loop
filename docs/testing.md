@@ -1,8 +1,8 @@
 # Testing
 
 - 状态：已确认。
-- 最近验证：2026-09-28 实测 `bash scripts/integration-test.sh` 为 PASS=156 FAIL=0；`release/0.1.4` 的完整生成内容比对与临时 workspace fake smoke 已通过。
-- 来源：`docs/features/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/architecture.md`（启动校验、退出原因、运行目录 schema）、`docs/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
+- 最近验证：2026-09-29 实测 `bash scripts/integration-test.sh` 为 PASS=174 FAIL=0；当前源码修复后的 `release/0.1.5` 完整生成内容比对将在发布步骤执行。
+- 来源：`docs/features/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / NFR-* 系列）、`docs/features/antigravity-cli/requirements.md`（REQ-048 ~ REQ-053）、`docs/architecture.md`（启动校验、退出原因、运行目录 schema）、`docs/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
 - 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/TESTING.md`），不写具体用例的验证计划；用户已建立对应任务时，计划写入 `.ralph/TASKS.md` 的“验证计划”段，其他工作在交付中报告。root `task.md` 已封版。
 - 变更条件：测试入口脚本变化、新增 fixture 或 mock 类型、隔离规则失效、新平台支持、测试覆盖目标变化。
 
@@ -12,7 +12,7 @@
 |---|---|---|
 | `bash scripts/check.sh` | 静态检查、现行文档位置、发布包从源文件重建后的完整比对 | stdout 含 `ralph-loop check passed` |
 | `bash scripts/build-release.sh --verify` | 单独核对当前版本 release 的文件清单和全部生成内容，不修改现有发布包 | stdout 含 `release verified`；多文件、少文件或内容不同均失败 |
-| `bash scripts/integration-test.sh` | 端到端集成测试（mock workspace + 退出原因 + 启动校验 + adapter 各分支） | `PASS=N FAIL=0`，N 随阶段扩展（T1：14；T2：34；T6：41） |
+| `bash scripts/integration-test.sh` | 端到端集成测试（mock workspace + 退出原因 + 启动校验 + adapter 各分支） | `PASS=N FAIL=0`，N 随阶段扩展（当前基准：174） |
 | `git diff --check` | 空白错误检查 | 无输出 |
 
 完整验证 = `check.sh`、`integration-test.sh`、`git diff --check` 全过；`check.sh` 已调用发布包完整比对。文档/协作规则改动至少跑前两项；脚本/代码改动跑全套。
@@ -28,7 +28,7 @@
 3. 逐项核对发布版 `AGENTS.md`、`.spec/README.md`、`.ralph/README.md` 和 `README.md` 中要求用户或 agent **立即读取**的本地文件：必须存在于包内，或明确写成首次会话按需创建、仅在项目已有时读取、或仅存在于开发仓库。示例路径与未来目标结构不按已交付文件处理。
 4. 检查包内无 `.ralph/runs/`、`status.json`、`lock`、真实 `.env`、本仓库任务状态，以及未实施的 Hook / Skills。
 
-真实 Claude/Codex provider smoke 与上述 fake 部署验证分开报告；fake 通过不表示真实 provider 已验证。
+真实 Claude/Codex/Antigravity provider smoke 与上述 fake 部署验证分开报告；fake 通过不表示真实 provider 已验证。
 
 ## 测试基础设施
 
@@ -40,6 +40,7 @@ tests/
   fixtures/
     mock-claude                         # claude CLI 测试替身（单一来源）
     mock-codex                          # codex CLI 测试替身（单一来源）
+    mock-antigravity                    # antigravity CLI (agy) 测试替身（单一来源，REQ-048 ~ REQ-053）
     mock-gemini                         # gemini CLI 测试替身（单一来源，I4 DEV-2 建立）
     claude-session-sample.jsonl         # Claude session jsonl 样本（T2.4 起）
 ```
@@ -52,7 +53,7 @@ tests/
 
 **强制要求**：
 
-- **HOME 隔离**：测试若需要写入 `~/.claude/`、`~/.codex/`、`~/.gemini/` 等 provider 用户目录，必须先 `export HOME="$tmpdir/home"`，让 provider 文件落到临时 HOME 下，跑完即清。**禁止**直接写入真实用户 HOME。
+- **HOME 隔离**：测试若需要写入 `~/.claude/`、`~/.codex/`、`~/.gemini/` 等 provider 用户目录，必须先 `export HOME="$tmpdir/home"` 或 `ANTIGRAVITY_APP_DATA_DIR="$tmpdir/antigravity"`，让 provider 文件落到临时目录，跑完即清。**禁止**直接写入真实用户 HOME。
 - **PATH 隔离**：测试若需要修改 PATH（例如模拟某命令缺失），修改必须限定在被测子进程（`env PATH=... ralph run ...`），harness 自身 PATH 不得变更。harness 自己的 jq / git / bash 等工具必须始终可用，否则 harness 自身瘫痪后无法做断言。
 - **配置文件隔离**：测试不得修改使用者的 `~/.gitconfig`、`~/.bashrc`、`~/.ssh/`、shell history 等配置；所有 git config 通过临时仓库的本地 config 设置。
 - **网络隔离**：单元/集成测试默认不访问外网；需要真实 provider CLI 的 smoke 测试单独标识为人工触发。
@@ -108,6 +109,23 @@ tests/
 | I5 sticky/plain/round | +20（实际 120） | sticky 渲染（首帧/重绘/健康灯/事件区/退出还原）、plain 模式回归（heartbeat/marker）、per-task round/stall 触发、HUMAN 自动插入、legacy 命名到 round 的回归、env 分组重命名 |
 | Release cleanup | +29（实际 149） | runtime 不暴露迭代元数据、Gemini/Codex 事件区回归、sticky UX、旧 flag/env 拒绝、release 文档口径 |
 | 当前基线（2026-09-17） | +7（实际 156） | provider retry 与 task_try 边界、终态解析和既有回归门增补 |
+| Antigravity 集成 (QA-3) | +8（实际 164） | Antigravity happy path、model/effort 与 --dangerously-skip-permissions 审计、原生 transcript 缺失降级 warning、诱饵会话 0 误采、denied_actions 软拒绝覆写退出码、CLI rc 1 覆写 SUCCESS、坏行截断容错、显式 CONFIG_DIR 拒绝 |
+| Antigravity 边界加固（2026-09-29） | +10（实际 174） | 异常终态、路径穿越、字符串与空消息错误、输出交错、会话复制失败、文件与目录软链，以及 `run -v` / `watch` 异常终态展示 |
+
+## Antigravity 回归门（QA-3）
+
+改动 `adapter-antigravity.sh`、事件过滤流（`run.sh` / `watch.sh`）或 Antigravity 会话处理时，运行完整 `scripts/integration-test.sh`；其中 18 项 Antigravity 专项断言覆盖 `SC-048-1` ~ `SC-052-1`。下表保留最初 8 项的覆盖说明，后续边界断言以测试脚本为准：
+
+| 场景 | 覆盖要点 | 断言要点 |
+|---|---|---|
+| `happy path` (SC-048-1) | 正常执行与完整 4 文件采集 | rc=0, done, `session.antigravity.jsonl` 采集成功, `capture_status=ok`, `terminal_status=success`, `session.history.log` 包含人话视图 |
+| `flags audit` (SC-049-1) | model/effort 透传与权限参数 | `--dangerously-skip-permissions` 固定传递，`--model` 与非 `none` 的 `--effort` 正常透传 |
+| `missing transcript` (SC-050-1) | 原生 transcript 缺失时降级 | `capture_status=warning`，oneshot 正常走完（rc=0），`session.history.log` 从 stdout 正常派生 |
+| `decoy isolation` (SC-050-1) | 会话目录 0 误采（防偷跑） | 其他 conversation_id 的 transcript 存在时不被复制，强校验 ID 一致 |
+| `denied_actions` (SC-051-1) | 软拒绝覆盖退出码 0 | result 含 `denied_actions` 时即便 CLI exit 0 也判定为 `error.type=permission`，adapter 返回 2，run 退出 `provider_failed` |
+| `completed_then_rc1` (SC-051-1) | CLI 非零退出覆盖 SUCCESS | 即使 result 事件声明 SUCCESS，CLI exit 1 仍强制判定为 `provider_failed` (rc=2) |
+| `truncated_then_result` (SC-051-1) | 截断坏行容错 | 日志中混入畸形截断行时不崩溃，后续合法 result 事件仍能被正常解析且 `terminal_status=success` |
+| `config dir reject` (SC-052-1) | 显式 CONFIG_DIR 快速失败 | 显式设置 `RALPH_PROVIDER_CONFIG_DIR` 时 exit 1，提示暂不支持，且不产生任何 runs/lock/status.json 产物 |
 
 ## Provider 兼容性与权限回归门（QA-1）
 

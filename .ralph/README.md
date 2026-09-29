@@ -1,10 +1,10 @@
 # `.ralph/` 新手使用手册
 
 `release/<version>/` 是 ralph-loop 的完整部署单元，其中的 `.ralph/` 承载 Ralph CLI、
-oneshot 协议和任务模板。部署到自己的 git workspace 后，可以让 Claude / Codex CLI
+oneshot 协议和任务模板。部署到自己的 git workspace 后，可以让 Claude / Codex / Antigravity CLI
 按 `.ralph/TASKS.md` 里的任务一轮一轮工作。
 
-> 当前正式支持的 provider 只有 Claude Code 和 Codex CLI（测试另可用 `fake`）。
+> 当前正式支持的 provider 包含 Claude Code、Codex CLI 和 Antigravity CLI（测试另可用 `fake`）。
 > 开发工程可能保留 Gemini 历史 adapter 供未来重新接入，但当前 release 包不携带它；公共入口已禁用：传
 > `--provider gemini` 会在启动校验阶段失败（exit 1）且不产生任何 run 目录。
 > 文中相关段落均标注为暂停接入，仅作历史参考。
@@ -47,6 +47,8 @@ Ralph 只做一件事：反复启动 provider CLI 的 fresh oneshot，让 agent 
   `--permission-mode bypassPermissions`），所有工具调用都会直接执行。同一命令行里的
   `--allowedTools "Bash,Read,Edit,Write,Glob,Grep"` 只是"无需询问"清单，在该模式下
   **不生效**，所以它不是能力边界——请不要把那个 6 项清单当作 Claude 的权限收敛。
+- **Antigravity 的权限范围同样不止 workspace**：adapter 固定使用
+  `--dangerously-skip-permissions`，即绕过全部工具执行确认，所有工具调用以当前用户身份直接执行。
 - 不要在含有未提交秘密、生产凭据或不想让 AI 读取的目录里直接运行 Ralph；也不要在
   "agent 越界写入会造成不可接受损失"的机器状态下运行。
 
@@ -94,7 +96,7 @@ git status
 从 ralph-loop release 目录复制完整版本包：
 
 ```bash
-cp -R /path/to/ralph-loop/release/0.1.4/. ./
+cp -R /path/to/ralph-loop/release/0.1.5/. ./
 ```
 
 上面的命令只适用于全新 workspace。目标已有 `AGENTS.md`、`CLAUDE.md`、`.ralph/`、
@@ -124,6 +126,7 @@ ls .ralph/runs .ralph/status.json .ralph/lock 2>/dev/null
 ```bash
 claude --version
 codex --version
+agy --version
 ```
 
 只用其中一个也可以。你打算用哪个 provider，就保证哪个命令能在当前终端正常
@@ -133,6 +136,7 @@ Provider 认证提示：
 
 - Claude: 先按 Claude Code CLI 自己的方式登录。
 - Codex: 先按 Codex CLI 自己的方式登录，或在 CI 里配置 `CODEX_API_KEY`。
+- Antigravity: 先按 Antigravity CLI 自己的方式登录（终端/IDE 完成认证或 `agy auth login`）。
 - Gemini: **暂停接入**（见下文 FAQ）。当前 release 不携带 Gemini adapter，公共入口不接受
   `--provider gemini`，因此现在不需要为 Gemini 配认证。历史要求是
   `~/.gemini/settings.json` 里有 auth method，或配置 `GEMINI_API_KEY` /
@@ -162,6 +166,17 @@ Codex 示例：
 ```bash
 cat > .ralph/.env <<'EOF'
 RALPH_PROVIDER=codex
+RALPH_LOOP_MAX_ROUND=0
+RALPH_LOOP_ROUND_TIMEOUT=0
+RALPH_LOOP_STALL_LIMIT=5
+EOF
+```
+
+Antigravity 示例：
+
+```bash
+cat > .ralph/.env <<'EOF'
+RALPH_PROVIDER=antigravity
 RALPH_LOOP_MAX_ROUND=0
 RALPH_LOOP_ROUND_TIMEOUT=0
 RALPH_LOOP_STALL_LIMIT=5
@@ -244,6 +259,7 @@ Ralph 只识别顶层 checkbox：
 ```bash
 ./.ralph/bin/ralph run --provider claude
 ./.ralph/bin/ralph run --provider codex
+./.ralph/bin/ralph run --provider antigravity
 ```
 
 启动后不要急着改 `.ralph/TASKS.md`。等当前 round 结束，再看结果。
@@ -351,10 +367,11 @@ cat .ralph/runs/<run_id>/rounds/round-001/session.history.log
 ```bash
 ./.ralph/bin/ralph run --provider claude
 ./.ralph/bin/ralph run --provider codex
+./.ralph/bin/ralph run --provider antigravity
 ./.ralph/bin/ralph run --provider fake
 ```
 
-`--provider` 只接受这三个值；其他取值（含 `gemini`）会在启动校验阶段被拒绝，
+`--provider` 只接受这四个值；其他取值（含 `gemini`）会在启动校验阶段被拒绝，
 exit 1，且不创建 run 目录。
 
 带模型：
@@ -362,6 +379,7 @@ exit 1，且不创建 run 目录。
 ```bash
 ./.ralph/bin/ralph run --provider claude --model sonnet
 ./.ralph/bin/ralph run --provider codex --model gpt-5.2
+./.ralph/bin/ralph run --provider antigravity --model gemini-2.5-pro
 ```
 
 带推理强度：
@@ -459,7 +477,7 @@ provider 临时失败时最多重试 5 次：
 
 | 参数 | `.env` 变量 | 默认 | 说明 |
 |---|---|---|---|
-| `--provider <name>` | `RALPH_PROVIDER` | 无 | 必填，只接受 `claude` / `codex` / `fake`；其他取值（含 `gemini`）启动即失败，exit 1 |
+| `--provider <name>` | `RALPH_PROVIDER` | 无 | 必填，只接受 `claude` / `codex` / `antigravity` / `fake`；其他取值（含 `gemini`）启动即失败，exit 1 |
 | `--model <name>` | `RALPH_PROVIDER_MODEL` | 无 | 传给 provider 的模型名 |
 | `--effort <level>` | `RALPH_PROVIDER_EFFORT` | 无 | `low` / `medium` / `high` / `none` |
 | `--max-round <n>` | `RALPH_LOOP_MAX_ROUND` | `0` | 单个 task 最多 round 数，0 表示无限 |
@@ -474,7 +492,7 @@ provider 临时失败时最多重试 5 次：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `RALPH_PROVIDER_CONFIG_DIR` | 无 | 隔离 provider 配置目录；Claude → `CLAUDE_CONFIG_DIR`，Codex → `CODEX_HOME`。只改变凭据/配置来源，**不改变权限或沙箱模式** |
+| `RALPH_PROVIDER_CONFIG_DIR` | 无 | 隔离 provider 配置目录；Claude → `CLAUDE_CONFIG_DIR`，Codex → `CODEX_HOME`。只改变凭据/配置来源，**不改变权限或沙箱模式**。注意：Antigravity 暂无独立配置目录覆盖参数，显式设置会在启动校验失败（exit 1） |
 | `RALPH_PROGRESS_HEARTBEAT_SEC` | `60` | 普通文本模式 heartbeat 间隔，设成 `0` 关闭 |
 | `RALPH_UI_STICKY_EVENT_LINES` | `6` | sticky 事件区行数 |
 | `RALPH_UI_HEALTH_GREEN_SEC` | `60` | provider 日志静默超过该秒数后健康灯变黄 |
@@ -490,9 +508,10 @@ Ralph 是无人值守循环，所以 provider 不允许弹交互式 approval。�
 |---|---|---|
 | Claude | `--dangerously-skip-permissions` + `--allowedTools "Bash,Read,Edit,Write,Glob,Grep"` | 绕过全部 permission 检查，所有工具直接执行。`--allowedTools` 只是免询问清单，在该模式下不生效，**不构成工具限制** |
 | Codex | `codex exec --sandbox danger-full-access` | 移除本地沙箱限制，shell 命令以当前用户身份执行，**不受 workspace 边界约束** |
+| Antigravity | `--dangerously-skip-permissions` | 绕过全部 permission 确认，工具以当前用户身份直接执行，**不受 workspace 边界约束** |
 | Gemini | 无（暂停接入） | 入口拒绝，不会执行 |
 
-一句话总结：**两条真实路径都等于"以你的用户身份无限制执行"，Ralph 没有 provider 侧
+一句话总结：**真实路径都等于"以你的用户身份无限制执行"，Ralph 没有 provider 侧
 的能力收窄层。**
 
 Codex 为什么用 `danger-full-access`：ralph 协议要求 agent 每轮执行

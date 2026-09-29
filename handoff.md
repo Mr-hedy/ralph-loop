@@ -1,62 +1,72 @@
 # 当前目标与约束
 
-- 目标：按最新版 `.spec/` 整理现行项目文档、协作契约与生成包的一致性，统一整个项目的版本。
-- 用户边界：用户决定何时建立任务清单、派发 Ralph，以及何时要求 Main Agent 按指定范围验收；Ralph oneshot 可根据执行现场追加任务并按验证结果勾选。验收发现返工先与用户沟通，再追加任务。
-- 本轮不实施 Hook、Skills、后台托管或自动验收；用户明确要求 `.ralph/TASKS.md` 完全不变，包括其中的旧文档路径。被忽略的本地 `.ralph/runs/`、`status.json`、真实 `.env` 暂保留，发布包不得包含这些运行数据。
+- 目标：完成 Antigravity CLI（`agy`）接入 Ralph-Loop 协作脚手架（REQ-048 ~ REQ-053），实现 headless oneshot 驱动、流式事件监听、Native Transcript 安全采集与人话历史派生。
+- 用户边界：本次执行不使用 `ralph-loop` 自举，直接由 Agent 按任务清单执行；保留 2026-09-14 历史遗留任务（DEV-4、QA-2、DEV-6、DEV-7、REQ-033）不做修改。
+- 交付范围：适配器 `.ralph/lib/adapter-antigravity.sh`、主循环与事件过滤器、集成测试回归门 QA-3、核心架构/安全/集成/测试文档、`release/0.1.5` 发布单元（`release/0.1.4` 保持不可变历史归档）与真实环境 QA-4 隔离 smoke。
 
 # 当前阶段与范围
 
-- 阶段：v0.1.3 整体整理已提交；本轮定向修正文档地图、历史研究状态、方案正文边界和现行链接文字，生成 release v0.1.4。
-- 影响：`.spec/rules/DOCS.md`、现行 `docs/` 文档与地图、项目版本入口及 `release/0.1.4/`；Ralph 执行逻辑不变。
-- 变更类型：文档迁移、协作契约澄清、版本与生成包、静态检查、测试维护和退出提示文字；不改变 Ralph 主循环与 provider adapter 的执行逻辑。
+- 阶段：Antigravity CLI 接入、`release/0.1.5` 真实隔离烟测及 Codex 后续审查修复已完成；准备提交源码、核验发布包并提交发布产物。
+- 影响：`.ralph/` 核心脚本、`release/0.1.5/` 发布单元、`release/0.1.4/` 历史归档、`tests/fixtures/mock-antigravity`、`scripts/` 校验与构建脚本、`docs/` 核心文档与 `README.md`。
+- 变更类型：新增 provider adapter、扩展 stream-json 事件过滤器、新增集成测试与测试替身、补齐架构与安全契约、升级版本号至 0.1.5 并生成 release 0.1.5 交付包。
 
 # 稳定决策
 
-- `.spec/rules/TASKS.md` 指导任务写作，不决定清单创建、派发或勾选时机；当前 dogfood 工作包的既有记录不批量改写。
-- Ralph `done` 只表示执行终态。Main Agent 对整轮产物的验收由用户提出诉求后按约定范围启动；局部 Review 不声明整个工作包通过。
-- 现行文档使用 `docs/features/<feature>/requirements.md`、`docs/features/vibecoding-collaboration/solution.md` 及 `docs/` 根级 architecture/security/integrations/testing；Ralph I1–I5 历史文件位于 `docs/features/ralph-loop/history/`，旧 `docs/requirements/`、`docs/architecture/` 和 `docs/collaboration/` 目录已移除。
-- 项目与 Ralph CLI、release 使用同一当前版本 `0.1.4`；`release/0.1.1`、`release/0.1.2` 和已提交的 `release/0.1.3` 保留为历史产物，`release/0.1.4` 仅从源文件生成。
+- **执行模式**：Antigravity 使用 fresh oneshot headless 模式（`agy --print "$prompt" --output-format stream-json --dangerously-skip-permissions`），重定向采用共用文件描述符 `> "$log_path" 2>&1`，防止 stdout/stderr 交错写入覆盖。
+- **事实源与容错**：`provider.stdout.log` 作为第一事实源（primary source of truth）；原生 transcript（`~/.gemini/antigravity-cli/brain/<session_id>/...`）按 `conversation_id` 强校验单一标识段（`^[a-zA-Z0-9_-]+$`）；通过规范化 `brain` 根目录物理路径核对会话目录身份，复制目标必须核验为非空普通文件。
+- **终态与退出码严格一致**：凡 `res_status != "SUCCESS"`、存在 `denied_actions` 软拒绝或存在结构化 `error`（非空对象或非空字符串）时，强制提升 `rc=1`（REQ-029 / REQ-051），绝不放行至 `done`；已知错误写为 `terminal_status="error"`，未知状态写为 `terminal_status="unknown"`，诊断写入 `meta.json.error`。
+- **符号链接安全防护**：新增 `_antigravity_safe_session_file` 函数，校验会话目录真实物理路径严格等于 `$real_brain/$session_id` 且非软链接，同时校验真实文件物理路径位于规范会话目录内且非软链接，彻底杜绝会话目录（`brain/current -> brain/other`）和文件软链接跨会话偷采。
+- **错误解析双模兼容**：兼容解析对象和纯字符串形态的 `.result.error`，确保真实上游错误不导致 jq 崩溃。
+- **配置隔离拦截**：Antigravity 暂无独立配置目录参数，显式设置 `RALPH_PROVIDER_CONFIG_DIR` 时在启动校验阶段直接报错退出（exit 1），防止未隔离运行。
+- **发布不可变契约**：发布包遵循不可变原则（已有 `release/0.1.4/` 保持原状历史归档），新特性发布通过官方 `scripts/build-release.sh` 升级生成全新的 `release/0.1.5/`。
 
 # 已完成工作
 
-- 更新 `.spec/README.md`、`.spec/rules/REVIEW.md`、`.spec/rules/TASKS.md`，区分自身交付物质量检查与用户触发的 Ralph 产物验收。
-- 同步 `docs/features/vibecoding-collaboration/requirements.md`、`solution.md`、`docs/requirements.md` 和 `docs/architecture.md` 的触发、范围与返工契约。
-- 迁移现行 Ralph 需求与协作需求到 `docs/features/`，迁移项目级架构、集成、安全、测试到 `docs/` 根级；Ralph I<N> 设计和归档原文移入 `docs/features/ralph-loop/history/`，`docs/README.md` 已更新。旧目录导航页已移除，历史快照仍保留原文。
-- 将早期 `docs/collaboration/rules/TASK.md` 原文移到 `docs/research/task-protocol-legacy-2026-04.md`；旧路径已移除。
-- 源码版本改为 `0.1.3`；构建脚本从源码读取版本、拒绝覆盖已有 release，先在临时目录生成后移入正式路径，并支持 `--verify` 完整重建比对；输出 `.env.example`。`scripts/check.sh` 校验目录布局、完整发布包、软链与运行数据排除。
-- `release/0.1.3/` 已由 `bash scripts/build-release.sh` 生成；Hook 与 Skills 未入包；`.ralph/TASKS.md` 未改变。
-- 审查发现 `scripts/check.sh` 中独立 `! grep` 断言在 `set -e` 下没有形成失败门，已修正并新增 PM-0007 与脚本自检。
-- 用户要求的 adversarial review 发现旧事实、发布包必读路径缺失和旧目录策略不一致；已修正现行需求/架构/使用入口、移除旧导航目录，发布版对未入包项目文档作条件说明；PM-0008 记录根因与预防检查。`.spec` Review/Adversarial Review 的返工输出规则已补齐用户决定边界。
-- 整体复审又清理了随包分发的 TASKS 规则里开发仓库专用的历史记录和检查命令，修正 README 的本地 CLI 调用示例；`.spec` 中验证与方案记录仅在已有对应任务时写入任务源，归档仅由用户触发。构建脚本不再因本地存在 `.codex/` 就提前将未实施 Hook 配置带入包；发布校验检查 CLI 可执行权限。PM-0008 已补充这一轮同类遗漏。
-- 本轮将 `docs/research/tasks-md-format-spec-2026-05.md` 明确标为历史并收入文档地图；方案中的独立 adversarial review 标题改为实施前置条件和风险处置；测试文档状态与验证记录分开；现行链接显示文字改用 `architecture.md`，安全地图不再把 `allowedTools` 表述为有效限制。`.spec/rules/DOCS.md` 明确历史归档原文件名例外。PM-0008 和 `docs/testing.md` 增加文档语义复核点。
+- `[x] DEV-8`：探查 Antigravity 会话落盘结构，建立单一来源测试替身 `tests/fixtures/mock-antigravity`，覆盖 10 种仿真场景并纳入静态检查。
+- `[x] DEV-9`：实现 `.ralph/lib/adapter-antigravity.sh`，实现 4 大函数契约（`provider_check_deps`、`provider_oneshot`、`provider_collect_session`、`provider_diagnose`），支持多目录（IDE/CLI）智能 fallback 与流式日志人话派生。
+- `[x] DEV-10`：更新 CLI 入口 `.ralph/bin/ralph`、`run.sh` 门禁放行 `antigravity`，并在 `run.sh` 与 `watch.sh` 扩展对 AGY NDJSON 事件的解析展示。
+- `[x] QA-3`：在 `scripts/integration-test.sh` 增加 QA-3 专项回归测试（8 个测试用例全部 PASS），覆盖参数审计、0 误采、软拒绝、截断坏行容错与配置拦截。
+- `[x] DEV-11`：将 adapter 与 mock 纳入 `build-release.sh` 与 `check.sh`；更新 `README.md`、`.ralph/README.md`、`docs/architecture.md`、`docs/integrations.md`、`docs/security.md` 与 `docs/testing.md`。
+- `[x] QA-4`：在临时隔离 Git workspace 中调用系统真实 `agy 1.2.12` CLI 成功运行单任务并生成 commit（`2abb2b9`）；在干净目录部署 `release/0.1.4/.` 验证自包含性与可用性。
+- `[x] REVIEW-2`：按 `.spec/rules/ADVERSARIAL-REVIEW.md` 结合复现得出 6 项审查问题，全面立项开展 FIX-1 ~ FIX-3 修复。
+- `[x] FIX-1`：修复未知终态退出码提升（非 SUCCESS 强制 rc=1）、`session_id` 路径穿越校验与规范路径核验、重定向共用描述符 `2>&1`、纯字符串 error 事件解析兼容（jq 双模）与会话复制普通文件严格检查。
+- `[x] FIX-2`：在 `mock-antigravity` 与 `integration-test.sh` 增加 5 组针对性回归测试（未知状态提升、路径穿越防护、字符串错误提取、交错写入保护、会话复制异常降级），全量测试提升至 169 项全部通过。
+- `[x] FIX-3`：将版本号升级至 `0.1.5`，还原 `release/0.1.4` 归档，官方构建全新的 `release/0.1.5/`，收口 `docs/README.md` 与 `docs/requirements.md` 中的接入状态至“已确认/已支持”。
+- `[x] FIX-4`：全面闭环 Codex 审查提出的所有边界与契约问题：
+  1. 结构化错误判定：按错误字段结构（是否存在非 null 且 key 数 >0 的对象或非空字符串）判定 `has_error`，无论 `message` 是否为空，只要存在错误对象均置 `terminal_status="error"` 并提升 `rc=1`；在 `provider_diagnose` 增加对 `err_type` 的结构提取与空消息兜底处理，确保准确归类写入 `meta.json.error`；
+  2. 会话目录/文件符号链接防御：新增 `_antigravity_safe_session_file` 函数，以规范化的 `brain` 根目录物理路径为基准（`realpath "$brain_dir"`），校验真实会话目录物理路径严格等于 `$real_brain/$session_id` 且非软链接，同时校验真实文件路径位于会话目录内，杜绝会话目录软链接（`brain/current -> brain/other`）和文件软链接跨会话偷采；
+  3. 需求标准编号对齐：将自动化用例统一对齐到权威需求 `docs/features/antigravity-cli/requirements.md` 中的 `SC-051-1`（终态判定）与 `SC-050-1`（0 次跨会话误采）；
+  4. 扩展 `mock-antigravity`（`typed_empty_message_error` 与 `symlink_session_dir`）并补齐 4 项防回归断言，全量集成测试达到 173 PASS / 0 FAIL；
+  5. 清除文档中“待实施”残留，同步版本至 0.1.5 并重建校验 `release/0.1.5/`。
+- Codex 2026-09-29 再审：修正 `run -v` 与 `watch` 在 AGY `SUCCESS` 携带错误或未知终态时显示 `✓ result` 的误导；新增 SC-051-1 双视图回归断言，并同步需求、方案、测试与交接文档的当前事实。
 
 # 最新验证
 
-- `./.ralph/bin/ralph --version`：通过，输出 `ralph 0.1.4 (a5ad531)`；commit 部分是执行时 HEAD。
-- `bash scripts/check.sh`：通过，输出 `ralph-loop check passed`。
-- `env -u RALPH_WORKSPACE -u RALPH_PROVIDER -u RALPH_LOOP_MAX_ROUND -u RALPH_LOOP_MAX_RETRY -u RALPH_LOOP_STALL_LIMIT -u RALPH_LOOP_ROUND_TIMEOUT bash scripts/integration-test.sh`：`PASS=156 FAIL=0`。
-- 活跃文档本地 Markdown 链接检查：30 个链接，0 个缺失；`git diff --check`：通过。
-- `bash scripts/build-release.sh --verify`：通过，v0.1.4 完整文件树与生成内容一致且 CLI 可执行；把 `release/0.1.4/` 复制到临时 Git workspace 后，版本、软链与 fake 单任务 `done` smoke 通过，退出提示明确区分执行结束和用户验收。
+- `bash scripts/check.sh`：待当前源码修复同步到 `release/0.1.5/` 后复验；上一候选包曾通过。
+- `bash scripts/build-release.sh --verify`：待当前源码修复同步到 `release/0.1.5/` 后复验；上一候选包曾通过。
+- `bash scripts/integration-test.sh`：通过，`PASS=174 FAIL=0`（覆盖终态、双视图展示、软拒绝、空消息错误、文件与目录软链接等场景）。
+- `git diff --check`：通过，无空白异常。
+- **Release 0.1.5 真实环境端到端部署验证（无 Mock 全链路实跑）**：
+  - 在全新隔离 Git 测试工作区（`.tmp/real-agy-0.1.5-smoke`）部署 `release/0.1.5/.`，由系统真实登录的 `agy 1.2.13` 驱动 `ralph run` 执行。
+  - **任务推进**：真实驱动 `DEV-1: 实现 string_utils.py 并完成单测验证`，`agy` 自动创建 `string_utils.py` 与 `test_string_utils.py`、执行 `python3 -m unittest -v`（2 tests ok）、按 `.spec/rules/TASKS.md` 规范将 `.ralph/TASKS.md` 打钩为 `[x]` 并补充完成/验证记录、自动创建 `.gitignore` 过滤缓存、自动提交 Git commit（`51c379c`）。
+  - **Loop 终态**：任务全部勾选后，Ralph 自然收敛以 `exit_reason: done` 退出，退出码 0，耗时 1m19s。
+  - **数据采集完备性**：会话 ID 为 `93dd7c2b-116a-444f-adf0-2ef7bc633652`，经 `_antigravity_safe_session_file` 规范根目录物理路径核验通过，成功采集到 33KB 原生 transcript（`session.antigravity.jsonl`），派生 11KB 结构化人类历史（`session.history.log`），`meta.json` 记录 `capture_status: "ok"`、`terminal_status: "success"`、`exit_code: 0`、精确变更文件与前后任务状态（`0/1 -> 1/1`）。
 
 # 已验证与未验证
 
-- 已验证：现行源文件和生成包完整一致、版本一致、模板无顶层任务、软链和 CLI 入口、临时部署 fake smoke、完整 mock 集成回归；本仓库 `.ralph/TASKS.md` 无 diff。
-- 未验证：真实 Claude/Codex provider smoke；将发布包复制到另一个新 workspace 的完整人机协作演练；Hook 与 Skills 实现不在本轮范围。历史归档、checkpoint 和 `.ralph/TASKS.md` 内的旧路径按原文保留，不再保证直接解析，需通过 `docs/README.md` 的现行地图查找。
+- 已验证：Antigravity adapter 代码与契约、事件流解析、错误诊断矩阵、174 项自动化回归测试、此前 `release/0.1.5` 候选包的独立隔离环境真实模型 smoke、Codex 审查发现的边界与安全问题修复。
+- 未验证：当前事件展示修复后的发布包尚待重新生成与逐字节核验，未重复执行真实 AGY smoke；超长时间运行下的上游大模型配额耗尽处理未实测（QA-3 mock 已验证重试调度）。
 
 # Checkpoint 与 Postmortem 状态
 
-- Checkpoint：无，本轮未创建稳定锚点。
-- Postmortem：已读 `docs/postmortems/README.md`；新增 PM-0007（`pm-negated-grep-check-bypass.md`）与 PM-0008（`pm-release-consistency-sampled-checks.md`），分别记录静态检查假通过、抽样发布校验遗漏旧事实及其预防门。版本测试硬编码失败已由动态断言修复，未达到独立 postmortem 阈值。
+- Checkpoint：无新建。
+- Postmortem：已查阅既有 postmortems；本次捕获的所有设计与边界缺陷已沉淀为自动化集成测试（共 9 项针对性回归门），形成长效防回归机制。
 
 # 工作区状态
 
-- 分支：`main`；v0.1.3 整理提交：`a5ad531100550894b382e56d03fedea08a8476e4`。
-- 本轮 v0.1.4 文档修复和新生成包作为后续变更交付；被忽略的本地运行记录仍保留。
+- 分支：`main`。
+- 源码和文档待首次提交；`release/0.1.5/` 待按最新源码重新生成并进行第二次提交。以 `git status` 为准确认提交状态。
 
 # 建议下一步
 
-- 后续由用户决定何时启动新任务清单或 Ralph；若要求清理被忽略的本地运行记录，先确认具体保留范围。
-
-# 交接摘要
-
-- 当前权威版本和部署包为 `0.1.4`；Ralph 完成不自动触发 Main Agent 整轮验收，用户决定验收时机与范围；旧项目文档目录已移除，历史快照与本仓库 TASKS 内旧路径按原文保留。
+- 完成二次 adversarial-review；提交源码与文档，重新生成并验证 `release/0.1.5/`，最后提交发布产物。

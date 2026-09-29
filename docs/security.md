@@ -20,9 +20,10 @@ Ralph 是无人值守的 oneshot harness，每轮都必须跑到 provider 自然
 |---|---|---|---|
 | Claude | `--dangerously-skip-permissions` + `--allowedTools "Bash,Read,Edit,Write,Glob,Grep"` | **绕过全部 permission 检查**（等价 `--permission-mode bypassPermissions`；官方权限模式表对该模式写的是 "What runs without asking: Everything"，适用场景标注 "Isolated containers and VMs only"）。同行的 `--allowedTools` 是 pre-approve（allow）规则，**不是**工具限制：官方明确 "Allow rules have no effect in `bypassPermissions`"，且 "To restrict which tools are available, use `--tools` instead"。因此那 6 项清单在本配置下**不构成能力边界**，不得当作 Claude 的权限收敛来读 | 白名单取值固定不做开关；当前 adapter 未使用任何能真正收窄能力的机制（deny 规则 `--disallowedTools` / 工具集 `--tools`） |
 | Codex  | `codex exec` + `--sandbox danger-full-access` | **移除本地沙箱限制**：模型生成的 shell 命令不再受 workspace 边界约束，以当前用户身份在整机可达范围内执行（官方措辞 "removes local sandbox restrictions"）；REQ-031 的"等同于 workspace 内任意写入权限"是这条的**下界**而非等价描述 | 为允许 oneshot 完成 `git add/commit`（`workspace-write` 会禁止写 `.git/index.lock`）；Ralph 外层固定 workspace、lock、timeout 和进程树清理 |
+| Antigravity | `--dangerously-skip-permissions` | **绕过全部 permission 确认**：所有工具调用直接执行，模型生成的命令以当前用户身份在整机可达范围内执行，不受 workspace 边界约束 | 权限参数固定写死在 adapter 源码内，不做配置开关；Ralph 外层固定 workspace、lock、timeout 和进程树清理 |
 | Gemini | 暂停支持 | adapter 保留，公共入口不接受该 provider（REQ-028） | — |
 
-**有效权限汇总**：Claude 与 Codex 两条在各自 CLI 的语义下都等价于"以当前用户身份无限制执行"——Ralph 不存在 provider 侧的能力收窄层。区别只在实现方式：Codex 是显式 `danger-full-access` 沙箱模式，Claude 是 bypass permission 模式 + 一个在该模式下失效的 allow 清单。
+**有效权限汇总**：Claude、Codex 与 Antigravity 三条在各自 CLI 的语义下都等价于"以当前用户身份无限制执行"——Ralph 不存在 provider 侧的能力收窄层。区别只在实现方式：Codex 是显式 `danger-full-access` 沙箱模式，Claude 是 bypass permission 模式 + 一个在该模式下失效的 allow 清单，Antigravity 是 bypass permission 模式。
 
 Codex 沙箱模式取值来自 `codex exec --help`（`-s, --sandbox <SANDBOX_MODE>`，possible values: `read-only, workspace-write, danger-full-access`，语义为 "Select the sandbox policy to use when executing model-generated shell commands"）；`danger-full-access` 的展开描述见官方 Permissions 文档（"removes local sandbox restrictions and should be used only when that broad access is intentional"）。官方页面**未**就该 profile 单独声明网络访问行为，因此不把"网络可用"写进契约。
 
@@ -60,6 +61,7 @@ REQ-022 引入的中立抽象：
 - 每个 adapter 在 source 时把它翻译为 provider 原生环境变量（详见 `integrations.md` §Adapter 配置目录翻译契约）：
   - `adapter-claude.sh` → `CLAUDE_CONFIG_DIR`
   - `adapter-codex.sh` → `CODEX_HOME`
+  - `adapter-antigravity.sh` → 暂不支持独立配置目录覆盖，设置该变量时在启动校验阶段直接报错（exit 1），防止未隔离运行
   - `adapter-gemini.sh` → `GEMINI_CLI_HOME`（I4 DEV-1 校准；官方 configuration 文档明确该变量改变 Gemini CLI 的根目录，CLI 在该目录下创建 `.gemini/`）。**Gemini 暂停接入**（REQ-028），该翻译目前不可达：公共入口在 source adapter 之前就拒绝 `gemini`，条目保留供未来重新接入。
 - **鲁棒性约束**：变量未设或值为空时**不**做翻译 export，避免空值干扰 provider 默认行为。
 - 子进程 env 继承走 bash 默认行为（fork+exec），无需 adapter 在每次调用时重设。
@@ -71,7 +73,7 @@ REQ-022 引入的中立抽象：
 NFR-SEC-003 的禁入规则（本仓库和 `.ralph/` 部署包均适用）：
 
 - `.ralph/.env`、使用者 API key、provider 登录态、完整凭据：**不入仓**。
-- provider 原生 session 文件（`~/.claude/projects/`、`~/.codex/sessions/`；Gemini 的 `~/.gemini/tmp/` 暂停接入，见 REQ-028。隔离模式下路径由 `RALPH_PROVIDER_CONFIG_DIR` 翻译后的 provider 原生变量决定）通常包含完整 prompts、tool outputs、命令结果，可能带敏感信息：默认**不入仓**。
+- provider 原生 session 文件（`~/.claude/projects/`、`~/.codex/sessions/`、Antigravity 默认 `~/.gemini/antigravity-cli/brain/`；Gemini 的 `~/.gemini/tmp/` 暂停接入，见 REQ-028。Claude/Codex 的隔离模式路径由 `RALPH_PROVIDER_CONFIG_DIR` 翻译后的原生变量决定；Antigravity 显式配置该变量会启动失败）通常包含完整 prompts、tool outputs、命令结果，可能带敏感信息：默认**不入仓**。
 - `.ralph/runs/` 及其下的 `provider.stdout.log`、`session.*`、`session.history.log`、`meta.json`、`result.json` 是本地复盘材料，**默认不入仓**；使用者应在 `.ralph/.gitignore` 忽略 `runs/`、`status.json`、`lock`。
 - `docs/`、`handoff.md`、`checkpoints/`、`postmortems/`、`task.md` 不得写入 secrets、完整凭据或会话 transcript；协作文档只承载结构性事实。
 
@@ -103,7 +105,7 @@ Ralph 工具本身不对 session 文件做脱敏，因为 provider 的 transcrip
    ```bash
    grep -n 'danger-full-access\|dangerously-skip-permissions\|allowedTools' .ralph/lib/adapter-*.sh
    ```
-   期望命中 `adapter-claude.sh` 的 `--dangerously-skip-permissions` + `--allowedTools "Bash,Read,Edit,Write,Glob,Grep"`，以及 `adapter-codex.sh` 的 `--sandbox danger-full-access`，且无第三个 provider 命中。
+   期望命中 `adapter-claude.sh` 的 `--dangerously-skip-permissions` + `--allowedTools "Bash,Read,Edit,Write,Glob,Grep"`、`adapter-codex.sh` 的 `--sandbox danger-full-access`，以及 `adapter-antigravity.sh` 的 `--dangerously-skip-permissions`，且无其他文件命中。
 2. 用 `context.json.provider_version` + `env_source` 锚定"哪一版 provider CLI、哪些配置来源"；`RALPH_PROVIDER_CONFIG_DIR` 只影响配置目录翻译（Claude → `CLAUDE_CONFIG_DIR`，Codex → `CODEX_HOME`），不影响沙箱模式。
 
 **已知缺口**：REQ-031 要求沙箱/approval 参数"记录到 meta"，而当前 meta.json **没有**对应的权限字段，auditability 由上表的写死源码 + 本文档 + `context.json` 版本锚点共同承担。若未来权限参数需要按 run 变化，必须先在 meta.json 增加字段并升级本节契约。

@@ -1,0 +1,370 @@
+#!/usr/bin/env bash
+# tests/fixtures/mock-antigravity — Antigravity CLI (agy) test double
+# 模拟 agy headless 运行（--print <prompt> --output-format stream-json）
+# 输出 NDJSON 流式事件（init / step_update / result）
+# 在 ${ANTIGRAVITY_APP_DATA_DIR:-$HOME/.gemini/antigravity}/brain/<id>/.system_generated/logs/transcript.jsonl 写原生会话
+set -euo pipefail
+
+if [[ "${1:-}" == "--version" ]]; then
+  echo "agy 1.2.12"
+  exit 0
+fi
+
+if [[ "${1:-}" == "--help" ]]; then
+  echo "Usage of agy:"
+  echo "  --print                         Run a single prompt non-interactively and print the response"
+  echo "  --output-format                 Output format for print mode (text, json, stream-json)"
+  echo "  --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting"
+  echo "  --model                         Model for the current CLI session"
+  echo "  --effort                        Reasoning effort for the current CLI session (low|medium|high|max)"
+  exit 0
+fi
+
+received_model=""
+received_effort=""
+received_skip_permissions="false"
+prompt_text=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model)
+      received_model="${2:-}"
+      shift 2
+      ;;
+    --effort)
+      received_effort="${2:-}"
+      shift 2
+      ;;
+    --dangerously-skip-permissions)
+      received_skip_permissions="true"
+      shift
+      ;;
+    --output-format)
+      # format, e.g. stream-json
+      shift 2
+      ;;
+    -p|--print|--prompt)
+      prompt_text="${2:-}"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+scenario="${RALPH_MOCK_ANTIGRAVITY_SCENARIO:-happy}"
+conversation_id="${RALPH_MOCK_ANTIGRAVITY_CONV_ID:-conv-agy-111-222}"
+
+_app_data_dir() {
+  printf '%s' "${ANTIGRAVITY_APP_DATA_DIR:-$HOME/.gemini/antigravity}"
+}
+
+_emit_init() {
+  jq -nc \
+    --arg cid "$conversation_id" \
+    --arg model "$received_model" \
+    --arg effort "$received_effort" \
+    --argjson skip "$received_skip_permissions" \
+    '{
+      event: "init",
+      conversation_id: $cid,
+      _received_model: $model,
+      _received_effort: $effort,
+      _received_skip_permissions: $skip
+    }'
+}
+
+_emit_step_text() {
+  local text="$1"
+  jq -nc --arg t "$text" \
+    '{event: "step_update", agent_response: {text_delta: $t}}'
+}
+
+_emit_step_tool() {
+  local tool="$1"
+  local cmd="${2:-}"
+  jq -nc --arg t "$tool" --arg c "$cmd" \
+    '{event: "step_update", tool_name: $t, tool_info: {command: $c}}'
+}
+
+_emit_result_success() {
+  jq -nc \
+    --arg effort "$received_effort" \
+    '{
+      event: "result",
+      status: "SUCCESS",
+      error: null,
+      denied_actions: [],
+      usage: {prompt_tokens: 100, completion_tokens: 50},
+      _received_effort: $effort
+    }'
+}
+
+_emit_result_error() {
+  local msg="$1"
+  local err_type="${2:-unknown}"
+  jq -nc \
+    --arg m "$msg" \
+    --arg t "$err_type" \
+    '{
+      event: "result",
+      status: "ERROR",
+      error: {type: $t, message: $m},
+      denied_actions: [],
+      usage: {prompt_tokens: 0, completion_tokens: 0}
+    }'
+}
+
+_emit_result_soft_denied() {
+  local action="${1:-run_command}"
+  local reason="${2:-auto-approval rejected}"
+  jq -nc \
+    --arg a "$action" \
+    --arg r "$reason" \
+    '{
+      event: "result",
+      status: "SUCCESS",
+      error: null,
+      denied_actions: [{action: $a, reason: $r}],
+      usage: {prompt_tokens: 50, completion_tokens: 20}
+    }'
+}
+
+_write_native_transcript() {
+  local cid="$1"
+  local base_dir
+  base_dir="$(_app_data_dir)"
+  local log_dir="$base_dir/brain/$cid/.system_generated/logs"
+  mkdir -p "$log_dir"
+  local transcript_file="$log_dir/transcript.jsonl"
+  cat > "$transcript_file" << ENDJSONL
+{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-28T08:00:00Z","content":"Perform task"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-28T08:00:01Z","thinking":"Thinking...","tool_calls":[{"name":"run_command","args":{"CommandLine":"git status"}}]}
+{"step_index":2,"source":"MODEL","type":"GENERIC","status":"DONE","created_at":"2026-09-28T08:00:02Z","content":"Exit code 0"}
+ENDJSONL
+  echo "$transcript_file"
+}
+
+_check_first_task() {
+  # 仅当显式设置 RALPH_MOCK_ALLOW_TASK_WRITE=1 时，才在测试工作区标记任务
+  if [[ "${RALPH_MOCK_ALLOW_TASK_WRITE:-0}" == "1" && -n "${RALPH_WORKSPACE:-}" ]]; then
+    local tasks_file="${RALPH_WORKSPACE}/.ralph/TASKS.md"
+    if [[ -f "$tasks_file" ]]; then
+      local tmpout
+      tmpout="$(mktemp)"
+      local found=0
+      local line
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$found" -eq 0 && "$line" =~ ^([[:space:]]*-[[:space:]]+)\[[[:space:]]\](.*)$ ]]; then
+          printf '%s[x]%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" >> "$tmpout"
+          found=1
+        else
+          printf '%s\n' "$line" >> "$tmpout"
+        fi
+      done < "$tasks_file"
+      mv "$tmpout" "$tasks_file"
+    fi
+  fi
+}
+
+case "$scenario" in
+  happy)
+    _emit_init
+    _emit_step_text "Starting task..."
+    _emit_step_tool "run_command" "git status"
+    _emit_step_text "Task completed successfully."
+    _emit_result_success
+    _write_native_transcript "$conversation_id" >/dev/null
+    _check_first_task
+    exit 0
+    ;;
+
+  crash)
+    _emit_init
+    _emit_step_text "Unexpected fatal error..."
+    echo "agy: segmentation fault or panic" >&2
+    exit 139
+    ;;
+
+  api_error)
+    _emit_init
+    _emit_step_text "Encountered API error"
+    _emit_result_error "API server returned 500 internal error" "api"
+    exit 2
+    ;;
+
+  rate_limit)
+    _emit_init
+    _emit_step_text "Hit rate limit"
+    _emit_result_error "Rate limit exceeded. Please wait before retrying." "rate_limit"
+    exit 2
+    ;;
+
+  auth_error)
+    _emit_init
+    _emit_result_error "User not authenticated. Please run agy auth login" "auth"
+    exit 1
+    ;;
+
+  denied_actions)
+    _emit_init
+    _emit_step_tool "run_command" "rm -rf /"
+    _emit_result_soft_denied "run_command" "permission denied by security policy"
+    _check_first_task
+    exit 0
+    ;;
+
+  completed_then_rc1)
+    _emit_init
+    _emit_step_text "Work done but CLI exited with 1"
+    _emit_result_success
+    _write_native_transcript "$conversation_id" >/dev/null
+    exit 1
+    ;;
+
+  truncated_then_result)
+    _emit_init
+    printf '{"event":"step_update","corrupted_json": \n'
+    _emit_step_text "Recovered step text"
+    _emit_result_success
+    _write_native_transcript "$conversation_id" >/dev/null
+    _check_first_task
+    exit 0
+    ;;
+
+  no_session_at_all)
+    _emit_init
+    _emit_step_text "Doing work without saving session"
+    _emit_result_success
+    # 不写 transcript 文件
+    _check_first_task
+    exit 0
+    ;;
+
+  home_decoy)
+    _emit_init
+    _emit_step_text "Writing to decoy location"
+    _emit_result_success
+    # 模拟把会话写到别人的 conversation ID 下，测试防错采
+    _write_native_transcript "decoy-other-conversation-999" >/dev/null
+    exit 0
+    ;;
+
+  unknown_status)
+    _emit_init
+    _emit_step_text "Task in pending state..."
+    jq -nc \
+      '{
+        event: "result",
+        status: "PENDING",
+        error: null,
+        denied_actions: [],
+        usage: {prompt_tokens: 50, completion_tokens: 10}
+      }'
+    _check_first_task
+    exit 0
+    ;;
+
+  path_traversal)
+    conversation_id="fake/../decoy"
+    _emit_init
+    _emit_step_text "Attempting path traversal session id"
+    _emit_result_success
+    _check_first_task
+    exit 0
+    ;;
+
+  string_error)
+    _emit_init
+    _emit_step_text "Encountered string-formatted API error"
+    jq -nc \
+      '{
+        event: "result",
+        status: "ERROR",
+        error: "API error (attempt 2): request failed: Post \"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse\": EOF",
+        denied_actions: [],
+        usage: {prompt_tokens: 0, completion_tokens: 0}
+      }'
+    exit 2
+    ;;
+
+  interleaved_output)
+    _emit_init
+    echo "STDERR_LINE_MARKER_BEFORE_RESULT" >&2
+    _emit_result_success
+    echo "STDERR_LINE_MARKER_AFTER_RESULT" >&2
+    _write_native_transcript "$conversation_id" >/dev/null
+    _check_first_task
+    exit 0
+    ;;
+
+  success_with_error)
+    _emit_init
+    _emit_step_text "Done work but API error occurred"
+    jq -nc \
+      '{
+        event: "result",
+        status: "SUCCESS",
+        error: "API error: operation failed",
+        denied_actions: [],
+        usage: {prompt_tokens: 100, completion_tokens: 20}
+      }'
+    _check_first_task
+    exit 0
+    ;;
+
+  symlink_transcript)
+    _emit_init
+    _emit_step_text "Attempting symlink transcript"
+    _emit_result_success
+    local decoy_file
+    decoy_file="$(mktemp "${TMPDIR:-/tmp}/decoy_session_XXXXXX.jsonl")"
+    echo '{"step_index":0,"content":"decoy content from outside"}' > "$decoy_file"
+    local base_dir
+    base_dir="$(_app_data_dir)"
+    local log_dir="$base_dir/brain/$conversation_id/.system_generated/logs"
+    mkdir -p "$log_dir"
+    ln -sfn "$decoy_file" "$log_dir/transcript.jsonl"
+    _check_first_task
+    exit 0
+    ;;
+
+  typed_empty_message_error)
+    _emit_init
+    _emit_step_text "Done work but empty message typed error occurred"
+    jq -nc \
+      '{
+        event: "result",
+        status: "SUCCESS",
+        error: {type: "api", message: ""},
+        denied_actions: [],
+        usage: {prompt_tokens: 100, completion_tokens: 20}
+      }'
+    _check_first_task
+    exit 0
+    ;;
+
+  symlink_session_dir)
+    _emit_init
+    _emit_step_text "Attempting symlink session directory"
+    _emit_result_success
+    local other_cid="other-conversation-999"
+    local base_dir
+    base_dir="$(_app_data_dir)"
+    local other_log_dir="$base_dir/brain/$other_cid/.system_generated/logs"
+    mkdir -p "$other_log_dir"
+    cat > "$other_log_dir/transcript.jsonl" << 'ENDJSONL'
+{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-28T08:00:00Z","content":"OTHER_SESSION_CONTENT"}
+ENDJSONL
+    mkdir -p "$base_dir/brain"
+    ln -sfn "$base_dir/brain/$other_cid" "$base_dir/brain/$conversation_id"
+    _check_first_task
+    exit 0
+    ;;
+
+  *)
+    echo "mock-antigravity: unknown scenario: $scenario" >&2
+    exit 1
+    ;;
+esac

@@ -2580,7 +2580,7 @@ cleanup_codex_ws
 	  [[ -f "$ws/.ralph/status.json" ]] && artifacts_ok=0
 	  if [[ "$rc" -eq 1 \
 	     && "$stderr_out" == *"temporarily disabled"* \
-	     && "$stderr_out" == *"claude, codex or fake"* \
+	     && "$stderr_out" == *"claude, codex, antigravity or fake"* \
 	     && "$artifacts_ok" -eq 1 ]]; then
 	    _pass "$label: rc=1, 'temporarily disabled', no runs/lock/status.json"
 	  else
@@ -2799,11 +2799,438 @@ cleanup_codex_ws
 	perm_files="$(grep -lE -- '--dangerously-skip-permissions|--sandbox|--approval-mode|--allowedTools' \
 	  "$REPO_ROOT/.ralph/bin/ralph" "$REPO_ROOT/.ralph/lib"/*.sh 2>/dev/null \
 	  | while IFS= read -r _f; do basename "$_f"; done | sort | tr '\n' ' ')" || perm_files=""
-	expected_perm_files="adapter-claude.sh adapter-codex.sh adapter-gemini.sh "
+	expected_perm_files="adapter-antigravity.sh adapter-claude.sh adapter-codex.sh adapter-gemini.sh "
 	if [[ "$perm_files" == "$expected_perm_files" ]]; then
 	  _pass "permission flag scan: only provider adapters declare widening flags ($perm_files)"
 	else
 	  _fail "permission flag scan: got '$perm_files', expected '$expected_perm_files'"
+	fi
+
+	# ────────────────────────────────
+	# QA-3：Antigravity adapter 回归门（REQ-048 ~ REQ-052）
+	# ────────────────────────────────
+	SETUP_AGY_WS=""
+	SETUP_AGY_BIN=""
+	SETUP_AGY_HOME=""
+	setup_antigravity_workspace() {
+	  SETUP_AGY_WS="$(setup_workspace --provider antigravity)"
+	  local home_parent
+	  home_parent="$(mktemp -d)"
+	  SETUP_AGY_HOME="$home_parent/home"
+	  mkdir -p "$SETUP_AGY_HOME"
+	  SETUP_AGY_BIN="$SETUP_AGY_WS/tests-bin"
+	  mkdir -p "$SETUP_AGY_BIN"
+	  ln -sf "$REPO_ROOT/tests/fixtures/mock-antigravity" "$SETUP_AGY_BIN/agy"
+	}
+
+	cleanup_antigravity_ws() {
+	  [[ -n "${SETUP_AGY_HOME:-}" ]] && rm -rf "$(dirname "$SETUP_AGY_HOME")"
+	  [[ -n "${SETUP_AGY_WS:-}" ]] && cleanup_ws "$SETUP_AGY_WS"
+	  SETUP_AGY_WS=""
+	  SETUP_AGY_BIN=""
+	  SETUP_AGY_HOME=""
+	}
+
+	echo ""
+	echo "-- SC-048-1: Antigravity adapter happy path (mock-antigravity, done, session captured)"
+	setup_antigravity_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_AGY_WS/.ralph/TASKS.md"
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "single task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=happy \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	if [[ "$rc" -eq 0 && "$reason" == "done" \
+	   && -f "$round_dir/session.antigravity.jsonl" \
+	   && -f "$round_dir/session.history.log" \
+	   && -s "$round_dir/session.history.log" \
+	   && "$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)" == "ok" \
+	   && "$(jq -r .terminal_status "$round_dir/meta.json" 2>/dev/null)" == "success" ]]; then
+	  _pass "antigravity happy path: rc=0, done, session.antigravity.jsonl captured, history derived"
+	else
+	  _fail "antigravity happy path: rc=$rc reason=$reason capture=$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-049-1: Antigravity model/effort 透传与 --dangerously-skip-permissions 审计"
+	setup_antigravity_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_AGY_WS/.ralph/TASKS.md"
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=happy \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity --model "test-model-3" --effort high 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	init_event="$(grep -E '^[[:space:]]*\{' "$round_dir/provider.stdout.log" 2>/dev/null | jq -c 'select(.event=="init")' 2>/dev/null | head -1)"
+	got_model="$(printf '%s' "$init_event" | jq -r '._received_model // ""' 2>/dev/null)"
+	got_effort="$(printf '%s' "$init_event" | jq -r '._received_effort // ""' 2>/dev/null)"
+	got_skip="$(printf '%s' "$init_event" | jq -r '._received_skip_permissions // false' 2>/dev/null)"
+	if [[ "$got_model" == "test-model-3" && "$got_effort" == "high" && "$got_skip" == "true" ]]; then
+	  _pass "antigravity flags: --dangerously-skip-permissions=true, model='$got_model', effort='$got_effort'"
+	else
+	  _fail "antigravity flags: model='$got_model' effort='$got_effort' skip='$got_skip'"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-050-1: 原生 transcript 缺失时降级为 warning（不阻断 run，history 正常派生）"
+	setup_antigravity_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_AGY_WS/.ralph/TASKS.md"
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=no_session_at_all \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	cap_status="$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	if [[ "$rc" -eq 0 && "$reason" == "done" \
+	   && "$cap_status" == "warning" \
+	   && ! -f "$round_dir/session.antigravity.jsonl" \
+	   && -f "$round_dir/session.history.log" \
+	   && -s "$round_dir/session.history.log" ]]; then
+	  _pass "antigravity transcript missing: capture_status=warning, done, history.log derived"
+	else
+	  _fail "antigravity transcript missing: rc=$rc reason=$reason cap_status=$cap_status"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-050-1: 其他会话文件存在时 0 次误采（按 conversation_id 精确校验）"
+	setup_antigravity_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_AGY_WS/.ralph/TASKS.md"
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=home_decoy \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	cap_status="$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)"
+	if [[ "$cap_status" == "warning" && ! -f "$round_dir/session.antigravity.jsonl" ]]; then
+	  _pass "antigravity decoy isolation: 0 次跨会话误采，不同 ID 不复制"
+	else
+	  _fail "antigravity decoy isolation: cap_status=$cap_status copied=$(test -f "$round_dir/session.antigravity.jsonl" && echo YES || echo NO)"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-051-1: 软拒绝（denied_actions）不能被 exit code 0 掩盖（provider_failed，rc=2）"
+	setup_antigravity_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_AGY_WS/.ralph/TASKS.md"
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=denied_actions \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	term_status="$(jq -r .terminal_status "$round_dir/meta.json" 2>/dev/null)"
+	err_type="$(jq -r .error.type "$round_dir/meta.json" 2>/dev/null)"
+	if [[ "$rc" -eq 2 && "$reason" == "provider_failed" \
+	   && "$term_status" == "error" && "$err_type" == "permission" ]]; then
+	  _pass "antigravity denied_actions: exit 0 overridden, rc=2, provider_failed, error.type=permission"
+	else
+	  _fail "antigravity denied_actions: rc=$rc reason=$reason term_status=$term_status err_type=$err_type"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-051-1: result SUCCESS 但 CLI 退出非零 → provider_failed（rc=2）"
+	setup_antigravity_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_AGY_WS/.ralph/TASKS.md"
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=completed_then_rc1 \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	if [[ "$rc" -eq 2 && "$reason" == "provider_failed" ]]; then
+	  _pass "antigravity completed_then_rc1: CLI rc=1 overrides SUCCESS result, provider_failed"
+	else
+	  _fail "antigravity completed_then_rc1: rc=$rc reason=$reason"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-051-1: 截断坏行混入不丢失后续合法 result 事件"
+	setup_antigravity_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_AGY_WS/.ralph/TASKS.md"
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=truncated_then_result \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	term_status="$(jq -r .terminal_status "$round_dir/meta.json" 2>/dev/null)"
+	if [[ "$rc" -eq 0 && "$reason" == "done" && "$term_status" == "success" ]]; then
+	  _pass "antigravity truncated_then_result: valid result parsed despite malformed line"
+	else
+	  _fail "antigravity truncated_then_result: rc=$rc reason=$reason term_status=$term_status"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-052-1: 显式设置 RALPH_PROVIDER_CONFIG_DIR 时快速失败且不建 run 目录"
+	setup_antigravity_workspace
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "init" 2>/dev/null || true
+	rc=0
+	stderr_out=$(env PATH="$SETUP_AGY_BIN:$PATH" RALPH_PROVIDER_CONFIG_DIR="/tmp/custom-config" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>&1 >/dev/null) || rc=$?
+	artifacts_ok=1
+	[[ -d "$SETUP_AGY_WS/.ralph/runs" ]] && artifacts_ok=0
+	[[ -f "$SETUP_AGY_WS/.ralph/lock" ]] && artifacts_ok=0
+	[[ -f "$SETUP_AGY_WS/.ralph/status.json" ]] && artifacts_ok=0
+	if [[ "$rc" -eq 1 && "$artifacts_ok" -eq 1 && "$stderr_out" == *"RALPH_PROVIDER_CONFIG_DIR"* ]]; then
+	  _pass "antigravity config dir rejection: rc=1, clear error message, no runs/lock/status.json"
+	else
+	  _fail "antigravity config dir rejection: rc=$rc artifacts_ok=$artifacts_ok stderr=$stderr_out"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-051-1: 未知终态状态（unknown status）不能被 exit code 0 掩盖（provider_failed，rc=2）"
+	setup_antigravity_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_AGY_WS/.ralph/TASKS.md"
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=unknown_status \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
+	term_status="$(jq -r .terminal_status "$round_dir/meta.json" 2>/dev/null)"
+	if [[ "$rc" -eq 2 && "$reason" == "provider_failed" && "$term_status" == "unknown" ]]; then
+	  _pass "antigravity unknown_status: exit 0 overridden, rc=2, provider_failed, term_status=unknown"
+	else
+	  _fail "antigravity unknown_status: rc=$rc reason=$reason term_status=$term_status"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-050-1: 路径穿越会话 ID 拦截并降级为 warning（0 误采越界防护）"
+	setup_antigravity_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_AGY_WS/.ralph/TASKS.md"
+	mkdir -p "$SETUP_AGY_HOME/.gemini/antigravity/brain/decoy/.system_generated/logs"
+	printf 'decoy transcript' > "$SETUP_AGY_HOME/.gemini/antigravity/brain/decoy/.system_generated/logs/transcript.jsonl"
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=path_traversal \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	cap_status="$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)"
+	cap_warn="$(jq -r .capture_warning "$round_dir/meta.json" 2>/dev/null)"
+	if [[ "$cap_status" == "warning" && "$cap_warn" == *"invalid or unsafe session_id"* && ! -f "$round_dir/session.antigravity.jsonl" ]]; then
+	  _pass "antigravity path_traversal: safely rejected, capture_status=warning, no breakout copy"
+	else
+	  _fail "antigravity path_traversal: cap_status=$cap_status cap_warn=$cap_warn copied=$(test -f "$round_dir/session.antigravity.jsonl" && echo YES || echo NO)"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-051-1: 字符串格式真实错误解析（error 为字符串时正确解析 type=api）"
+	setup_antigravity_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_AGY_WS/.ralph/TASKS.md"
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=string_error \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	err_type="$(jq -r .error.type "$round_dir/meta.json" 2>/dev/null)"
+	err_msg="$(jq -r .error.message "$round_dir/meta.json" 2>/dev/null)"
+	if [[ "$rc" -eq 2 && "$err_type" == "api" && "$err_msg" == *"API error"* ]]; then
+	  _pass "antigravity string_error: correctly classified type=api, message parsed"
+	else
+	  _fail "antigravity string_error: rc=$rc err_type=$err_type err_msg=$err_msg"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-048-1: stdout 与 stderr 交错写入不丢失原始标记（共用描述符 2>&1）"
+	setup_antigravity_workspace
+	printf '%s\n' "- [ ] Task A" > "$SETUP_AGY_WS/.ralph/TASKS.md"
+	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "task" 2>/dev/null || true
+	rc=0
+	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=interleaved_output \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
+	round_dir="${run_dir}/rounds/round-001"
+	has_before=0; has_after=0
+	grep -q "STDERR_LINE_MARKER_BEFORE_RESULT" "$round_dir/provider.stdout.log" 2>/dev/null && has_before=1
+	grep -q "STDERR_LINE_MARKER_AFTER_RESULT" "$round_dir/provider.stdout.log" 2>/dev/null && has_after=1
+	if [[ "$rc" -eq 0 && "$has_before" -eq 1 && "$has_after" -eq 1 ]]; then
+	  _pass "antigravity interleaved_output: stderr markers preserved without overwrite"
+	else
+	  _fail "antigravity interleaved_output: rc=$rc before=$has_before after=$has_after"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-050-1: 会话复制目标异常（如已有冲突目录）时降级为 warning"
+	setup_antigravity_workspace
+	round_dir_dummy="$SETUP_AGY_WS/.ralph/test-round"
+	mkdir -p "$round_dir_dummy"
+	mkdir -p "$round_dir_dummy/session.antigravity.jsonl"
+	chmod 555 "$round_dir_dummy/session.antigravity.jsonl" 2>/dev/null || true
+	echo '{"round":1,"session_id":"test-dummy-id"}' > "$round_dir_dummy/meta.json"
+	mkdir -p "$SETUP_AGY_HOME/.gemini/antigravity/brain/test-dummy-id/.system_generated/logs"
+	echo 'dummy transcript' > "$SETUP_AGY_HOME/.gemini/antigravity/brain/test-dummy-id/.system_generated/logs/transcript.jsonl"
+	(
+	  source "$SETUP_AGY_WS/.ralph/lib/common.sh"
+	  source "$SETUP_AGY_WS/.ralph/lib/session.sh"
+	  source "$SETUP_AGY_WS/.ralph/lib/adapter-antigravity.sh"
+	  provider_collect_session "$round_dir_dummy"
+	) 2>/dev/null || true
+	cap_status_dummy="$(jq -r .capture_status "$round_dir_dummy/meta.json" 2>/dev/null)"
+	chmod 777 "$round_dir_dummy/session.antigravity.jsonl" 2>/dev/null || true
+	rm -rf "$round_dir_dummy"
+	if [[ "$cap_status_dummy" == "warning" ]]; then
+	  _pass "antigravity copy failure: safely downgraded to warning"
+	else
+	  _fail "antigravity copy failure: cap_status=$cap_status_dummy"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-051-1: Antigravity SUCCESS 带错误字符串时判定为失败 (provider_failed, meta.error 分类)"
+	setup_antigravity_workspace
+	cat > "$SETUP_AGY_WS/.ralph/TASKS.md" << 'EOF'
+# Tasks
+- [ ] Task to fail due to error in success event
+EOF
+	rc=0
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=success_with_error \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(find "$SETUP_AGY_WS/.ralph/runs" -mindepth 1 -maxdepth 1 -type d | head -1)"
+	round_dir="$run_dir/rounds/round-001"
+	reason="$(jq -r .exit_reason "$run_dir/result.json" 2>/dev/null)"
+	term_status="$(jq -r .terminal_status "$round_dir/meta.json" 2>/dev/null)"
+	err_type="$(jq -r '.error.type // empty' "$round_dir/meta.json" 2>/dev/null)"
+	err_msg="$(jq -r '.error.message // empty' "$round_dir/meta.json" 2>/dev/null)"
+	if [[ "$rc" -eq 2 && "$reason" == "provider_failed" && "$term_status" == "error" && "$err_type" == "api" && "$err_msg" == *"API error: operation failed"* ]]; then
+	  _pass "antigravity success_with_error: exit 0 overridden, rc=2, provider_failed, classified type=api"
+	else
+	  _fail "antigravity success_with_error: rc=$rc reason=$reason term_status=$term_status err_type=$err_type err_msg=$err_msg"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-051-1: Antigravity SUCCESS 带类型空消息错误对象判定为失败 (type=api, exit 0 覆盖)"
+	setup_antigravity_workspace
+	cat > "$SETUP_AGY_WS/.ralph/TASKS.md" << 'EOF'
+# Tasks
+- [ ] Task to fail due to empty message typed error in success event
+EOF
+	rc=0
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=typed_empty_message_error \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(find "$SETUP_AGY_WS/.ralph/runs" -mindepth 1 -maxdepth 1 -type d | head -1)"
+	round_dir="$run_dir/rounds/round-001"
+	reason="$(jq -r .exit_reason "$run_dir/result.json" 2>/dev/null)"
+	term_status="$(jq -r .terminal_status "$round_dir/meta.json" 2>/dev/null)"
+	err_type="$(jq -r '.error.type // empty' "$round_dir/meta.json" 2>/dev/null)"
+	err_msg="$(jq -r '.error.message // empty' "$round_dir/meta.json" 2>/dev/null)"
+	if [[ "$rc" -eq 2 && "$reason" == "provider_failed" && "$term_status" == "error" && "$err_type" == "api" && -n "$err_msg" ]]; then
+	  _pass "antigravity typed_empty_message_error: exit 0 overridden, rc=2, provider_failed, classified type=api"
+	else
+	  _fail "antigravity typed_empty_message_error: rc=$rc reason=$reason term_status=$term_status err_type=$err_type err_msg=$err_msg"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-050-1: Antigravity 符号链接 transcript 文件安全拦截 (0 次跨会话误采, capture_status=warning)"
+	setup_antigravity_workspace
+	cat > "$SETUP_AGY_WS/.ralph/TASKS.md" << 'EOF'
+# Tasks
+- [ ] Task with symlink transcript
+EOF
+	rc=0
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=symlink_transcript \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(find "$SETUP_AGY_WS/.ralph/runs" -mindepth 1 -maxdepth 1 -type d | head -1)"
+	round_dir="$run_dir/rounds/round-001"
+	cap_status="$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)"
+	cap_warn="$(jq -r .capture_warning "$round_dir/meta.json" 2>/dev/null)"
+	if [[ "$cap_status" == "warning" && ! -f "$round_dir/session.antigravity.jsonl" ]]; then
+	  _pass "antigravity symlink_transcript: safely rejected, 0 次跨会话误采, capture_status=warning"
+	else
+	  _fail "antigravity symlink_transcript: cap_status=$cap_status cap_warn=$cap_warn copied=$(test -f "$round_dir/session.antigravity.jsonl" && echo YES || echo NO)"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-050-1: Antigravity 会话目录为符号链接时安全拦截 (0 次跨会话误采, capture_status=warning)"
+	setup_antigravity_workspace
+	cat > "$SETUP_AGY_WS/.ralph/TASKS.md" << 'EOF'
+# Tasks
+- [ ] Task with symlinked session dir
+EOF
+	rc=0
+	RALPH_MOCK_ANTIGRAVITY_SCENARIO=symlink_session_dir \
+	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
+	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	run_dir="$(find "$SETUP_AGY_WS/.ralph/runs" -mindepth 1 -maxdepth 1 -type d | head -1)"
+	round_dir="$run_dir/rounds/round-001"
+	cap_status="$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)"
+	cap_warn="$(jq -r .capture_warning "$round_dir/meta.json" 2>/dev/null)"
+	if [[ "$cap_status" == "warning" && ! -f "$round_dir/session.antigravity.jsonl" ]]; then
+	  _pass "antigravity symlink_session_dir: safely rejected, 0 次跨会话误采, capture_status=warning"
+	else
+	  _fail "antigravity symlink_session_dir: cap_status=$cap_status cap_warn=$cap_warn copied=$(test -f "$round_dir/session.antigravity.jsonl" && echo YES || echo NO)"
+	fi
+	cleanup_antigravity_ws
+
+	echo ""
+	echo "-- SC-051-1: Antigravity 异常终态在 run -v 与 watch 事件区不得显示成功"
+	agy_terminal_events='{"event":"result","result":{"status":"SUCCESS"}}
+{"event":"result","result":{"status":"SUCCESS","error":"backend failed"}}
+{"event":"result","result":{"status":"SUCCESS","error":{"type":"api","message":""}}}
+{"event":"result","result":{"status":"PENDING"}}
+{"event":"result","result":{"status":"ERROR"}}'
+	run_filter_out="$(printf '%s\n' "$agy_terminal_events" | bash -c 'source "$1"; _ralph_filter_verbose' _ "$REPO_ROOT/.ralph/lib/run.sh")" || run_filter_out=""
+	watch_filter_out="$(printf '%s\n' "$agy_terminal_events" | bash -c 'source "$1"; _ralph_watch_filter_events' _ "$REPO_ROOT/.ralph/lib/watch.sh")" || watch_filter_out=""
+	agy_filters_ok=1
+	for filtered in "$run_filter_out" "$watch_filter_out"; do
+	  [[ "$(printf '%s\n' "$filtered" | grep -c '✓ result')" -eq 1 \
+	     && "$filtered" == *"❌ error: backend failed"* \
+	     && "$filtered" == *"❌ error: error type: api"* \
+	     && "$filtered" == *"⚠ unknown result status: PENDING"* \
+	     && "$filtered" == *"❌ error: provider result status ERROR"* ]] || agy_filters_ok=0
+	done
+	if [[ "$agy_filters_ok" -eq 1 ]]; then
+	  _pass "antigravity terminal display: run -v and watch distinguish success, error and unknown status"
+	else
+	  _fail "antigravity terminal display: run=[$run_filter_out] watch=[$watch_filter_out]"
 	fi
 
 	# ────────────────────────────────

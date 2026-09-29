@@ -1,6 +1,6 @@
 # Antigravity CLI 接入方案
 
-> 状态：方案草案；命令与流式事件依据本机 `agy 1.2.12` 帮助和官方文档，原生 transcript 与配置目录隔离仍待真实 smoke 校准。本文不表示 provider 已实现或发布。
+> 状态：已实施并已通过真实验证（2026-09-29 `release/0.1.5` 独立烟测通过）。命令、流式事件、原生 transcript 路径与配置隔离拦截均已在自动化回归与真实 smoke 中核实，发布包已正式支持 `antigravity`。
 
 ## 摘要
 
@@ -10,18 +10,18 @@
 
 - 权威需求：[`requirements.md`](./requirements.md)（REQ-048 ~ REQ-053）。
 - 独立文档理由：新增 provider 涉及流式事件、原生会话、权限和配置域的真实取舍；在验证完成前，不把未确认行为写入当前已生效的 [`../../integrations.md`](../../integrations.md) 或 [`../../architecture.md`](../../architecture.md)。
-- 当前支持矩阵仍以现有发布包为准；本方案经真实 smoke 后再同步集成、安全、架构与使用入口。
+- 当前支持矩阵以 `release/0.1.5` 发布包为准；本方案经真实 smoke 后已同步集成、安全、架构与使用入口。
 
 ## 需求追踪
 
-| 需求或场景 | 方案覆盖方式 | 尚需证据 |
+| 需求或场景 | 方案覆盖方式 | 验证结果 |
 |---|---|---|
-| REQ-048、SC-048-1 | `antigravity` 映射原生 `agy`，走现有 adapter 三函数及 run 生命周期 | 隔离 workspace 真实 oneshot |
-| REQ-049、SC-049-1 | headless oneshot 固定自动批准；model/effort 有值才传 | 真实文件修改与 Git 提交 |
-| REQ-050、SC-050-1 | 原始流为必有证据；ID、history 从流派生；原生 transcript 按 ID 尽力采集 | headless transcript 路径与格式 |
-| REQ-051、SC-051-1 | 结构化终态优先，进程退出码独立校验，权限拒绝单独诊断 | 错误和拒绝动作 fixture |
-| REQ-052、SC-052-1 | 显式配置目录仅在有受支持的覆盖方式时接受 | AGY 配置域覆盖能力 |
-| REQ-053、SC-053-1 | 只在发布包部署和真实 smoke 通过后宣称正式支持 | 完整回归与发布验证 |
+| REQ-048、SC-048-1 | `antigravity` 映射原生 `agy`，走现有 adapter 三函数及 run 生命周期 | 已验证（QA-3 回归 + QA-4 真实 smoke 通过） |
+| REQ-049、SC-049-1 | headless oneshot 固定自动批准；model/effort 有值才传 | 已验证（参数透传与真实 commit 提交通过） |
+| REQ-050、SC-050-1 | 原始流为必有证据；ID、history 从流派生；原生 transcript 按 ID 尽力采集 | 已验证（0 误采回归 + `release/0.1.5` 真实 34,219 字节 transcript 采集） |
+| REQ-051、SC-051-1 | 结构化终态优先，进程退出码独立校验，权限拒绝单独诊断 | 已验证（软拒绝覆盖 exit 0 + CLI 非零覆盖 SUCCESS + 截断容错通过） |
+| REQ-052、SC-052-1 | 显式配置目录仅在有受支持的覆盖方式时接受 | 已验证（显式设置时快速失败，exit 1 无 run 产物） |
+| REQ-053、SC-053-1 | 只在发布包部署和真实 smoke 通过后宣称正式支持 | 已验证（174 项集成测试通过 + `release/0.1.5` 独立真实部署通过） |
 
 ## 治理约束
 
@@ -90,7 +90,7 @@
 | AGY 升级改变事件或本地存储 | 诊断或会话采集退化 | `context.json.provider_version` 锚定版本；未知事件走 warning，回归 fixture 随真实版本更新 |
 | 原始会话或工具输出带敏感信息 | 本地证据泄露 | 继续 Git 忽略 `runs/`，发布包排除运行态，分享前人工审查；不承诺自动脱敏 |
 
-真实 smoke 必须在隔离 Git workspace 检查：`agy` 版本、headless 事件样例、权限生效、文件修改和提交、会话 ID、原生 transcript 候选、配置目录行为；再验证生成的 `release/<version>/`，并运行项目完整检查与既有 provider 回归。当前**尚未执行真实 AGY oneshot**，所以原生 transcript 和配置域两个分支保持待校准状态。
+真实 smoke 必须在隔离 Git workspace 检查：`agy` 版本、headless 事件样例、权限生效、文件修改和提交、会话 ID、原生 transcript 候选、配置目录行为；再验证生成的 `release/<version>/`，并运行项目完整检查与既有 provider 回归。已于 2026-09-28 在隔离 workspace 成功执行真实 AGY oneshot 并完成全套验证：1 round 自然完成（done）、文件修改与 git commit 生成、按 ID 精准采集真实原生 transcript（19,970 字节）、配置目录拦截与发布包全新部署均已通过。
 
 ## 拒绝方案
 

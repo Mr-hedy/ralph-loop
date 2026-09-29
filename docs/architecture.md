@@ -83,7 +83,7 @@ ralph help    # 帮助
 
 | Flag | 值 | 环境变量 | `.env` 字段 | 默认 | 说明 |
 |---|---|---|---|---|---|
-| `--provider` | `claude\|codex\|fake` | `RALPH_PROVIDER` | `RALPH_PROVIDER` | **无默认**（必需） | provider 绑定；run 生命周期内不变；其他取值（含 `gemini`）在启动校验阶段被拒绝，exit 1，不创建 run 目录（REQ-028） |
+| `--provider` | `claude\|codex\|antigravity\|fake` | `RALPH_PROVIDER` | `RALPH_PROVIDER` | **无默认**（必需） | provider 绑定；run 生命周期内不变；其他取值（含 `gemini`）在启动校验阶段被拒绝，exit 1，不创建 run 目录（REQ-028） |
 | `--model` | provider 原生 model 名 | `RALPH_PROVIDER_MODEL` | `RALPH_PROVIDER_MODEL` | 空 → 不传 | 留空由 provider CLI 走自身默认 |
 | `--effort` | `low\|medium\|high\|none` | `RALPH_PROVIDER_EFFORT` | `RALPH_PROVIDER_EFFORT` | 空或 `none` → 不传 | adapter 翻译到原生 flag |
 | `--max-round` | 整数 | `RALPH_LOOP_MAX_ROUND` | `RALPH_LOOP_MAX_ROUND` | `0`（不限） | **Per-task** 上限；0 表示不限 |
@@ -126,6 +126,7 @@ ralph help    # 帮助
       session.sh                    # session 派生 session.history.log
       adapter-claude.sh             # provider 实现
       adapter-codex.sh
+      adapter-antigravity.sh
       adapter-fake.sh               # T1 smoke test 用
     PROMPT.md                       # release 提供的 oneshot 协议
     TASKS.md                        # release 提供空模板，用户决定生成任务清单后填写
@@ -150,7 +151,7 @@ ralph help    # 帮助
     round-001/
       meta.json                     # 元数据（含 runtime_block + provider_started_at + capture_status + error）
       provider.stdout.log           # provider stdout (events 流) + stderr 全量 tee
-      session.<provider>.jsonl      # provider 原生 session 副本（Claude/Codex `.jsonl`，Gemini 为 .json 但暂停接入；命名见 integrations.md §round 目录文件结构）
+      session.<provider>.jsonl      # provider 原生 session 副本（Claude/Codex/Antigravity `.jsonl`，Gemini 为 .json 但暂停接入；命名见 integrations.md §round 目录文件结构）
       session.history.log           # 跨 provider 人话视图（user / assistant / thinking / tool_use / tool_result）
     round-002/
 
@@ -336,9 +337,9 @@ Ralph 只解析顶层 checklist（REQ-002 FR-004）：
 
 三个 shell 函数契约（TC-STK-005）。每个 provider 的 `adapter-<name>.sh` 通过 `source` 动态载入后，必须：
 
-> **支持矩阵**：公共入口只接受 `claude` / `codex` / `fake`（REQ-028）。`adapter-gemini.sh` 保留在本节契约下供未来重新接入，但 `gemini` 在启动校验阶段即被拒绝（exit 1，不创建 run 目录），因此其契约当前不可达——下文提到 Gemini 的分支均为暂停状态。
+> **支持矩阵**：公共入口支持 `claude` / `codex` / `antigravity` / `fake`（REQ-028, REQ-048）。`adapter-gemini.sh` 保留在本节契约下供未来重新接入，但 `gemini` 在启动校验阶段即被拒绝（exit 1，不创建 run 目录），因此其契约当前不可达——下文提到 Gemini 的分支均为暂停状态。
 
-1. 定义全局变量 `RALPH_PROVIDER_CLI`，值是启动校验 `command -v` 检查的可执行文件名（例如 Claude adapter 设为 `claude`、Codex adapter 设为 `codex`、Gemini adapter 设为 `gemini`、fake adapter 设为 `bash` 或 `$RALPH_FAKE_CLI`）；run.sh 只通过这个变量做 provider CLI 可执行校验，不做 provider 名到 CLI 名的硬编码映射。
+1. 定义全局变量 `RALPH_PROVIDER_CLI`，值是启动校验 `command -v` 检查的可执行文件名（例如 Claude adapter 设为 `claude`、Codex adapter 设为 `codex`、Antigravity adapter 设为 `agy`、Gemini adapter 设为 `gemini`、fake adapter 设为 `bash` 或 `$RALPH_FAKE_CLI`）；run.sh 只通过这个变量做 provider CLI 可执行校验，不做 provider 名到 CLI 名的硬编码映射。
 2. 提供以下三个函数：
 
 ### `provider_oneshot`
@@ -361,7 +362,7 @@ provider_collect_session <round_dir>
 # 副作用：
 #   - best-effort 采集 provider 原生 session 文件到 <round_dir>/session.<provider>.jsonl（Gemini 为 .json）
 #   - 按 provider-specific source 派生 <round_dir>/session.history.log
-#     Claude: session.claude.jsonl；Codex: provider.stdout.log JSONL events；Gemini: provider.stdout.log stream-json events
+#     Claude: session.claude.jsonl；Codex: provider.stdout.log JSONL events；Antigravity: provider.stdout.log stream-json events；Gemini: provider.stdout.log stream-json events
 #   - 更新 <round_dir>/meta.json 的 capture_status / capture_warning / session_source_path / session_copied_path
 # 返回码：
 #   0 = 成功或受控降级（写了 warning 也算成功）
@@ -376,7 +377,7 @@ provider_diagnose <round_dir>
 #   - 分析 log、session 和 exit code，确定错误类别
 #   - 更新 <round_dir>/meta.json 的 error 字段
 #     error = null                           # provider 正常 + agent 正常
-#     error = { type, message, raw }         # 其中 type ∈ auth | quota | rate_limit | network | concurrency | api | unknown
+#     error = { type, message, raw }         # 其中 type ∈ auth | quota | rate_limit | network | concurrency | api | permission | unknown
 # 返回码：始终 0（诊断本身不失败）
 ```
 

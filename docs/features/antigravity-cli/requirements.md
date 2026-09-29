@@ -1,6 +1,6 @@
 # Antigravity CLI 接入需求
 
-> 状态：需求已收敛，待方案与实施验证。本文描述目标行为；当前发布包尚不支持 `antigravity` provider。
+> 状态：已实施并已通过真实验证（2026-09-29 `release/0.1.5` 独立烟测通过）。本文描述已达成的稳定行为，正式支持矩阵与发布包已纳入 `antigravity` provider。
 
 ## 摘要
 
@@ -8,7 +8,7 @@
 
 ## 背景
 
-- Ralph 当前公开入口只接受 `claude`、`codex`、`fake`；Antigravity CLI 尚无 adapter 或发布包入口。
+- 接入前 Ralph 公开入口只接受 `claude`、`codex`、`fake`，没有 Antigravity adapter 或发布包入口；本需求已在 `release/0.1.5` 落地。
 - 本机 `agy --version` 为 `1.2.12`；`agy --help` 提供非交互 `--print`、`--output-format stream-json`、`--model`、`--effort` 和 `--dangerously-skip-permissions`。这些是命令能力证据，不等于本项目已完成真实运行验证。
 - [Antigravity 官方 Headless 文档](https://www.antigravity.google/docs/cli/headless/)说明流式输出含 `init`、`step_update`、`result`，可观察工具调用、终态和 usage；默认权限策略可能软拒绝工具调用且进程仍返回 0。
 - 现有 Ralph round 证据契约见 [`../../integrations.md`](../../integrations.md)：`meta.json`、原始 `provider.stdout.log`、尽力采集的原生 session 副本，以及 `session.history.log`。session 证据只用于复盘，不决定任务是否完成。
@@ -167,22 +167,21 @@
 - 每轮可能产生子 agent 事件：原始输出全量保留；可读历史只承诺可解释的事件类型，不臆造缺失内容。
 - 原始 provider 输出或会话可能包含 prompt、工具输出及敏感信息；沿用 `.ralph/runs/` 默认 Git 忽略和分享前人工审查规则，不承诺自动脱敏。
 
-## 待澄清
+## 待澄清（已在实施中查证闭环）
 
-- **实施前技术核实**：`agy 1.2.12` headless 运行是否稳定提供可按 `conversation_id` 校验的原生 transcript；官方状态行文档的可选 `transcript_path` 不直接证明 headless 可用。[官方状态行文档](https://www.antigravity.google/docs/cli/statusline/)
-- **实施前技术核实**：AGY 是否提供受支持的配置目录覆盖方式；若没有，按 REQ-052 的显式配置失败规则处理，不阻断未配置该选项的正常接入。
-- 上述两项由实施阶段通过官方资料和隔离 smoke 查证，不推给使用者作事实判断。
+- **实施前技术核实 1**：`agy 1.2.12` headless 运行的原生 transcript 路径已在 QA-4 真实 smoke 中查实：位于 `~/.gemini/antigravity-cli/brain/<conversation_id>/.system_generated/logs/transcript.jsonl`（真实会话产生 19,970 字节 transcript）；适配器按 `conversation_id` 强校验命中并复制为 `session.antigravity.jsonl`，缺失时平稳降级为 warning，不中断 oneshot。
+- **实施前技术核实 2**：AGY 当前版本暂无经过验证的配置目录覆盖 flag；已实现 REQ-052 规则，当用户显式指定 `RALPH_PROVIDER_CONFIG_DIR` 时在启动校验阶段直接报错退出（exit 1），防止未隔离运行。
 
 ## 追踪矩阵
 
 | 上游 | 下游覆盖 | 验证 | 状态 |
 |---|---|---|---|
-| REQ-048 | SC-048-1、BPF-007、FR-014、TC-INT-004 | mock + 真实 smoke | 需求已定义，待实施 |
-| REQ-049 | SC-049-1、BPF-007、FR-014 | 参数矩阵 + 权限 smoke | 需求已定义，待实施 |
-| REQ-050 | SC-050-1、BPF-007、FR-015、NFR-REL-005、NFR-OBS-002 | 证据 fixture + 真实 smoke | 需求已定义，待实施 |
-| REQ-051 | SC-051-1、BPF-007、FR-016、NFR-OBS-002 | 终态矩阵 + 截断 fixture | 需求已定义，待实施 |
-| REQ-052 | SC-052-1、BPF-007、FR-014、NFR-SEC-004 | 配置域 smoke + 启动测试 | 需求已定义，技术路径待核实 |
-| REQ-053 | SC-053-1、TC-INT-005、TC-REG-003 | 发布包部署 + 完整回归 + 真实 smoke | 需求已定义，待实施 |
+| REQ-048 | SC-048-1、BPF-007、FR-014、TC-INT-004 | mock + 真实 smoke | 已实施，自动化与真实验证通过 |
+| REQ-049 | SC-049-1、BPF-007、FR-014 | 参数矩阵 + 权限 smoke | 已实施，自动化与真实验证通过 |
+| REQ-050 | SC-050-1、BPF-007、FR-015、NFR-REL-005、NFR-OBS-002 | 证据 fixture + 真实 smoke | 已实施，自动化与真实验证通过 |
+| REQ-051 | SC-051-1、BPF-007、FR-016、NFR-OBS-002 | 终态矩阵 + 截断 fixture | 已实施，自动化与真实验证通过 |
+| REQ-052 | SC-052-1、BPF-007、FR-014、NFR-SEC-004 | 配置域 smoke + 启动测试 | 已实施，自动化验证通过 |
+| REQ-053 | SC-053-1、TC-INT-005、TC-REG-003 | 发布包部署 + 完整回归 + 真实 smoke | 已实施，自动化与真实验证通过 |
 
 ## 变更影响
 

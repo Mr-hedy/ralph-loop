@@ -98,3 +98,127 @@
   - 范围：`docs/requirements/ralph-loop/requirements.md` 成功标准表 + 追踪矩阵（如需同步 REQ 行）；不改测试断言、不改 adapter 行为。
   - 验证计划：`grep -nE '^\| SC-(028|030|031|032)-1' docs/requirements/ralph-loop/requirements.md` 命中定义行；追踪矩阵引用的每个 SC 编号都能在成功标准表找到；`git diff --check`。
   - 备注（REVIEW-1 证据，SC-029-2 裁决所需）: 被 timeout 杀死的轮次实测为 `exit_code=143`、`exit_reason=timeout`，round meta 的 `terminal_event` / `terminal_status` / `terminal_warning` **全为 null**（复现：mock-claude `RALPH_MOCK_CLAUDE_POST_STREAM_SLEEP=20` + `ralph run --round-timeout 3 --max-retry 0`），而 SC-029-2 字面要求「无终态事件 / 事件不可解析 → `unknown` + 非空 `terminal_warning`」。二选一裁决：(a) 收窄 SC / 文档口径为「adapter 正常返回的轮次」，把被杀轮次排除在外（成本最低）；(b) 追加 DEV 任务让 `run.sh` 的 terminate 分支（timeout / interrupt）在 kill 后写入 `terminal_status=unknown` + 说明性 `terminal_warning`，使该字段对「provider 没产出终态」与「轮次被杀」可区分（举证路径更完整）。
+
+## 工作包：Antigravity CLI 接入（2026-09-28）
+
+> 本工作包实现 Antigravity CLI（agy）作为 Ralph 正式 provider 的接入。
+> 需求事实源：`docs/features/antigravity-cli/requirements.md`（REQ-048 ~ REQ-053）
+> 技术方案：`docs/features/antigravity-cli/solution.md`
+
+- [x] DEV-8: 查证 AGY 运行特征并创建 mock-antigravity 基础夹具。
+  - 预期：建立轻量可靠的 mock-antigravity 仿真脚本，可模拟 agy headless 运行的 stream-json 输出（含正常事件、截断行、认证失败、权限拒绝、非零退出等）；明确真实 AGY 的 transcript 本地路径规律。
+  - 输入：REQ-048 ~ REQ-051、`docs/features/antigravity-cli/solution.md`、`tests/fixtures/mock-codex`。
+  - 范围：`tests/fixtures/mock-antigravity`、`scripts/check.sh`（语法检查加入该 mock）。
+  - 验证计划：`bash -n tests/fixtures/mock-antigravity` 语法检查通过；验证 mock 在不同 scenario 下正确输出对应 stream-json NDJSON 行和退出码。
+  - 完成: 确认本地 AGY 数据目录结构（`${ANTIGRAVITY_APP_DATA_DIR:-~/.gemini/antigravity}/brain/<id>/.system_generated/logs/transcript.jsonl`）；创建 `tests/fixtures/mock-antigravity`，支持 happy、crash、api_error、rate_limit、auth_error、denied_actions、completed_then_rc1、truncated_then_result、no_session_at_all、home_decoy 等 scenario，并模拟写入真实规范的原生 transcript；将 mock 纳入 `scripts/check.sh` 语法检查。
+  - 验证: `bash -n tests/fixtures/mock-antigravity`（rc=0）；多 scenario 验证（happy、--version、--help 正常输出）；`bash scripts/check.sh`（ralph-loop check passed）；`git diff --check`（rc=0）。
+  - 未验证: 尚未在隔离环境执行真实 agy 调用（DEV-8 为仿真夹具与路径静态取证，真实 smoke 归 QA-4）。
+
+- [x] DEV-9: 实现 adapter-antigravity.sh 核心契约。
+  - 预期：实现 Antigravity provider adapter 的四个核心函数（`provider_check_deps`、`provider_oneshot`、`provider_collect_session`、`provider_diagnose`）；正确组装 headless 命令并固定 `--dangerously-skip-permissions`，从输出流提取 `conversation_id`、解析结构化终态（`result.status` / `result.error` / `denied_actions`），派生 `session.history.log`，并按 `conversation_id` 尽力安全采集原生 transcript。
+  - 输入：REQ-048、REQ-049、REQ-050、REQ-051、`docs/features/antigravity-cli/solution.md` §选定方案、DEV-8 的 mock 夹具。
+  - 范围：`.ralph/lib/adapter-antigravity.sh`。
+  - 验证计划：`bash -n .ralph/lib/adapter-antigravity.sh`；在单步测试下验证命令拼接、参数透传（model/effort）、终态判定（成功/失败/未知/软拒绝）与 session 采集诊断。
+  - 完成: 实现 `.ralph/lib/adapter-antigravity.sh`，覆盖 `provider_check_deps`（含 `RALPH_PROVIDER_CONFIG_DIR` 安全拒绝）、`provider_oneshot`（组装 `--print` / `--output-format stream-json` / `--dangerously-skip-permissions`，解析 `conversation_id`、结构化终态与软拒绝 `denied_actions` 提升 rc）、`provider_collect_session`（按 ID 严格采集原生 transcript，找不到留 warning，派生 `session.history.log`）、`provider_diagnose`（分类映射错误类型）。
+  - 验证: `bash -n .ralph/lib/adapter-antigravity.sh`（rc=0）；单元测试隔离验证通过（happy 终态与 ID 解析、session 采集与 history 派生、denied_actions 软拒绝转 error、config_dir 拒绝报错）；`bash scripts/check.sh`（ralph-loop check passed）；`git diff --check`（rc=0）。
+  - 未验证: 尚未与 Ralph 主流程（`bin/ralph`、`run.sh`、`watch.sh`）端到端联调（留待 DEV-10 与 QA-3）。
+
+- [x] DEV-10: 接入 Ralph CLI 运行与观察主流程。
+  - 预期：使用者可通过 `--provider antigravity` 或环境变量启动任务；`watch.sh` 与 `run.sh` 能实时过滤展示 AGY 的流式事件（工具调用、执行结果、终态）；显式配置 `RALPH_PROVIDER_CONFIG_DIR` 时在启动前快速报错退出以保安全。
+  - 输入：REQ-048、REQ-052、`docs/features/antigravity-cli/solution.md` §每轮启动与数据采集映射。
+  - 范围：`.ralph/bin/ralph`、`.ralph/lib/run.sh`、`.ralph/lib/watch.sh`。
+  - 验证计划：`ralph run --help` 包含 antigravity 选项说明；测试 `RALPH_PROVIDER_CONFIG_DIR` 显式传入时启动拦截且无 run 目录生成；验证两处事件过滤器能正确解析 AGY NDJSON 事件。
+  - 完成: `.ralph/bin/ralph` 选项说明加入 `antigravity`；`.ralph/lib/run.sh` 启动校验门禁放行 `antigravity` 并保留 Gemini 拦截；在 `run.sh` 的 `_ralph_filter_verbose` 与 `watch.sh` 的 `_ralph_watch_filter_events` 两处同步扩展 AGY 的 `.event` 结构映射（init session、step_update 工具与回复、result 终态与软拒绝）；验证 `RALPH_PROVIDER_CONFIG_DIR` 传入时在创建 lock / run 目录前安全退出。
+  - 验证: `ralph run --help` 输出包含 antigravity（rc=0）；临时 workspace 隔离实测（config_dir 拒绝报错且无 run 目录或 lock、PATH 缺失时准确定位依赖检查、两处 jq 过滤器针对 AGY NDJSON 输出正确格式化字符串）；`bash scripts/check.sh`（ralph-loop check passed）；`git diff --check`（rc=0）。
+  - 未验证: 尚未在集成测试套件中形成长久自动化断言用例（归 QA-3）。
+
+- [x] QA-3: 扩展集成测试回归套件覆盖 Antigravity。
+  - 预期：在 `scripts/integration-test.sh` 中增加针对 antigravity 的自动化测试套件，全面覆盖启动门禁、权限参数审计、各种终态（成功/错误/未知/软拒绝）、原生 session 校验与丢件 warning、配置目录安全拦截等。
+  - 输入：REQ-048 ~ REQ-052、SC-048-1 ~ SC-052-1、`scripts/integration-test.sh` 既有测试模式。
+  - 范围：`scripts/integration-test.sh`。
+  - 验证计划：运行 `scripts/integration-test.sh`，所有新增的 antigravity 测试用例全部 PASS，且既有 provider 用例无回归。
+  - 完成: 在 `scripts/integration-test.sh` 中新增 QA-3 Antigravity 回归门测试块（含 `setup_antigravity_workspace` / `cleanup_antigravity_ws` 隔离脚手架）；覆盖 SC-048-1 完整 happy 流程与 session 捕获、SC-049-1 model/effort 透传与 `--dangerously-skip-permissions` 参数审计、SC-050-1 原生 transcript 缺失转 warning 与 decoy 0 误采隔离、SC-051-1 软拒绝 `denied_actions` 覆盖 exit 0 / CLI rc=1 覆盖 SUCCESS / 截断坏行容错、SC-052-1 `RALPH_PROVIDER_CONFIG_DIR` 拦截；更新 SC-031-1 扩权参数扫描白名单至 4 个合法 adapter。
+  - 验证: `bash -n scripts/integration-test.sh`（rc=0）；QA-3 专项套件实跑全部通过（8 PASS / 0 FAIL）；`bash scripts/check.sh`（ralph-loop check passed）；`git diff --check`（rc=0）。
+  - 未验证: 真实环境下的端到端 smoke（无外部额度消耗，归 QA-4）。
+
+- [x] DEV-11: 补齐静态检查、发布构建与项目文档。
+  - 预期：`scripts/check.sh` 与 `scripts/build-release.sh` 纳入 `adapter-antigravity.sh` 与相关测试资产；更新 release 模板和说明；同步更新核心架构文档（`docs/architecture.md`、`docs/integrations.md`、`docs/security.md`、`docs/testing.md`、`README.md`、`.ralph/README.md`）。
+  - 输入：REQ-053、SC-053-1、项目发布规范。
+  - 范围：`scripts/check.sh`、`scripts/build-release.sh`、`README.md`、`.ralph/README.md`、`docs/` 核心架构文档。
+  - 验证计划：`bash scripts/check.sh` 检查通过；`git diff --check` 无空白或语法告警；发布构建验证通过。
+  - 完成: 将 `adapter-antigravity.sh` 纳入 `scripts/build-release.sh` 与 `scripts/check.sh` 检查清单及 release 0.1.4 镜像；更新 `README.md`、`.ralph/README.md`（及 release 镜像）、`docs/architecture.md`、`docs/integrations.md`、`docs/security.md` 与 `docs/testing.md`，全面登记 Antigravity CLI 的支持状态、参数规范、4 文件契约、权限边界审计路径与 QA-3 回归门。
+  - 验证: `bash scripts/check.sh`（ralph-loop check passed，包含 release 逐字节同步核验）；`bash scripts/build-release.sh --verify`（release verified）；`bash scripts/integration-test.sh`（PASS=164 FAIL=0）；`git diff --check`（rc=0）。
+  - 未验证: 真实 `agy` CLI 隔离 smoke 及 release 发布包全新目录独立部署实跑（留待 QA-4）。
+
+- [x] QA-4: 执行真实隔离 workspace Smoke 与发布包验证。
+  - 预期：在独立临时 Git workspace 中调用真实 `agy` CLI 运行完整 Ralph 任务，实际验证文件修改与 Git commit；验证构建出的 release 发布单元在新目录中可直接初始化与运行。
+  - 输入：REQ-053、SC-053-1、真实 `agy 1.2.12` CLI。
+  - 范围：临时测试 workspace、`release/` 目标目录。
+  - 验证计划：真实 smoke 跑通单任务并生成合格的 commit 与 round 证据；发布包验证无误。
+  - 完成: 在独立临时 Git workspace 中调用系统真实 `agy 1.2.12` CLI 执行真实单轮任务（创建 `smoke-antigravity.txt` 并提交），确认 1 round 自然完成、自动打出 git commit（`2abb2b9`）、文件内容一致；round 4 文件完整就绪（`meta.json`、`provider.stdout.log`、`session.antigravity.jsonl`、`session.history.log`），且原生 transcript 自动定位到 `~/.gemini/antigravity-cli/brain/<session_id>/.../transcript.jsonl`，`capture_status: "ok"`；同时在独立空目录部署 `release/0.1.4/.`，验证 `CLAUDE.md` 软链有效、`ralph --version` 正常输出、fake provider 正常跑通并退出 `done`。
+  - 验证: 真实 `agy` smoke run 成功（rc=0, exit_reason="done", duration=74s, terminal_status="success", capture_status="ok"）；发布包部署验证成功（rc=0, exit_reason="done"）；`bash scripts/check.sh`（ralph-loop check passed）；`git diff --check`（rc=0）。
+  - 未验证: 长时间多轮任务的额度消耗与网络抖动（在无人值守生产环境中由重试机制覆盖）。
+
+- [x] REVIEW-2: Antigravity CLI 接入实现与安全边界 | adversarial-review
+  - 预期：按照 `.spec/rules/ADVERSARIAL-REVIEW.md` 针对本工作包所有代码与文档做对抗性审查，重点核查权限绕过风险、会话错采风险、退出码与终态不一致、截断日志不丢证据。
+  - 输入：本工作包产生的完整 git diff、真实运行日志与集成测试输出。
+  - 范围：所有修改的文件。
+  - 验证计划：审查 findings 逐项关闭或建任务修复，确认安全与稳定性达标。
+  - 完成: 对完整 git diff 进行对抗性审查并结合复现得出 6 项必须修复的质量门问题：
+    1. 未知终态退出码提升漏缺：非 SUCCESS 终态保留 rc=0 导致误判任务完成；
+    2. 会话 ID 路径穿越漏洞：拼接 `fake/../other` 可跨出自身目录导致误采；
+    3. stdout 与 stderr 重定向独立 open 描述符引发覆盖写入问题；
+    4. 真实 AGY 错误事件字符串解析失效导致 jq 崩溃；
+    5. 会话复制失败缺乏退出码与目标普通文件校验；
+    6. 事实源状态遗留“待实施”及 release/0.1.4 原地修改违反发布不可变契约。
+  - 验证: 审查问题已在 FIX-1 ~ FIX-3 中全部修复并建立自动化回归门。
+  - 未验证: 无。全部 6 项 findings 已完全关闭。
+
+- [x] FIX-1: 修复未知终态退出码提升、会话 ID 路径穿越校验、共用描述符 2>&1、字符串错误解析与会话复制校验。
+  - 预期：修复 Codex 审查指出的 adapter 缺陷；消除路径穿越漏洞与交错写入覆盖风险；正确解析纯字符串形式的 `.result.error` 并提升未知终态退出码。
+  - 输入：REVIEW-2 审查意见、真实 `agy 1.2.12` 错误日志、`.ralph/lib/adapter-antigravity.sh`。
+  - 范围：`.ralph/lib/adapter-antigravity.sh`、`.ralph/lib/run.sh`、`.ralph/lib/watch.sh`。
+  - 验证计划：代码修改准确闭环，静态与类型提取无错误。
+  - 完成:
+    1. 在 `adapter-antigravity.sh` 将未知 `res_status` 时强制提升 `[[ "$rc" -eq 0 ]] && rc=1`，并在兜底逻辑中同步标记 unknown；
+    2. 增加 `session_id` 正则格式校验 `^[a-zA-Z0-9_-]+$` 并核对规范路径 `pwd -P` 确保不越出会话目录；
+    3. 将重定向统一为共用文件描述符 `> "$log_path" 2>&1`；
+    4. 在 adapter、`run.sh`、`watch.sh` 中重构 jq 提取逻辑，同时兼容字符串与对象类型的 `.result.error`；
+    5. 在 `provider_collect_session` 中严格检查 `cp` 退出码及目标是否为普通非空文件。
+  - 验证: `bash -n .ralph/lib/adapter-antigravity.sh .ralph/lib/run.sh .ralph/lib/watch.sh`；`git diff --check`（rc=0）。
+  - 未验证: 自动化测试套件（归入 FIX-2 集中验证）。
+
+- [x] FIX-2: 扩展 mock-antigravity 与 integration-test.sh 增加 5 组针对性回归测试。
+  - 预期：为审查问题提供长效防回归守卫（未知状态码提升、路径穿越防护、字符串错误提取、交错写入保护、会话复制异常降级）。
+  - 输入：`tests/fixtures/mock-antigravity`、`scripts/integration-test.sh`。
+  - 范围：`tests/fixtures/mock-antigravity`、`scripts/integration-test.sh`。
+  - 验证计划：5 项新测试全部 PASS，总测试通过数提升至 169 项。
+  - 完成: 在 `mock-antigravity` 增加 `unknown_status`、`path_traversal`、`string_error`、`interleaved_output` 场景；在 `integration-test.sh` 新增 5 项断言测试用例，覆盖未知终态提升为 rc=2、路径穿越安全拦截、字符串 error 准确分类为 api、stderr 标记完整保留及目标目录冲突优雅降级 warning。
+  - 验证: `bash scripts/integration-test.sh`（PASS=169 FAIL=0）；`bash scripts/check.sh`（ralph-loop check passed）。
+  - 未验证: 无。
+
+- [x] FIX-3: 统一事实源与版本标识，升级至 0.1.5 并重建官方发布包。
+  - 预期：维护发布包不可变性（还原 `release/0.1.4`，升级至 `0.1.5`）；消除“待实施”等过时事实源文档。
+  - 输入：`docs/README.md`、`docs/requirements.md`、`README.md`、`.ralph/README.md`、`AGENTS.md`、`.ralph/bin/ralph`。
+  - 范围：项目级文档、release 发布包、版本常量。
+  - 验证计划：发布构建与核验通过；静态检查全部通过。
+  - 完成: 将 `.ralph/bin/ralph` 版本号升级至 `0.1.5`；从 HEAD 干净还原历史归档 `release/0.1.4/`；通过 `scripts/build-release.sh 0.1.5` 官方生成全新的 `release/0.1.5/`；更新 `README.md`、`.ralph/README.md`、`AGENTS.md` 中的版本和部署路径；将 `docs/README.md` 与 `docs/requirements.md` 中的 Antigravity CLI 接入状态统一收口为“已确认/已支持”。
+  - 验证: `bash scripts/build-release.sh --verify`（release verified: release/0.1.5）；`bash scripts/check.sh`（ralph-loop check passed）；`git diff --check`（rc=0）。
+  - 未验证: 无。
+
+- [x] FIX-4: 闭环 Codex 审查遗留项（错误结构判定、会话目录/文件符号链接拦截、标准编号对齐与发布包重构）。
+  - 预期：彻底闭环 Codex 审查提出的所有边界与契约问题：
+    1. 终态判定严格按错误字段结构（非 null/非空对象/非空字符串）判定，解决带类型空消息错误对象被误判为成功的问题；在 `provider_diagnose` 中分类并写入 `meta.json.error`；
+    2. 会话文件采集增加规范化 `brain` 根目录锚定校验（`_antigravity_safe_session_file`），不仅拦截文件符号链接，还能拦截会话目录本身为符号链接（`brain/current -> brain/other`）的跨会话误采；
+    3. 集成测试用例编号统一归入既有权威需求标准 `SC-051-1`（终态与错误分类）与 `SC-050-1`（0 次跨会话误采）；
+    4. 消除文档索引中残留的“待实施”描述，保持发布包不可变性（`release/0.1.4` 归档不变，重新构建 `release/0.1.5`）。
+  - 输入：Codex 审查意见、`docs/features/antigravity-cli/requirements.md`、`docs/features/antigravity-cli/solution.md`。
+  - 范围：`.ralph/lib/adapter-antigravity.sh`、`tests/fixtures/mock-antigravity`、`scripts/integration-test.sh`、`docs/README.md`、`docs/requirements.md`、`docs/roadmap.md`、`release/0.1.5/`、`handoff.md`。
+  - 验证计划：补齐自动化回归测试，全量测试达到 173 PASS / 0 FAIL；`check.sh`、`build-release.sh --verify` 与 `git diff --check` 全部通过。
+  - 完成:
+    1. 在 `adapter-antigravity.sh` 重构错误字段判断，通过 jq 结构化分析 `has_error`（存在对象且 key 数 >0 或非空字符串），无论消息是否为空只要有错误均置 `terminal_status="error"` 并提升 `rc=1`；在 `provider_diagnose` 中对空消息错误对象生成兜底消息并提取 `err_type` 进行分类写入 `meta.json.error`；
+    2. 实现 `_antigravity_safe_session_file`，通过 `realpath "$brain_dir"` 锚定规范根目录，强校验真实会话目录物理路径严格等于 `$real_brain/$session_id` 且本身非软链接，杜绝会话目录软链接偷采其他会话；
+    3. 在 `mock-antigravity` 增加 `typed_empty_message_error` 与 `symlink_session_dir` 场景；在 `integration-test.sh` 增加对应的自动化断言，并统一编号为 `SC-051-1` 与 `SC-050-1`；
+    4. 重建并验证 `release/0.1.5/` 发布单元，`release/0.1.4/` 字节级保持不可变原貌；在 `handoff.md` 明确声明验证范围。
+  - 验证: `bash scripts/integration-test.sh`（PASS=173 FAIL=0 全部通过）；`bash scripts/build-release.sh --verify`（release verified）；`bash scripts/check.sh`（ralph-loop check passed）；`git diff --check`（rc=0）。
+  - 未验证: 无。

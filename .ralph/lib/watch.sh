@@ -94,6 +94,20 @@ _ralph_watch_filter_events() {
     printf '%s\n' "$line" | jq -r '
       def flat: tostring | gsub("\\s+"; " ");
       def trunc($n): flat | if length > $n then .[0:$n] else . end;
+      def agy_error: (.result.error // .error // null);
+      def agy_has_error:
+        agy_error as $e |
+        if $e == null then false
+        elif ($e | type) == "string" or ($e | type) == "object" then ($e | length) > 0
+        else false end;
+      def agy_error_text:
+        agy_error as $e |
+        if ($e | type) == "object" then
+          if (($e.message // "") | length) > 0 then ($e.message | tostring)
+          elif (($e.type // "") | length) > 0 then "error type: " + ($e.type | tostring)
+          else ($e | tostring) end
+        elif ($e | type) == "string" then $e
+        else "provider result status ERROR" end;
       if .type == "system" and .subtype == "init" then
         "  ⚙ session " + ((.session_id // "") | .[0:8])
       elif .type == "assistant" then
@@ -141,6 +155,19 @@ _ralph_watch_filter_events() {
         "  ✓ result " + ((.text // "") | trunc(120))
       elif .type == "error" then
         "  ❌ error: " + ((.error.message // .message // "") | trunc(120))
+      elif .event == "init" then
+        "  ⚙ session " + ((.conversation_id // .init.conversation_id // "") | .[0:12])
+      elif .event == "step_update" then
+        if (((.step_update.agent_response.text_delta // .agent_response.text_delta // .step_update.text_delta // .text_delta // "") | length) > 0) then "  💬 " + ((.step_update.agent_response.text_delta // .agent_response.text_delta // .step_update.text_delta // .text_delta) | trunc(120))
+        elif (((.step_update.tool_name // .tool_name // "") | length) > 0) then "  🔧 " + (.step_update.tool_name // .tool_name) + " " + ((((.step_update.tool_info.command // .step_update.tool_info.parameters // .step_update.tool_info // .tool_info.command // .tool_info) // {}) | tostring) | trunc(80))
+        elif ((.step_update.subagent_info // .subagent_info // null) != null) then "  ⚙ subagent " + (((.step_update.subagent_info // .subagent_info) | tostring) | trunc(80))
+        else empty end
+      elif .event == "result" then
+        if ((((.result.denied_actions // .denied_actions // []) | length)) > 0) then "  ❌ denied tools: " + (((.result.denied_actions // .denied_actions) | tostring) | trunc(100))
+        elif agy_has_error then "  ❌ error: " + (agy_error_text | trunc(120))
+        elif ((.result.status // .status // "") == "SUCCESS") then "  ✓ result"
+        elif ((.result.status // .status // "") == "ERROR") then "  ❌ error: provider result status ERROR"
+        else "  ⚠ unknown result status: " + ((.result.status // .status // "missing") | tostring | trunc(80)) end
       else empty end
     ' 2>/dev/null
   done
