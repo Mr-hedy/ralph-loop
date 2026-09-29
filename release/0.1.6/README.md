@@ -47,9 +47,25 @@ cp .ralph/.env.example .ralph/.env
 printf '\nRALPH_PROVIDER=antigravity\n' >> .ralph/.env
 ```
 
-也可以将最后一行设为 `RALPH_PROVIDER=claude` 或 `RALPH_PROVIDER=codex`。`.ralph/.env` 是本地私有配置，由 `.ralph/.gitignore` 忽略；不要提交凭据。配置优先级为命令行参数、进程环境变量、`.ralph/.env`、内置默认值。
+也可以将最后一行设为 `RALPH_PROVIDER=claude` 或 `RALPH_PROVIDER=codex`。`.ralph/.env` 是本地私有配置，由 `.ralph/.gitignore` 忽略；不要提交凭据。**首次使用通常只需选择 provider，其余配置保持注释。**单次调整时，有对应 CLI 参数的选项用 `ralph run` 参数；其余选项用进程环境变量。长期固定在当前 workspace 才写 `.env`。配置优先级为命令行参数、进程环境变量、`.ralph/.env`、内置默认值。
 
-Claude 和 Codex 可用 `RALPH_PROVIDER_CONFIG_DIR` 指向已登录的独立配置目录，分别传给 `CLAUDE_CONFIG_DIR` 与 `CODEX_HOME`。Antigravity 使用 `agy` 的默认登录态；选用它时不要设置非空 `RALPH_PROVIDER_CONFIG_DIR`，否则启动检查会失败。模型、推理强度、轮次、超时与重试等配置在 `.env.example` 中有注释。
+以下是各项配置何时需要人为设置；完整注释和示例在 [`.ralph/.env.example`](.ralph/.env.example)：
+
+| 配置 | 不设置时 | 什么时候设置 |
+|---|---|---|
+| `RALPH_PROVIDER_MODEL` | 使用 provider 默认模型 | 项目必须固定模型，或需要控制模型能力、费用时 |
+| `RALPH_PROVIDER_EFFORT` | 不传 effort，由 provider 决定 | 需要明确调整推理深度、速度或成本时；可选 `low`、`medium`、`high`，`none` 表示不传 |
+| `RALPH_LOOP_MAX_ROUND` | `0`，不按轮数限制单个任务 | 需要限制单任务调用次数或预算时设正整数；达到上限会交给人处理 |
+| `RALPH_LOOP_ROUND_TIMEOUT` | `0`，单轮没有超时上限 | 担心 provider 卡住，或运行环境有时间限制时设置秒数 |
+| `RALPH_LOOP_STALL_LIMIT` | `5`，连续无进展后交给人处理 | 希望更早介入时调低；已确认任务需要较多探索轮次时调高 |
+| `RALPH_LOOP_MAX_RETRY` | `3` 次暂态错误重试 | 要让 rate limit / network 错误立即暴露时设 `0`；网络不稳时按预算调高 |
+| `RALPH_LOOP_RETRY_SCHEDULE` | 依次等待 `60 120 300` 秒 | 需要匹配 provider 限流窗口或调整恢复速度时 |
+| `RALPH_PROGRESS_HEARTBEAT_SEC` | 普通文本模式每 `60` 秒提示仍在运行 | 需要更频繁的提示时调低；不需要提示时设 `0` |
+| `RALPH_UI_STICKY_EVENT_LINES` | sticky/watch 事件区显示 `6` 行 | 终端空间有限或想看更多事件时 |
+| `RALPH_UI_HEALTH_GREEN_SEC`、`RALPH_UI_HEALTH_RED_SEC` | 日志静默 `60` 秒变黄、`300` 秒变红 | provider 正常输出间隔导致健康提示误判时；这两个值只影响显示 |
+| `RALPH_PROVIDER_CONFIG_DIR` | 使用 provider 默认配置和登录态 | Claude/Codex 需要隔离账号时指向已准备的目录；Antigravity 不支持非空值，使用 `agy` 默认登录态 |
+
+Claude 和 Codex 会把配置目录分别传给 `CLAUDE_CONFIG_DIR` 与 `CODEX_HOME`；这不改变权限或沙箱模式。Antigravity 显式设置非空配置目录会在启动前失败，不会回退到默认账号。
 
 根据已确认的需求，在 [`.ralph/TASKS.md`](.ralph/TASKS.md) 的“当前任务”下填写顶层任务。例如：
 
@@ -118,7 +134,7 @@ Claude 和 Codex 可用 `RALPH_PROVIDER_CONFIG_DIR` 指向已登录的独立配�
 
 | 版本 | 主要变化 |
 |---|---|
-| **0.1.6** | 移除旧的 Gemini CLI adapter 与测试替身，统一当前 provider 入口；完善配置示例、发布包使用指南和版本记录。 |
+| **0.1.6** | 移除旧的 Gemini CLI adapter 与测试替身，统一当前 provider 入口；完善配置默认值与设置时机、发布包使用指南和版本记录。 |
 | **0.1.5** | 接入 Antigravity CLI；采集运行事件与原生 transcript，完善错误判定、会话路径校验和真实端到端验证。 |
 | **0.1.4** | 对齐文档规则与发布包版本。 |
 | **0.1.3** | 修订 Codex adapter、运行入口与协作规范，并同步发布包。 |

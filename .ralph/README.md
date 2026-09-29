@@ -491,6 +491,16 @@ provider 临时失败时最多重试 5 次：
 | `RALPH_UI_HEALTH_GREEN_SEC` | `60` | provider 日志静默超过该秒数后健康灯变黄 |
 | `RALPH_UI_HEALTH_RED_SEC` | `300` | provider 日志静默超过该秒数后健康灯变红 |
 
+第一次运行通常只需选 `RALPH_PROVIDER`，其余配置保持默认。需要调整时按目的选择：
+
+- 固定模型或推理强度：设置 `RALPH_PROVIDER_MODEL` / `RALPH_PROVIDER_EFFORT`。
+- 限制单任务调用次数或单轮时长：设置 `RALPH_LOOP_MAX_ROUND` / `RALPH_LOOP_ROUND_TIMEOUT`。
+- 调整连续无进展或暂态错误处理：设置 `RALPH_LOOP_STALL_LIMIT` / `RALPH_LOOP_MAX_RETRY` / `RALPH_LOOP_RETRY_SCHEDULE`。
+- 调整观察体验：设置 `RALPH_PROGRESS_HEARTBEAT_SEC` 或 `RALPH_UI_*`；它们不改变任务结果。
+- 隔离 Claude/Codex 账号：设置 `RALPH_PROVIDER_CONFIG_DIR`；Antigravity 使用默认登录态。
+
+各变量的默认值和具体设置时机见发布包 [`.env.example`](.env.example)。
+
 ## Provider 权限边界与审计证据
 
 Ralph 是无人值守循环，所以 provider 不允许弹交互式 approval。各 provider 的
