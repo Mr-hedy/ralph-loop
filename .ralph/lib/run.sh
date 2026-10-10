@@ -17,6 +17,8 @@ _RALPH_TAIL_FILTER_PID=""
 _RALPH_TAIL_FIFO=""
 _RALPH_HEARTBEAT_PID=""
 _RALPH_PROVIDER_PID=""
+_RALPH_ROUND=0
+_RALPH_PROTOCOL_ERROR=""
 _RALPH_CURRENT_TASK_ID=""
 _RALPH_CURRENT_TASK_TRY=0
 _RALPH_STICKY_MODE=0
@@ -256,6 +258,13 @@ _ralph_print_summary() {
       lines+=("Next step:")
       lines+=("  查看 .ralph/runs/$run_id/result.json 的 last_error 字段诊断。")
       ;;
+    protocol_changed)
+      lines+=("")
+      lines+=("执行协议或 run 级快照变化，已停止继续派发（包括重试）。")
+      lines+=("Next step:")
+      lines+=("  查看 result.json 的 last_error，人工核对协议来源和工作树成果。")
+      lines+=("  项目约束应放在 AGENTS.md / TASKS.md；按授权恢复匹配的工具版本后再决定重启。")
+      ;;
     interrupted)
       lines+=("")
       lines+=("SIGINT 中断（lock 已释放）。直接重跑 ralph run 即可继续。")
@@ -354,7 +363,9 @@ _ralph_write_status() {
   local next_retry_at="${13:-null}"
   local task_try="${14:-1}"
 
-  cat > "$_RALPH_WORKSPACE/.ralph/status.json" <<EOF
+  local status_tmp
+  status_tmp="$(mktemp "$_RALPH_WORKSPACE/.ralph/.status.XXXXXX")"
+  if ! cat > "$status_tmp" <<EOF
 {
   "run_id": "$(ralph_json_escape "$run_id")",
   "run_dir": "$(ralph_json_escape ".ralph/runs/$run_id")",
@@ -376,6 +387,14 @@ _ralph_write_status() {
   "last_error": ${last_error_json}
 }
 EOF
+  then
+    rm -f "$status_tmp"
+    return 1
+  fi
+  if ! mv -f "$status_tmp" "$_RALPH_WORKSPACE/.ralph/status.json"; then
+    rm -f "$status_tmp"
+    return 1
+  fi
 }
 
 _ralph_update_status() {
@@ -398,6 +417,42 @@ _ralph_update_status() {
 # ── 启动校验 ─────────────────────────────────────────────────────────────────
 _STARTUP_FAIL_PREFIX="ralph: startup check failed:"
 
+# git hash-object 不写对象库；复用 Git 依赖，不安装额外哈希工具。
+_ralph_protocol_matches() {
+  local file="$1" blob
+  [[ -f "$file" ]] || return 1
+  blob="$(git hash-object --no-filters -- "$file" 2>/dev/null)" || return 1
+  [[ -n "$blob" && ( "$blob" == "${_RALPH_PROTOCOL_BLOB_SHA1:-}" \
+    || "$blob" == "${_RALPH_PROTOCOL_BLOB_SHA256:-}" ) ]]
+}
+
+_ralph_check_protocol() {
+  local file
+  for file in "$1/.ralph/PROMPT.md" "$2"; do
+    if ! _ralph_protocol_matches "$file"; then
+      _RALPH_PROTOCOL_ERROR="$(jq -cn --arg path "$file" \
+        '{type:"protocol_changed", message:"execution protocol differs from this Ralph version or is unreadable", path:$path}')"
+      printf 'ralph: protocol integrity check failed: %s; no further provider dispatch\n' "$file" >&2
+      return 1
+    fi
+  done
+}
+
+_ralph_protocol_abort() {
+  local rounds="$1" total checked round_dir
+  if [[ "${_RALPH_ROUND:-0}" -gt 0 ]]; then
+    round_dir="$_RALPH_RUN_DIR/rounds/$(printf 'round-%03d' "$_RALPH_ROUND")"
+    if [[ -d "$round_dir" ]]; then
+      [[ -f "$round_dir/meta.json" ]] || init_meta "$round_dir" "$_RALPH_ROUND" "$_RALPH_PROVIDER" 0 0
+      update_meta_jq "$round_dir" '.error = $e' --argjson e "$_RALPH_PROTOCOL_ERROR"
+    fi
+  fi
+  total="$(count_total "$_RALPH_WORKSPACE/.ralph/TASKS.md")"
+  checked="$(count_checked "$_RALPH_WORKSPACE/.ralph/TASKS.md")"
+  _ralph_finish "protocol_changed" 8 "$rounds" "$total" \
+    "$_RALPH_TASKS_CHECKED_START" "$checked" "$_RALPH_STARTED_AT" "$_RALPH_PROTOCOL_ERROR"
+}
+
 _ralph_startup_checks() {
   local workspace="$1"
   local provider="$2"
@@ -405,6 +460,10 @@ _ralph_startup_checks() {
   # PROMPT.md
   [[ -f "$workspace/.ralph/PROMPT.md" ]] || {
     echo "$_STARTUP_FAIL_PREFIX .ralph/PROMPT.md not found" >&2; return 1; }
+  _ralph_protocol_matches "$workspace/.ralph/PROMPT.md" || {
+    echo "$_STARTUP_FAIL_PREFIX .ralph/PROMPT.md differs from this Ralph version; move project constraints to AGENTS.md/TASKS.md and restore a matching tool release (no automatic overwrite)" >&2
+    return 1
+  }
 
   # TASKS.md
   [[ -f "$workspace/.ralph/TASKS.md" ]] || {
@@ -420,9 +479,13 @@ _ralph_startup_checks() {
   [[ -n "$provider" ]] || {
     echo "$_STARTUP_FAIL_PREFIX RALPH_PROVIDER is not set" >&2; return 1; }
 
-  # .git/
-  [[ -d "$workspace/.git" ]] || {
-    echo "$_STARTUP_FAIL_PREFIX $workspace is not a git repository" >&2; return 1; }
+  # Git worktree 的 .git 是文件；通过 Git 判断身份，且不能误用父目录仓库。
+  local git_root
+  if ! git_root="$(git -C "$workspace" rev-parse --show-toplevel 2>/dev/null)" \
+    || [[ "$(cd -- "$git_root" >/dev/null 2>&1 && pwd -P)" != "$workspace" ]]; then
+    echo "$_STARTUP_FAIL_PREFIX $workspace is not a git repository root" >&2
+    return 1
+  fi
 
   # UUID 校验（仅 claude provider）
   if [[ "$provider" == "claude" ]]; then
@@ -530,6 +593,8 @@ ralph_run() {
   "timeout": ${timeout_sec},
   "stall_limit": ${stall_limit},
   "start_sha": $(ralph_json_str "$start_sha"),
+  "protocol_snapshot": "protocol.md",
+  "protocol_expected_blobs": {"sha1": "$_RALPH_PROTOCOL_BLOB_SHA1", "sha256": "$_RALPH_PROTOCOL_BLOB_SHA256"},
   "started_at": "$(ralph_json_escape "$started_at")",
   "env_source": ".ralph/.env + process env + CLI flags"
 }
@@ -565,12 +630,22 @@ EOF
     _RALPH_STICKY_STALL_LIMIT="$stall_limit"
     _RALPH_STICKY_MAX_ROUND="$max_round"
     _RALPH_STICKY_RETRY_COUNT=0
-    ralph_sticky_enter
+    ralph_sticky_enter 1
   fi
 
   # status.json 初始写入
   _ralph_write_status "running" "$run_id" "$provider" "$model" "$effort" \
     "$started_at" 0 "$tasks_total" "$tasks_checked_start" "null" "null" 0 "null" 1
+
+  # 保存本次实际使用的协议；未提交改动不再靠 start_sha 猜测恢复。
+  local protocol_snapshot="$run_dir/protocol.md"
+  if ! cp "$workspace/.ralph/PROMPT.md" "$protocol_snapshot" 2>/dev/null; then
+    _RALPH_PROTOCOL_ERROR="$(jq -cn --arg path "$protocol_snapshot" \
+      '{type:"protocol_changed", message:"could not save execution protocol snapshot", path:$path}')"
+    printf 'ralph: could not save protocol snapshot: %s\n' "$protocol_snapshot" >&2
+    _ralph_protocol_abort 0
+  fi
+  _ralph_check_protocol "$workspace" "$protocol_snapshot" || _ralph_protocol_abort 0
 
   # TASKS.md 空或全部已勾选 → 直接 done，不产生 round
   if [[ "$tasks_total" -eq 0 || "$tasks_checked_start" -ge "$tasks_total" ]]; then
@@ -590,6 +665,8 @@ EOF
 
   # ── 主循环 ──────────────────────────────────────────────────────────────
   while true; do
+    # 检查先于 done/HUMAN 判定和 retry；变化不能被任务勾选掩盖。
+    _ralph_check_protocol "$workspace" "$protocol_snapshot" || _ralph_protocol_abort "$round"
     if [[ "$retry_count" -eq 0 ]]; then
       round=$(( round + 1 ))
     fi
@@ -648,18 +725,30 @@ EOF
     fingerprint_before="$(ralph_worktree_fingerprint)"
     before_round_head="$(git rev-parse HEAD 2>/dev/null)" || before_round_head=""
 
-    # 准备 prompt（PROMPT.md 全文 + runtime 块）—— 写到 round 外的临时文件，
-    # 不留 prompt.md 副本（动态部分见 meta.json.runtime_block，静态部分通过
-    # start_sha 还原 git show $start_sha:.ralph/PROMPT.md）
+    # 准备 prompt（run 级协议快照 + runtime 块）；临时输入不进入 round 目录。
     local prompt_file
     prompt_file="$(mktemp -t "ralph-prompt-${round_label}.XXXXXX")"
     local runtime_block
     printf -v runtime_block 'run_id: %s\nround: %d\nstart_sha: %s\nworkspace: %s' \
       "$run_id" "$round" "$start_sha" "$workspace"
-    {
-      cat "$workspace/.ralph/PROMPT.md"
-      printf '\n\n<ralph-runtime>\n%s\n</ralph-runtime>\n' "$runtime_block"
-    } > "$prompt_file"
+    # 检查实际读入的静态协议；读取失败不能被 set -e 提前带出收尾路径。
+    if ! cat "$protocol_snapshot" > "$prompt_file" || ! _ralph_protocol_matches "$prompt_file"; then
+      _RALPH_PROTOCOL_ERROR="$(jq -cn --arg path "$protocol_snapshot" \
+        '{type:"protocol_changed", message:"could not read matching execution protocol snapshot", path:$path}')"
+      rm -f "$prompt_file"
+      _ralph_protocol_abort "$(( round - (retry_count == 0) ))"
+    fi
+    if ! _ralph_check_protocol "$workspace" "$protocol_snapshot"; then
+      rm -f "$prompt_file"
+      # 重试仍属于已经派发过的 round；首次派发前失败不计入执行轮数。
+      _ralph_protocol_abort "$(( round - (retry_count == 0) ))"
+    fi
+    printf '\n\n<ralph-runtime>\n%s\n</ralph-runtime>\n' "$runtime_block" >> "$prompt_file"
+
+    # 每次派发使用新的日志 inode，即使同轮重试的新内容更长，watch 也能识别切换。
+    local log_tmp
+    log_tmp="$(mktemp "$round_dir/.provider-log.XXXXXX")"
+    mv -f "$log_tmp" "$log_path"
 
     # meta.json 骨架（在 provider_oneshot 之前，让 adapter 可写入 session_id 等字段）
     init_meta "$round_dir" "$round" "$provider" 0 0
@@ -810,6 +899,12 @@ EOF
     # exit_code / duration_ms 事后回填（保留 adapter 已写入的其他字段，如 session_id）
     update_meta_field "$round_dir" exit_code "$rc"
     update_meta_field "$round_dir" duration_ms "$duration_ms"
+
+    # 在 provider 失败重试或成功收敛之前检查；保留采集证据和已有工作树。
+    if ! _ralph_check_protocol "$workspace" "$protocol_snapshot"; then
+      provider_collect_session "$round_dir" || true
+      _ralph_protocol_abort "$round"
+    fi
 
     # provider 失败判定
     if [[ "$rc" -ne 0 ]]; then
@@ -1009,7 +1104,8 @@ _ralph_filter_verbose() {
     [[ "$line" =~ ^\{ ]] || continue
     # 对每个事件按 type 简化输出（jq 失败则跳过）
     printf '%s\n' "$line" | jq -r '
-      def flat: tostring | gsub("\\s+"; " ");
+      def safe: tostring | gsub("[\u0000-\u0008\u000b-\u001f\u007f]"; "");
+      def flat: safe | gsub("\\s+"; " ");
       def trunc($n): flat | if length > $n then .[0:$n] else . end;
       def agy_error: (.result.error // .error // null);
       def agy_has_error:
@@ -1036,10 +1132,10 @@ _ralph_filter_verbose() {
       elif .type == "user" then
         ((.message.content // []) | if type == "array" then . else [] end | .[]
           | select(.type == "tool_result")
-          | "  ⏎ result " + ((.content // "") | trunc(80)))
+          | (if .is_error then "  ❌ error: " else "  ⏎ result " end) + ((.content // "") | trunc(80)))
       elif .type == "result" then
-        if has("text") then "  ✓ result " + ((.text // "") | trunc(120))
-        elif .is_error then "  ❌ error: " + ((.result // "") | trunc(120))
+        if .is_error then "  ❌ error: " + ((.result // .text // "") | trunc(120))
+        elif has("text") then "  ✓ result " + ((.text // "") | trunc(120))
         elif .result != null then "  ✓ result " + ((.result // "") | trunc(120))
         elif .stats != null then
           "  ✓ result tokens=" + ((.stats.total_tokens // 0) | tostring)
@@ -1050,10 +1146,27 @@ _ralph_filter_verbose() {
         "  ⚙ session " + ((.thread_id // "") | .[0:12])
       elif .type == "item.completed" and (.item.type // "") == "agent_message" then
         "  💬 " + ((.item.text // "") | trunc(120))
+      elif .type == "item.completed" and (.item.type // "") == "reasoning" then
+        "  💭 " + ((.item.text // "") | trunc(120))
       elif .type == "item.started" and (.item.type // "") == "command_execution" then
         "  🔧 " + ((.item.command // "?") | trunc(80))
       elif .type == "item.completed" and (.item.type // "") == "command_execution" then
-        "  ⏎ result " + ((.item.output // "") | trunc(80))
+        (if .item.status == "failed" or .item.status == "declined" or ((.item.exit_code // 0) != 0)
+          then "  ❌ command" else "  ⏎ command" end)
+        + " exit=" + ((.item.exit_code // "unknown") | tostring)
+        + " " + ((.item.aggregated_output // .item.output // .item.stdout // "") | trunc(80))
+      elif .type == "item.completed" and (.item.type // "") == "file_change" then
+        (if .item.status == "failed" then "  ❌ files " else "  ✓ files " end)
+        + ((.item.changes // []) | trunc(120))
+      elif (.type == "item.started" or .type == "item.completed") and (.item.type // "") == "mcp_tool_call" then
+        (if .item.status == "failed" or .item.error != null then "  ❌ MCP "
+          elif .type == "item.started" then "  🔧 MCP " else "  ⏎ MCP " end)
+        + (.item.server // "?") + "/" + (.item.tool // "?") + " "
+        + ((if .type == "item.started" then .item.arguments else .item.error // .item.result end) | trunc(120))
+      elif .type == "item.completed" and (.item.type // "") == "web_search" then
+        "  🔎 " + ((.item.query // "") | trunc(120))
+      elif .type == "item.completed" and (.item.type // "") == "error" then
+        "  ❌ error: " + ((.item.message // "") | trunc(120))
       elif .type == "turn.completed" then
         "  ✓ result"
       elif .type == "turn.failed" then
@@ -1075,17 +1188,38 @@ _ralph_filter_verbose() {
       elif .event == "init" then
         "  ⚙ session " + ((.conversation_id // .init.conversation_id // "") | .[0:12])
       elif .event == "step_update" then
-        if (((.step_update.agent_response.text_delta // .agent_response.text_delta // .step_update.text_delta // .text_delta // "") | length) > 0) then "  💬 " + ((.step_update.agent_response.text_delta // .agent_response.text_delta // .step_update.text_delta // .text_delta) | trunc(120))
-        elif (((.step_update.tool_name // .tool_name // "") | length) > 0) then "  🔧 " + (.step_update.tool_name // .tool_name) + " " + ((((.step_update.tool_info.command // .step_update.tool_info.parameters // .step_update.tool_info // .tool_info.command // .tool_info) // {}) | tostring) | trunc(80))
-        elif ((.step_update.subagent_info // .subagent_info // null) != null) then "  ⚙ subagent " + (((.step_update.subagent_info // .subagent_info) | tostring) | trunc(80))
-        else empty end
+        (.step_update // .) as $s |
+        ($s.agent_response // .agent_response // {}) as $a |
+        ($a.thinking_delta // $s.thinking_delta // $a.thinking // $s.thinking // "") as $thinking |
+        ($a.text_delta // $s.text_delta // "") as $text |
+        ($s.tool_name // "") as $tool |
+        ($s.tool_info // {}) as $info |
+        (($s.state // "") | tostring | ascii_upcase) as $state |
+        (if ($thinking | length) > 0 then "  💭 " + ($thinking | trunc(120)) else empty end),
+        (if ($text | length) > 0 then "  💬 " + ($text | trunc(120)) else empty end),
+        (if ($tool | length) > 0 then
+          if $state == "ERROR" or $state == "FAILED" or ($info | agy_has_error) then
+            "  ❌ 失败 " + $tool + " → " + (($info.error // $info.output // "未提供错误详情") | trunc(120)) +
+            (if $info.error != null and $info.output != null then " → 输出：" + ($info.output | trunc(120)) else "" end)
+          elif $state == "DONE" then
+            "  ✓ 完成 " + $tool +
+            (if $info.output != null then " → " + ($info.output | trunc(120)) else "" end)
+          else
+            "  🔧 " + (if $state == "ACTIVE" or $state == "RUNNING" then "开始 "
+              elif $state != "" then "[" + $state + "] " else "" end) + $tool + " " +
+            (($info.command // $info.parameters // $info) | trunc(80))
+          end
+        elif $s.subagent_info != null then "  ⚙ subagent " + ($s.subagent_info | trunc(80))
+        else empty end)
       elif .event == "result" then
-        if ((((.result.denied_actions // .denied_actions // []) | length)) > 0) then "  ❌ denied tools: " + (((.result.denied_actions // .denied_actions) | tostring) | trunc(100))
+        ((.result.response // .response // "") as $response |
+          if ($response | length) > 0 then "  💬 最终回复：" + ($response | trunc(120)) else empty end),
+        (if ((((.result.denied_actions // .denied_actions // []) | length)) > 0) then "  ❌ denied tools: " + (((.result.denied_actions // .denied_actions) | tostring) | trunc(100))
         elif agy_has_error then "  ❌ error: " + (agy_error_text | trunc(120))
         elif ((.result.status // .status // "") == "SUCCESS") then "  ✓ result"
         elif ((.result.status // .status // "") == "ERROR") then "  ❌ error: provider result status ERROR"
-        else "  ⚠ unknown result status: " + ((.result.status // .status // "missing") | tostring | trunc(80)) end
-      else empty end
+        else "  ⚠ unknown result status: " + ((.result.status // .status // "missing") | tostring | trunc(80)) end)
+      else empty end | safe
     ' 2>/dev/null
   done
 }

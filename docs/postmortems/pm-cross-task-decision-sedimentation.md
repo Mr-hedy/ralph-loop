@@ -9,6 +9,10 @@ affected_modules:
   - docs/architecture/integrations.md
   - docs/architecture/overview.md
   - docs/architecture/testing.md
+  - .ralph/PROMPT.md
+  - .ralph/lib/run.sh
+  - .spec/rules/TASKS.md
+  - templates/AGENTS.md
 linked_commits:
   - pending-t2-prep-commit
   - pending-t2-prep-fixup-commit
@@ -20,11 +24,13 @@ failure_pattern:
   - "下一个 session、下一个执行者或同 session 后续任务在实施时不读取/未关联到该决策，重新讨论或写错"
   - "对话上下文被压缩或换 session 后，决策从可用知识中消失"
   - "沉淀错位置后，方法论文档被项目事实污染，或项目契约散落难以查找"
+  - "项目工作包约束被写入版本化工具协议，污染后续 oneshot 的执行入口"
 prevention_checks:
   - "拆任务时，每条跨任务约定明确指明沉淀目标文档锚点；task.md 只引用文档锚点，不重复正文"
   - "adversarial review 发现的命名约定、步骤顺序、测试基础设施位置等结论必须更新到对应稳定文档后，才能视为修复完成"
   - "沉淀前先读目标文档自身的范围声明（首段 / 自述）确认归属：项目事实 → docs/architecture/*；agent 工作方法论 → .spec/rules/*"
   - "task.md 顶部规则段强制声明：跨任务稳定决策必须沉淀到 docs/architecture/*（项目事实）或 .spec/rules/*（方法论）"
+  - "业务开发不得改写 Ralph 控制文件；项目长期规则进入 AGENTS，工作包约束进入 TASKS 及其事实源；scripts/check.sh 校验协议与版本指纹"
 ---
 
 # 跨任务稳定决策只在对话/任务文档中提及，未沉淀到稳定文档，下一轮容易偏离
@@ -85,3 +91,23 @@ T2 任务拆解阶段，adversarial review 发现 4 类问题，根因都是"决
 - T2 后续任务实施时按本规则执行：跨任务约定写到稳定文档，task.md 引用锚点。
 - T3 / T4（Codex/Gemini adapter）实施时，新增的 provider 特定命名、错误诊断关键字、session 路径规则也必须沉淀到 integrations.md 对应段，不能只在 task.md 里写一次。
 - 若未来 adversarial review 仍然反复发现同类问题，考虑提炼到 skill 强制执行（在 review 报告生成阶段加沉淀检查步骤）。
+
+## 2026-10-09 增补：把工作包约束沉淀到执行协议
+
+上述历史记录中的 `task.md` 和 `docs/architecture/*` 是当时的路径；当前任务源是 `.ralph/TASKS.md`，项目事实入口以 `docs/README.md` 为准。
+
+现场只读检查发现，marketing-projects 的 Main Agent 为落实“不提交”“不新增表”等用户约束，多次改写 `.ralph/PROMPT.md`。主对话的文件修改记录能确认作者；并非仅凭 oneshot 日志推断。没有修改或升级现场。
+
+直接触发是旧协议要求完成任务后提交，与用户禁止提交的授权冲突。根因是协议自身允许在两次 run 之间编辑，发布入口和协作规则又没有明确 Main Agent 的控制文件边界；runtime 每轮重新读取可变协议，缺少版本校验和变化拦截。结果是本应写入项目事实源的限制进入工具协议，后续任务可能继续使用被改写的引导。
+
+修复把长期规则路由到 AGENTS、工作包约束路由到 TASKS 与引用事实源；协议只按授权处理提交。AGENTS 模板、TASKS 规则与 Ralph skill 明确普通 Main Agent/oneshot 不得改写工具控制文件。runtime 启动校验版本指纹，保存 run 级协议快照，并在派发及 provider 返回后检查源协议与快照，变化时停止后续派发和重试，不自动覆盖文件或回滚业务成果。该机制不是文件系统写隔离，也不保证正在执行的 oneshot 立即停止。
+
+预防检查：
+
+- 自动静态门：`/bin/bash scripts/check.sh` 校验 PROMPT 的 Git blob 指纹与 CLI 固定值，并完整比对当前发布包；维护协议时必须有授权且同步版本指纹。
+- 人工归属检查：新增“禁止提交”“只修改某仓库”“不新增表”等约束时，确认它们写入项目/工作包事实源，并被任务引用；不得靠修改通用 PROMPT 传递。
+- 行为复核门：见 `docs/testing.md` 的 REQ-054 覆盖缺口，验证启动拒绝、运行中源文件/快照变化、done 与 retry 优先级以及成果保留。本轮遵照用户要求未运行单测、集成或真实 provider；静态门不能替代这些证据。
+
+本次把规则提炼到 `.spec/`、AGENTS 模板和 Ralph skill，把完整性检查提炼到 runtime 与 `scripts/check.sh`，不只保留在复盘正文。
+
+0.1.8 复核补齐检查与使用之间的失败路径：读取快照用显式错误分支收尾，并校验已读入的静态输入，避免检查通过后快照消失时被 `set -e` 直接退出、留下 running 状态和锁。预防复核必须覆盖“最后一次检查后、实际读取时失败”，不能只覆盖检查前修改文件；行为验证项同步在 `docs/testing.md`，本轮未运行。

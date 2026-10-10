@@ -1,0 +1,5 @@
+# ralph 部署单元自带，cp -r .ralph 时跟随生效
+runs/
+lock
+status.json
+.env

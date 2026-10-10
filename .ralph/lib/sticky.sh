@@ -38,6 +38,8 @@ set -u
 _SCSI=$'\033['
 _SHIDE="${_SCSI}?25l"
 _SSHOW="${_SCSI}?25h"
+_SWRAP_OFF="${_SCSI}?7l"
+_SWRAP_ON="${_SCSI}?7h"
 _SSAVE="${_SCSI}s"
 _SREST="${_SCSI}u"
 _SEL="${_SCSI}K"
@@ -50,21 +52,36 @@ _SRED="${_SCSI}31m"
 _SCYAN="${_SCSI}36m"
 _SGRAY="${_SCSI}90m"
 _SAMBER="${_SCSI}38;5;178m"
+if [[ -n "${NO_COLOR:-}" ]]; then
+  _SDIM="" _SBOLD="" _SRESET="" _SGREEN="" _SYELLOW="" _SRED=""
+  _SCYAN="" _SGRAY="" _SAMBER=""
+fi
 
 # ── Layout config ─────────────────────────────────────────────────────────────
-_SEVENT_WINDOW="${RALPH_UI_STICKY_EVENT_LINES:-6}"
-if [[ ! "$_SEVENT_WINDOW" =~ ^[0-9]+$ || "$_SEVENT_WINDOW" -lt 1 ]]; then
-  _SEVENT_WINDOW=6
-fi
+# 限定十进制数值，防止前导零被按八进制解释或非法值进入 shell 算术。
+_sconfig_number() {
+  if [[ "$1" =~ ^[0-9]{1,9}$ ]]; then
+    printf '%s' "$(( 10#$1 ))"
+  else
+    printf '%s' "$2"
+  fi
+}
+_SEVENT_WINDOW="$(_sconfig_number "${RALPH_UI_STICKY_EVENT_LINES:-6}" 6)"
+(( _SEVENT_WINDOW > 0 )) || _SEVENT_WINDOW=6
 _STICKY_LINES=$(( _SEVENT_WINDOW + 4 ))
-_SHEALTH_GREEN="${RALPH_UI_HEALTH_GREEN_SEC:-60}"
-_SHEALTH_RED="${RALPH_UI_HEALTH_RED_SEC:-300}"
+_SHEALTH_GREEN="$(_sconfig_number "${RALPH_UI_HEALTH_GREEN_SEC:-60}" 60)"
+_SHEALTH_RED="$(_sconfig_number "${RALPH_UI_HEALTH_RED_SEC:-300}" 300)"
+if (( _SHEALTH_RED <= _SHEALTH_GREEN )); then
+  _SHEALTH_GREEN=60
+  _SHEALTH_RED=300
+fi
 
 # ── Internal state ────────────────────────────────────────────────────────────
 _SRENDERED=0
 _SREDRAWING=0
 _SSTTY_SAVED=""
 _SSTTY_ACTIVE=0
+_SINPUT_POLL=0
 _SCLEANED=0
 _SCOLS=80
 _SROWS=24
@@ -73,6 +90,7 @@ _SEV_MSGS=()
 _SSPIN_FRAMES=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧")
 _SSPIN_IDX=0
 _SLOG_LAST_SIZE=0
+_SLOG_LAST_ID=""
 _SLAST_ACTIVITY_TS=0
 _STICKY_LINES_LAST=""   # last frame's rendered height (for live↔frozen size transitions)
 
@@ -88,8 +106,8 @@ _srefresh_size() {
   fi
   [[ "$_SCOLS" =~ ^[0-9]+$ ]] || _SCOLS=80
   [[ "$_SROWS" =~ ^[0-9]+$ ]] || _SROWS=24
-  [[ $_SCOLS -lt 20 ]] && _SCOLS=20 || true
-  [[ $_SROWS -lt 10 ]] && _SROWS=10 || true
+  [[ $_SCOLS -gt 0 ]] || _SCOLS=80
+  [[ $_SROWS -gt 0 ]] || _SROWS=24
 }
 
 # ── Utility ───────────────────────────────────────────────────────────────────
@@ -113,10 +131,11 @@ _sfmt_ago() {
 }
 
 _schar_width() {
-  case "$1" in
-    [一-龥]|[，。！？：；、（）【】《》""'']) printf '2' ;;
-    *) printf '1' ;;
-  esac
+  # Bash 3.2 的 printf 返回非 ASCII 字符的首字节（可能为负），新 Bash
+  # 可返回码点。统一保守预留两列，避免中文、假名、全角字符和 emoji 溢出。
+  local code
+  printf -v code '%d' "'$1"
+  if (( code < 0 || code > 127 )); then _SCHAR_WIDTH=2; else _SCHAR_WIDTH=1; fi
 }
 
 # Truncate string to fit max display columns (CJK-aware), append "..." if truncated
@@ -128,7 +147,8 @@ _struncate_cols() {
 
   for ((i=0; i<${#txt}; i++)); do
     ch="${txt:i:1}"
-    w="$(_schar_width "$ch")"
+    _schar_width "$ch"
+    w="$_SCHAR_WIDTH"
     total=$(( total + w ))
   done
   if (( total <= max )); then
@@ -144,7 +164,8 @@ _struncate_cols() {
   limit=$(( max - suffix_w ))
   for ((i=0; i<${#txt}; i++)); do
     ch="${txt:i:1}"
-    w="$(_schar_width "$ch")"
+    _schar_width "$ch"
+    w="$_SCHAR_WIDTH"
     if [[ $(( used + w )) -gt $limit ]]; then break; fi
     out+="$ch"
     used=$(( used + w ))
@@ -171,22 +192,25 @@ _scursor_up() { printf '%s%dA' "$_SCSI" "$1"; }
 
 # ── Health light (§5) ────────────────────────────────────────────────────────
 _shealth() {
-  local now exit_reason
+  local now exit_reason color="$_SGREEN" symbol="●"
   now=$(date +%s)
   exit_reason="${_RALPH_STICKY_EXIT_REASON:-}"
 
   # Exit-state lights
   case "$exit_reason" in
     done)
-      printf '%s✓%s' "$_SGREEN" "$_SRESET"
+      printf -v _SHEALTH '%s✓%s' "$_SGREEN" "$_SRESET"
+      printf '%s' "$_SHEALTH"
       return
       ;;
-    provider_failed|timeout|blocked_by_human)
-      printf '%s✗%s' "$_SRED" "$_SRESET"
+    provider_failed|timeout|blocked_by_human|protocol_changed)
+      printf -v _SHEALTH '%s✗%s' "$_SRED" "$_SRESET"
+      printf '%s' "$_SHEALTH"
       return
       ;;
     interrupted)
-      printf '%s⏸%s' "$_SYELLOW" "$_SRESET"
+      printf -v _SHEALTH '%s⏸%s' "$_SYELLOW" "$_SRESET"
+      printf '%s' "$_SHEALTH"
       return
       ;;
   esac
@@ -194,22 +218,28 @@ _shealth() {
   # Running: check provider.stdout.log byte growth
   local log_path="${_RALPH_STICKY_LOG_PATH:-}"
   if [[ -n "$log_path" && -f "$log_path" ]]; then
-    local current_size
-    current_size="$(stat -f%z "$log_path" 2>/dev/null || stat -c%s "$log_path" 2>/dev/null)" || current_size=0
-    if (( current_size > _SLOG_LAST_SIZE )); then
+    local current_size current_id attributes
+    attributes="$(stat -f '%i %z' "$log_path" 2>/dev/null)" || attributes=""
+    if [[ ! "$attributes" =~ ^[0-9]+[[:space:]][0-9]+$ ]]; then
+      attributes="$(stat -c '%i %s' "$log_path" 2>/dev/null)" || attributes=""
+    fi
+    [[ "$attributes" =~ ^[0-9]+[[:space:]][0-9]+$ ]] || attributes="0 0"
+    read -r current_id current_size <<< "$attributes"
+    if [[ "$current_id" != "$_SLOG_LAST_ID" ]] || (( current_size != _SLOG_LAST_SIZE )); then
       _SLAST_ACTIVITY_TS="$now"
       _SLOG_LAST_SIZE="$current_size"
+      _SLOG_LAST_ID="$current_id"
     fi
   fi
 
   local since=$(( now - _SLAST_ACTIVITY_TS ))
   if (( since > _SHEALTH_RED )); then
-    printf '%s●%s' "$_SRED" "$_SRESET"
+    color="$_SRED"
   elif (( since > _SHEALTH_GREEN )); then
-    printf '%s●%s' "$_SYELLOW" "$_SRESET"
-  else
-    printf '%s●%s' "$_SGREEN" "$_SRESET"
+    color="$_SYELLOW"
   fi
+  printf -v _SHEALTH '%s%s%s' "$color" "$symbol" "$_SRESET"
+  printf '%s' "$_SHEALTH"
 }
 
 # ── Draw: horizontal rule ────────────────────────────────────────────────────
@@ -274,21 +304,25 @@ _sdraw_top() {
 
 # ── Draw: event area (6-line window) ─────────────────────────────────────────
 _sdraw_events() {
+  local window="${1:-$_SEVENT_WINDOW}" first=0
   local i count blank_count idx ts event max line
   count=${#_SEV_MSGS[@]}
-  if [[ $count -gt $_SEVENT_WINDOW ]]; then count=$_SEVENT_WINDOW; fi
-  blank_count=$(( _SEVENT_WINDOW - count ))
+  if [[ $count -gt $window ]]; then first=$(( count - window )); count=$window; fi
+  blank_count=$(( window - count ))
   max=$(( _SCOLS - 12 ))
   if [[ $max -lt 8 ]]; then max=8; fi
 
-  for ((i=0; i<_SEVENT_WINDOW; i++)); do
+  for ((i=0; i<window; i++)); do
     if (( i < blank_count )); then
       line=""
     else
-      idx=$(( i - blank_count ))
+      idx=$(( first + i - blank_count ))
       ts="${_SEV_TIMES[$idx]:-}"
       event="${_SEV_MSGS[$idx]:-}"
-      line=$(printf '%s[%s]%s %s' "$_SGRAY" "$ts" "$_SRESET" "$(_struncate_bytes "$event" "$max")")
+      event="${event//$'\n'/ }"
+      event="${event//$'\r'/ }"
+      event="${event//$'\t'/ }"
+      line=$(printf '%s[%s]%s %s' "$_SGRAY" "$ts" "$_SRESET" "$(_struncate_cols "$event" "$max")")
     fi
     printf '%s%s\n' "$_SEL" "$line"
   done
@@ -318,7 +352,8 @@ _sdraw_bottom() {
   # Special case: exit_reason=done → 全部任务勾完，底栏简化为 "<health> all tasks done"
   # round/stall/spinner/time/arrow 在此终态下都已无现实参考意义。
   if [[ "${_RALPH_STICKY_EXIT_REASON:-}" == "done" ]]; then
-    health="$(_shealth)"
+    _shealth >/dev/null
+    health="$_SHEALTH"
     line=$(printf '%s %sall tasks done%s' "$health" "$_SGRAY" "$_SRESET")
     line+="$frozen_suffix"
     printf '%s%s\n' "$_SEL" "$line"
@@ -330,7 +365,9 @@ _sdraw_bottom() {
   else
     spin="${_SSPIN_FRAMES[$_SSPIN_IDX]}"
   fi
-  health="$(_shealth)"
+  # 日志活动状态必须在渲染进程保留；命令替换会在子 shell 丢失更新。
+  _shealth >/dev/null
+  health="$_SHEALTH"
 
   local task_try="${_RALPH_STICKY_TASK_TRY:-1}"
   local max_round="${_RALPH_STICKY_MAX_ROUND:-0}"
@@ -384,19 +421,27 @@ _sdraw_hint() {
 
 ralph_sticky_enter() {
   _srefresh_size
+  _SINPUT_POLL=0
 
   # Save + set terminal state
   if [[ -r /dev/tty ]]; then
     _SSTTY_SAVED="$(stty -g < /dev/tty 2>/dev/null || true)"
     if [[ -n "$_SSTTY_SAVED" ]]; then
-      stty -echo -icanon min 0 time 0 < /dev/tty 2>/dev/null || true
-      _SSTTY_ACTIVE=1
+      if stty -echo -icanon min 0 time 0 < /dev/tty 2>/dev/null; then
+        _SSTTY_ACTIVE=1
+        # 持续渲染的调用方可启用键盘轮询；其他调用保持原生 SIGINT。
+        # 避免刷新时键盘信号同时打到前台 helper。
+        if [[ "${1:-0}" == 1 ]] && stty intr undef < /dev/tty 2>/dev/null; then
+          _SINPUT_POLL=1
+        fi
+      fi
     fi
   fi
 
   # Initialize health tracking
   _SLAST_ACTIVITY_TS="$(date +%s)"
   _SLOG_LAST_SIZE=0
+  _SLOG_LAST_ID=""
 
   # Reset render state
   _SRENDERED=0
@@ -415,6 +460,7 @@ ralph_sticky_enter() {
 ralph_sticky_cleanup() {
   ((_SCLEANED)) && return 0
   _SCLEANED=1
+  _SINPUT_POLL=0
 
   # Restore cursor position if mid-redraw
   if ((_SREDRAWING)); then
@@ -425,14 +471,15 @@ ralph_sticky_cleanup() {
   # Drain stale tty input then restore original settings
   if ((_SSTTY_ACTIVE)); then
     local _
-    while IFS= read -r -s -n 1 -t 0.001 _ < /dev/tty 2>/dev/null; do
+    while IFS= read -r _ < /dev/tty 2>/dev/null; do
       :
     done
     stty "$_SSTTY_SAVED" < /dev/tty 2>/dev/null || true
     _SSTTY_ACTIVE=0
   fi
 
-  printf '%s%s' "$_SSHOW" "$_SRESET"
+  printf '%s%s%s' "$_SWRAP_ON" "$_SSHOW" "$_SRESET"
+  if [[ "${_STICKY_LINES_LAST:-1}" -eq 0 ]]; then printf '\n'; fi
 }
 
 ralph_sticky_append_event() {
@@ -451,6 +498,16 @@ ralph_sticky_append_event() {
 }
 
 ralph_sticky_render_frame() {
+  if (( _SINPUT_POLL )); then
+    # 已设置 min=0/time=0；普通 read 不阻塞，可能以 EOF 返回部分输入。
+    # Bash 3.2 不支持 read -t 的小数，也不再让 -n/-s 临时改终端模式。
+    local key=""
+    IFS= read -r key < /dev/tty 2>/dev/null || true
+    if [[ "$key" == *$'\003'* ]]; then
+      kill -INT "$$"
+      return 0
+    fi
+  fi
   _srefresh_size
 
   # Advance spinner (frozen in finished/replay mode)
@@ -458,42 +515,56 @@ ralph_sticky_render_frame() {
     _SSPIN_IDX=$(( ( _SSPIN_IDX + 1 ) % 8 ))
   fi
 
-  # 当前帧目标高度：live = N+5（含 hint 行），frozen = N+4
-  local target_size
+  # 保留一行给绘制后的光标，避免最后一个换行把头部滚入历史。
+  local overhead=5 event_lines="$_SEVENT_WINDOW" target_size
   if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
-    target_size=$(( _SEVENT_WINDOW + 4 ))
+    overhead=4
+  fi
+  if (( _SROWS <= 5 )); then
+    target_size=1
+    (( _SROWS > 1 )) || target_size=0
   else
-    target_size=$(( _SEVENT_WINDOW + 5 ))
+    if (( event_lines > _SROWS - overhead - 1 )); then
+      event_lines=$(( _SROWS - overhead - 1 ))
+    fi
+    target_size=$(( event_lines + overhead ))
   fi
   local last_size="${_STICKY_LINES_LAST:-$target_size}"
 
-  if ((_SRENDERED)); then
+  # 固定行数回移依赖每个逻辑行只占一个终端行。宽字符、窄窗口和
+  # 顶/底栏不能靠字符数量保证宽度；绘制时禁止自动折行，结束立即还原。
+  printf '%s' "$_SWRAP_OFF"
+
+  printf '\r'
+  if (( _SRENDERED && last_size > 0 )); then
     # Move cursor up by PREVIOUS frame's size（处理 live↔frozen 变高场景）
     _scursor_up "$last_size"
   fi
 
-  _sdraw_top
-  _sdraw_hr
-  _sdraw_events
-  _sdraw_hr
-  _sdraw_bottom
-  if [[ -z "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
-    _sdraw_hint
+  if (( _SROWS <= 5 )); then
+    # 极矮窗口保留顶栏；一行窗口不输出换行，以免每次刷新滚屏。
+    if (( _SROWS == 1 )); then _sdraw_top | tr -d '\r\n'; else _sdraw_top; fi
+  else
+    _sdraw_top
+    _sdraw_hr
+    _sdraw_events "$event_lines"
+    _sdraw_hr
+    _sdraw_bottom
+    if [[ -z "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
+      _sdraw_hint
+    fi
   fi
 
   # 收缩场景（live 11 → frozen 10）：清掉残留的下一行，再把 cursor 拉回到
   # 当前帧底部，保证下一帧 cursor_up "$target_size" 能精确回到顶部。
   if (( target_size < last_size )); then
-    local extra=$(( last_size - target_size ))
-    local i
-    for ((i=0; i<extra; i++)); do
-      printf '%s\n' "$_SEL"
-    done
-    _scursor_up "$extra"
+    # 清除光标以下的旧内容，不额外换行；窗口收缩时额外换行会再次滚屏。
+    printf '%sJ' "$_SCSI"
   fi
 
   _SRENDERED=1
   _STICKY_LINES_LAST="$target_size"
+  printf '%s' "$_SWRAP_ON"
 }
 
 # ── Trap helpers ──────────────────────────────────────────────────────────────

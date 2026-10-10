@@ -28,7 +28,7 @@ _ralph_watch_status_color() {
   local state="$1" exit_reason="$2"
   if [[ "$state" == "running" || "$exit_reason" == "done" ]]; then
     printf '%s' "green"
-  elif [[ "$exit_reason" == "provider_failed" || "$exit_reason" == "timeout" \
+  elif [[ "$exit_reason" == "provider_failed" || "$exit_reason" == "protocol_changed" || "$exit_reason" == "timeout" \
         || "$exit_reason" == "blocked_by_human" ]]; then
     printf '%s' "red"
   elif [[ "$exit_reason" == "locked" || "$exit_reason" == "interrupted" ]]; then
@@ -45,14 +45,18 @@ _ralph_watch_bar_text() {
     return 0
   fi
 
+  local status_json
+  status_json="$(jq -ec 'select(type == "object")' "$f" 2>/dev/null)" \
+    || { echo "ralph watch: cannot read status.json" >&2; return 1; }
+
   local run_id round checked total state exit_reason provider short_id bar
-  run_id="$(_ralph_status_json_val "$f" "run_id")"
-  round="$(_ralph_status_json_val "$f" "round")"
-  checked="$(_ralph_status_json_val "$f" "tasks_checked")"
-  total="$(_ralph_status_json_val "$f" "tasks_total")"
-  state="$(_ralph_status_json_val "$f" "state")"
-  exit_reason="$(_ralph_status_json_val "$f" "exit_reason")"
-  provider="$(_ralph_status_json_val "$f" "provider")"
+  run_id="$(_ralph_status_snapshot_val "$status_json" "run_id")"
+  round="$(_ralph_status_snapshot_val "$status_json" "round")"
+  checked="$(_ralph_status_snapshot_val "$status_json" "tasks_checked")"
+  total="$(_ralph_status_snapshot_val "$status_json" "tasks_total")"
+  state="$(_ralph_status_snapshot_val "$status_json" "state")"
+  exit_reason="$(_ralph_status_snapshot_val "$status_json" "exit_reason")"
+  provider="$(_ralph_status_snapshot_val "$status_json" "provider")"
 
   short_id="$(_ralph_watch_truncate_id "$run_id")"
 
@@ -89,11 +93,20 @@ _ralph_watch_bar_text() {
 
 # ── Event filter (same logic as run.sh _ralph_filter_verbose) ──────────────
 _ralph_watch_filter_events() {
+  local mode="${1:-compact}"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ "$line" =~ ^\{ ]] || continue
-    printf '%s\n' "$line" | jq -r '
-      def flat: tostring | gsub("\\s+"; " ");
-      def trunc($n): flat | if length > $n then .[0:$n] else . end;
+    if [[ ! "$line" =~ ^\{ ]]; then
+      if [[ "$mode" == "details" ]]; then
+        printf '%s\n' "$line" | jq -Rr '
+          "[provider] " + gsub("[\u0000-\u0008\u000b-\u001f\u007f]"; "")'
+      fi
+      continue
+    fi
+    printf '%s\n' "$line" | jq -r --arg mode "$mode" '
+      def safe: tostring | gsub("[\u0000-\u0008\u000b-\u001f\u007f]"; "");
+      def flat: safe | gsub("\\s+"; " ");
+      def trunc($n): if $mode == "details" then safe
+        else flat | if length > $n then .[0:$n] else . end end;
       def agy_error: (.result.error // .error // null);
       def agy_has_error:
         agy_error as $e |
@@ -119,10 +132,10 @@ _ralph_watch_filter_events() {
       elif .type == "user" then
         ((.message.content // []) | if type == "array" then . else [] end | .[]
           | select(.type == "tool_result")
-          | "  ⏎ result " + ((.content // "") | trunc(80)))
+          | (if .is_error then "  ❌ error: " else "  ⏎ result " end) + ((.content // "") | trunc(80)))
       elif .type == "result" then
-        if has("text") then "  ✓ result " + ((.text // "") | trunc(120))
-        elif .is_error then "  ❌ error: " + ((.result // "") | trunc(120))
+        if .is_error then "  ❌ error: " + ((.result // .text // "") | trunc(120))
+        elif has("text") then "  ✓ result " + ((.text // "") | trunc(120))
         elif .result != null then "  ✓ result " + ((.result // "") | trunc(120))
         elif .stats != null then
           "  ✓ result tokens=" + ((.stats.total_tokens // 0) | tostring)
@@ -133,10 +146,27 @@ _ralph_watch_filter_events() {
         "  ⚙ session " + ((.thread_id // "") | .[0:12])
       elif .type == "item.completed" and (.item.type // "") == "agent_message" then
         "  💬 " + ((.item.text // "") | trunc(120))
+      elif .type == "item.completed" and (.item.type // "") == "reasoning" then
+        "  💭 " + ((.item.text // "") | trunc(120))
       elif .type == "item.started" and (.item.type // "") == "command_execution" then
         "  🔧 " + ((.item.command // "?") | trunc(80))
       elif .type == "item.completed" and (.item.type // "") == "command_execution" then
-        "  ⏎ result " + ((.item.output // "") | trunc(80))
+        (if .item.status == "failed" or .item.status == "declined" or ((.item.exit_code // 0) != 0)
+          then "  ❌ command" else "  ⏎ command" end)
+        + " exit=" + ((.item.exit_code // "unknown") | tostring)
+        + " " + ((.item.aggregated_output // .item.output // .item.stdout // "") | trunc(80))
+      elif .type == "item.completed" and (.item.type // "") == "file_change" then
+        (if .item.status == "failed" then "  ❌ files " else "  ✓ files " end)
+        + ((.item.changes // []) | trunc(120))
+      elif (.type == "item.started" or .type == "item.completed") and (.item.type // "") == "mcp_tool_call" then
+        (if .item.status == "failed" or .item.error != null then "  ❌ MCP "
+          elif .type == "item.started" then "  🔧 MCP " else "  ⏎ MCP " end)
+        + (.item.server // "?") + "/" + (.item.tool // "?") + " "
+        + ((if .type == "item.started" then .item.arguments else .item.error // .item.result end) | trunc(120))
+      elif .type == "item.completed" and (.item.type // "") == "web_search" then
+        "  🔎 " + ((.item.query // "") | trunc(120))
+      elif .type == "item.completed" and (.item.type // "") == "error" then
+        "  ❌ error: " + ((.item.message // "") | trunc(120))
       elif .type == "turn.completed" then
         "  ✓ result"
       elif .type == "turn.failed" then
@@ -158,18 +188,47 @@ _ralph_watch_filter_events() {
       elif .event == "init" then
         "  ⚙ session " + ((.conversation_id // .init.conversation_id // "") | .[0:12])
       elif .event == "step_update" then
-        if (((.step_update.agent_response.text_delta // .agent_response.text_delta // .step_update.text_delta // .text_delta // "") | length) > 0) then "  💬 " + ((.step_update.agent_response.text_delta // .agent_response.text_delta // .step_update.text_delta // .text_delta) | trunc(120))
-        elif (((.step_update.tool_name // .tool_name // "") | length) > 0) then "  🔧 " + (.step_update.tool_name // .tool_name) + " " + ((((.step_update.tool_info.command // .step_update.tool_info.parameters // .step_update.tool_info // .tool_info.command // .tool_info) // {}) | tostring) | trunc(80))
-        elif ((.step_update.subagent_info // .subagent_info // null) != null) then "  ⚙ subagent " + (((.step_update.subagent_info // .subagent_info) | tostring) | trunc(80))
-        else empty end
+        (.step_update // .) as $s |
+        ($s.agent_response // .agent_response // {}) as $a |
+        ($a.thinking_delta // $s.thinking_delta // $a.thinking // $s.thinking // "") as $thinking |
+        ($a.text_delta // $s.text_delta // "") as $text |
+        ($s.tool_name // "") as $tool |
+        ($s.tool_info // {}) as $info |
+        (($s.state // "") | tostring | ascii_upcase) as $state |
+        (if ($thinking | length) > 0 then "  💭 " + ($thinking | trunc(120)) else empty end),
+        (if ($text | length) > 0 then "  💬 " + ($text | trunc(120)) else empty end),
+        (if ($tool | length) > 0 then
+          if $state == "ERROR" or $state == "FAILED" or ($info | agy_has_error) then
+            "  ❌ 失败 " + $tool + " → " + (($info.error // $info.output // "未提供错误详情") | trunc(120)) +
+            (if $info.error != null and $info.output != null then " → 输出：" + ($info.output | trunc(120)) else "" end)
+          elif $state == "DONE" then
+            "  ✓ 完成 " + $tool +
+            (if $info.output != null then " → " + ($info.output | trunc(120)) else "" end)
+          else
+            "  🔧 " + (if $state == "ACTIVE" or $state == "RUNNING" then "开始 "
+              elif $state != "" then "[" + $state + "] " else "" end) + $tool + " " +
+            (($info.command // $info.parameters // $info) | trunc(80))
+          end
+        elif $s.subagent_info != null then "  ⚙ subagent " + ($s.subagent_info | trunc(80))
+        elif $mode == "details" and $s.step_type == "agent_response" and ($text | length) == 0 and ($thinking | length) == 0 then
+          "  ⚙ agent_response " + $state
+        else empty end)
       elif .event == "result" then
-        if ((((.result.denied_actions // .denied_actions // []) | length)) > 0) then "  ❌ denied tools: " + (((.result.denied_actions // .denied_actions) | tostring) | trunc(100))
+        ((.result.response // .response // "") as $response |
+          if ($response | length) > 0 then "  💬 最终回复：" + ($response | trunc(120)) else empty end),
+        (if ((((.result.denied_actions // .denied_actions // []) | length)) > 0) then "  ❌ denied tools: " + (((.result.denied_actions // .denied_actions) | tostring) | trunc(100))
         elif agy_has_error then "  ❌ error: " + (agy_error_text | trunc(120))
         elif ((.result.status // .status // "") == "SUCCESS") then "  ✓ result"
         elif ((.result.status // .status // "") == "ERROR") then "  ❌ error: provider result status ERROR"
-        else "  ⚠ unknown result status: " + ((.result.status // .status // "missing") | tostring | trunc(80)) end
-      else empty end
-    ' 2>/dev/null
+        else "  ⚠ unknown result status: " + ((.result.status // .status // "missing") | tostring | trunc(80)) end)
+      elif $mode == "details" then "[provider event] " + (. | safe)
+      else empty end | safe
+    ' 2>/dev/null || {
+      if [[ "$mode" == "details" ]]; then
+        printf '%s\n' "$line" | jq -Rr '
+          "[provider unparsed] " + gsub("[\u0000-\u0008\u000b-\u001f\u007f]"; "")'
+      fi
+    }
   done
 }
 
@@ -182,6 +241,134 @@ _w_json_val() {
     grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$file" 2>/dev/null | head -1 \
       | sed 's/.*: *"//' | sed 's/"$//' || echo ""
   fi
+}
+
+# 同一帧的字段必须来自同一个 status 版本，而非每个字段重新打开文件。
+_w_snapshot_val() {
+  jq -r --arg key "$2" '.[$key] // ""' <<< "$1"
+}
+
+# 详情视图只消费完整行；半行留到下次刷新，已结束 round 可输出末尾无换行行。
+_W_DETAILS_POS=0
+_W_DETAILS_ID=""
+_W_DETAILS_LOG=""
+_w_details_read_log() {
+  local log_path="$1" flush="${2:-0}" line size identity
+  local LC_ALL=C
+  [[ -f "$log_path" ]] || return 0
+  # 每次重新打开文件，从偏移 0 读取同一 inode 的属性和内容；持有描述符，
+  # 避免读到一半换文件或观察暂停期间旧 inode 被重用。
+  if ! { exec 3< "$log_path"; } 2>/dev/null; then return 0; fi
+  identity="$(ls -diL /dev/fd/3 2>/dev/null | awk '{print $1}')" || return 0
+  [[ -n "$identity" ]] || return 0
+  if [[ "$log_path" != "$_W_DETAILS_LOG" ]]; then
+    _W_DETAILS_POS=0
+    _W_DETAILS_ID=""
+    _W_DETAILS_LOG="$log_path"
+  elif [[ -n "$_W_DETAILS_ID" && "$identity" != "$_W_DETAILS_ID" ]]; then
+    printf '[provider] 新执行日志，重新读取当前内容。\n'
+    _W_DETAILS_POS=0
+  fi
+  _W_DETAILS_ID="$identity"
+  size="$(ls -lnL /dev/fd/3 2>/dev/null | awk '{print $5}')" || return 0
+  [[ "$size" =~ ^[0-9]+$ ]] || return 0
+  if [[ "$size" -lt "$_W_DETAILS_POS" ]]; then
+    printf '[provider] 执行日志已重新开始，重新读取当前内容。\n'
+    _W_DETAILS_POS=0
+  fi
+  while IFS= read -r line || [[ "$flush" -eq 1 && -n "$line" ]]; do
+    _W_DETAILS_POS=$(( _W_DETAILS_POS + ${#line} + 1 ))
+    printf '%s\n' "$line" | _ralph_watch_filter_events details || true
+  done < <(tail -c "+$(( _W_DETAILS_POS + 1 ))" /dev/fd/3 2>/dev/null)
+  return 0
+}
+
+# 默认 watch 保持原有紧凑契约；详情模式提供可回看的执行过程。
+ralph_watch_details() {
+  local workspace status_file follow=0
+  workspace="$(ralph_workspace_root)"
+  status_file="$workspace/.ralph/status.json"
+  [[ -t 1 ]] && follow=1
+  local run_id provider round state exit_reason checked total
+  local prev_run="" prev_log="" prev_state="" prev_round=0 log_path="" padded fields flush skipped skipped_log read_failures=0
+  _W_DETAILS_POS=0
+  _W_DETAILS_ID=""
+  _W_DETAILS_LOG=""
+  while true; do
+    if [[ ! -f "$status_file" ]]; then
+      printf 'ralph watch: no active run (status.json not found)\n'
+      exec 3<&-
+      return 0
+    fi
+    if ! fields="$(jq -er 'select(type == "object") | [.run_id // "-", .provider // "-", .round // 0,
+        .state // "-", .exit_reason // "-", .tasks_checked // 0, .tasks_total // 0] | @tsv' "$status_file" 2>/dev/null)"; then
+      read_failures=$(( read_failures + 1 ))
+      if [[ "$read_failures" -lt 4 ]]; then
+        sleep 0.5
+        continue
+      fi
+      printf 'ralph watch: cannot read status.json\n' >&2
+      exec 3<&-
+      return 1
+    fi
+    read_failures=0
+    read -r run_id provider round state exit_reason checked total <<< "$fields"
+    if [[ "$run_id" == "-" ]]; then
+      printf 'ralph watch: no active run\n'
+      exec 3<&-
+      return 0
+    fi
+    if [[ ! "$run_id" =~ ^[A-Za-z0-9_-]+$ || ! "$round" =~ ^[0-9]+$ ]]; then
+      printf 'ralph watch: invalid run or round in status.json\n' >&2
+      exec 3<&-
+      return 1
+    fi
+    printf -v padded '%03d' "$round"
+    log_path="$workspace/.ralph/runs/$run_id/rounds/round-$padded/provider.stdout.log"
+    if [[ "$log_path" != "$prev_log" ]]; then
+      # 先读完上一轮，再从头显示当前轮，避免切换时遗漏末尾结果。
+      [[ -z "$prev_log" ]] || _w_details_read_log "$prev_log" 1
+      # 若回放期间已有多轮完成，补读中间轮，避免只跟上最新状态而丢过程。
+      if [[ "$run_id" == "$prev_run" ]]; then
+        for (( skipped=prev_round+1; skipped<round; skipped++ )); do
+          printf -v padded '%03d' "$skipped"
+          skipped_log="$workspace/.ralph/runs/$run_id/rounds/round-$padded/provider.stdout.log"
+          if [[ -f "$skipped_log" ]]; then
+            printf '\n── 补读 round %s ──\n' "$skipped"
+            _W_DETAILS_POS=0
+            _w_details_read_log "$skipped_log" 1
+          fi
+        done
+      fi
+      _W_DETAILS_POS=0
+      prev_log="$log_path"
+      prev_round="$round"
+      printf '\n── run %s · provider %s · round %s · tasks %s/%s ──\n' \
+        "$run_id" "$provider" "$round" "$checked" "$total"
+      if [[ "$run_id" != "$prev_run" ]]; then
+        printf '显示 AI 已输出的说明、工具操作和结果；当前轮已有内容会先回放。\n'
+        if [[ "$provider" == "antigravity" ]]; then
+          printf 'Antigravity 实时事件未必包含思考；原生会话副本可在本轮结束后查阅。\n'
+        fi
+        prev_run="$run_id"
+      fi
+      prev_state=""
+    fi
+    flush=0
+    [[ "$state" != "finished" ]] || flush=1
+    _w_details_read_log "$log_path" "$flush"
+    if [[ "$state" != "$prev_state" ]]; then
+      printf '[run] state=%s · tasks %s/%s · exit_reason=%s\n' \
+        "$state" "$checked" "$total" "$exit_reason"
+      prev_state="$state"
+    fi
+    if [[ "$state" == "finished" || "$follow" -eq 0 ]]; then
+      [[ ! -f "$log_path" ]] || printf '原始记录：%s\n' "$log_path"
+      exec 3<&-
+      return 0
+    fi
+    sleep 0.5
+  done
 }
 
 # ── Non-TTY snapshot entry point ────────────────────────────────────────────
@@ -239,7 +426,7 @@ _w_start_tail() {
   rm -f "$_W_FIFO"
   mkfifo "$_W_FIFO"
 
-  tail -n 0 -f "$log_path" > "$_W_FIFO" 2>/dev/null &
+  tail -n 0 -F "$log_path" > "$_W_FIFO" 2>/dev/null &
   _W_TAIL_PID=$!
   _ralph_watch_filter_events < "$_W_FIFO" >> "$_W_EVENT_FILE" 2>/dev/null &
   _W_FILTER_PID=$!
@@ -264,7 +451,7 @@ _w_on_exit() {
 
 # ── TTY sticky watch main ─────────────────────────────────────────────────
 ralph_watch() {
-  local workspace status_file
+  local workspace status_file status_json read_failures=0
   workspace="$(ralph_workspace_root)"
   status_file="${workspace}/.ralph/status.json"
 
@@ -278,14 +465,19 @@ ralph_watch() {
     return 0
   fi
 
+  if ! status_json="$(jq -ec 'select(type == "object")' "$status_file" 2>/dev/null)"; then
+    printf 'ralph watch: cannot read status.json\n' >&2
+    return 1
+  fi
+
   # Read initial state
   local run_id run_dir_str provider started_at round state
-  run_id="$(_ralph_status_json_val "$status_file" "run_id")"
-  run_dir_str="$(_ralph_status_json_val "$status_file" "run_dir")"
-  provider="$(_ralph_status_json_val "$status_file" "provider")"
-  started_at="$(_ralph_status_json_val "$status_file" "started_at")"
-  round="$(_ralph_status_json_val "$status_file" "round")"
-  state="$(_ralph_status_json_val "$status_file" "state")"
+  run_id="$(_w_snapshot_val "$status_json" "run_id")"
+  run_dir_str="$(_w_snapshot_val "$status_json" "run_dir")"
+  provider="$(_w_snapshot_val "$status_json" "provider")"
+  started_at="$(_w_snapshot_val "$status_json" "started_at")"
+  round="$(_w_snapshot_val "$status_json" "round")"
+  state="$(_w_snapshot_val "$status_json" "state")"
 
   if [[ -z "$run_id" || "$run_id" == "null" ]]; then
     printf 'ralph watch: no active run\n'
@@ -314,7 +506,7 @@ ralph_watch() {
   fi
 
   # Enter sticky mode
-  ralph_sticky_enter
+  ralph_sticky_enter 1
 
   # Install traps (custom: also stop tail on cleanup)
   trap '_w_on_int'  INT
@@ -337,17 +529,28 @@ ralph_watch() {
       continue
     fi
 
-    run_id="$(_ralph_status_json_val "$status_file" "run_id")"
-    run_dir_str="$(_ralph_status_json_val "$status_file" "run_dir")"
-    provider="$(_ralph_status_json_val "$status_file" "provider")"
-    round="$(_ralph_status_json_val "$status_file" "round")"
-    state="$(_ralph_status_json_val "$status_file" "state")"
+    if ! status_json="$(jq -ec 'select(type == "object")' "$status_file" 2>/dev/null)"; then
+      read_failures=$(( read_failures + 1 ))
+      if (( read_failures >= 4 )); then
+        printf 'ralph watch: cannot read status.json\n' >&2
+        return 1
+      fi
+      sleep 0.5
+      continue
+    fi
+    read_failures=0
+
+    run_id="$(_w_snapshot_val "$status_json" "run_id")"
+    run_dir_str="$(_w_snapshot_val "$status_json" "run_dir")"
+    provider="$(_w_snapshot_val "$status_json" "provider")"
+    round="$(_w_snapshot_val "$status_json" "round")"
+    state="$(_w_snapshot_val "$status_json" "state")"
     local tasks_checked tasks_total exit_reason task_started_at task_try
-    tasks_checked="$(_ralph_status_json_val "$status_file" "tasks_checked")"
-    tasks_total="$(_ralph_status_json_val "$status_file" "tasks_total")"
-    exit_reason="$(_ralph_status_json_val "$status_file" "exit_reason")"
-    task_started_at="$(_ralph_status_json_val "$status_file" "task_started_at")"
-    task_try="$(_ralph_status_json_val "$status_file" "task_try")"
+    tasks_checked="$(_w_snapshot_val "$status_json" "tasks_checked")"
+    tasks_total="$(_w_snapshot_val "$status_json" "tasks_total")"
+    exit_reason="$(_w_snapshot_val "$status_json" "exit_reason")"
+    task_started_at="$(_w_snapshot_val "$status_json" "task_started_at")"
+    task_try="$(_w_snapshot_val "$status_json" "task_try")"
 
     # Detect run_id change → full reset
     if [[ -n "$run_id" && "$run_id" != "null" && "$run_id" != "$_w_prev_run_id" ]]; then
@@ -359,7 +562,7 @@ ralph_watch() {
       _SEV_TIMES=()
       _SEV_MSGS=()
       # Refresh run start ts from new started_at (elapsed restarts on each run)
-      started_at="$(_ralph_status_json_val "$status_file" "started_at")"
+      started_at="$(_w_snapshot_val "$status_json" "started_at")"
       if [[ -n "$started_at" && "$started_at" != "null" ]]; then
         _RALPH_STICKY_RUN_START_TS="$(ralph_iso_to_epoch "$started_at")"
       fi
@@ -465,7 +668,7 @@ ralph_watch() {
         # Freeze displayed clock at run's last update timestamp.
         # Prefer status.json updated_at (when ralph wrote finished); fallback to now.
         local _w_updated_at _w_frozen_epoch=""
-        _w_updated_at="$(_ralph_status_json_val "$status_file" "updated_at")"
+        _w_updated_at="$(_w_snapshot_val "$status_json" "updated_at")"
         if [[ -n "$_w_updated_at" && "$_w_updated_at" != "null" ]]; then
           _w_frozen_epoch="$(ralph_iso_to_epoch "$_w_updated_at")"
         fi

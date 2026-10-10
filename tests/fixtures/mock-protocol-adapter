@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# 仅由集成测试安装到临时 workspace；复用唯一 fake adapter 的诊断/采集。
+source "$RALPH_TEST_SOURCE_ROOT/.ralph/lib/adapter-fake.sh"
+
+provider_oneshot() {
+  local prompt_file="$1" log_path="$2" round_dir="$3"
+  local workspace="$RALPH_WORKSPACE" target
+  printf 'called\n' >> "$workspace/provider-calls.txt"
+  cp "$prompt_file" "$workspace/observed-input.txt"
+  printf 'preserve business work\n' > "$workspace/business.txt"
+  if [[ "${RALPH_TEST_PROTOCOL_TARGET:-source}" == "snapshot" ]]; then
+    target="$round_dir/../../protocol.md"
+  else
+    target="$workspace/.ralph/PROMPT.md"
+  fi
+  case "${RALPH_TEST_PROTOCOL_MUTATION:-none}" in
+    modified) printf '\nchanged by test\n' >> "$target" ;;
+    removed) rm -f "$target" ;;
+    unreadable) chmod 000 "$target" ;;
+    none) ;;
+    *) return 99 ;;
+  esac
+  if [[ "${RALPH_TEST_PROTOCOL_RC:-0}" -ne 0 ]]; then
+    printf 'fake: network error\n' >> "$log_path"
+    return 1
+  fi
+  # 单任务完成，专门验证 protocol_changed 优先于 done。
+  sed 's/\[ \]/[x]/' "$workspace/.ralph/TASKS.md" > "$workspace/tasks.tmp"
+  mv "$workspace/tasks.tmp" "$workspace/.ralph/TASKS.md"
+  printf 'fake: task completed\n' >> "$log_path"
+}

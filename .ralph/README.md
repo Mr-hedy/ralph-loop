@@ -6,6 +6,8 @@ oneshot 协议和任务模板。部署到自己的 git workspace 后，可以让
 
 > 当前正式支持的 provider 包含 Claude Code、Codex CLI 和 Antigravity CLI（测试另可用 `fake`）。
 
+由 Main Agent 启动、查看或排障时，先按 [Ralph workflow](../.agents/skills/ralph/SKILL.md) 执行；宿主的后台任务管理方式与 oneshot provider 的选择相互独立。下文提供直接使用 CLI 的配置和操作说明。
+
 安装后最短路径：
 
 ```bash
@@ -15,10 +17,16 @@ cd /path/to/your/workspace
 ./.ralph/bin/ralph run --provider claude
 ```
 
+## 控制协议与项目约束
+
+`.ralph/PROMPT.md`、`bin/`、`lib/` 是随版本交付的工具控制文件，普通业务开发中的 Main Agent 与 oneshot 不得自行修改。长期项目规则放在 `AGENTS.md`，工作包授权和业务约束放在 `.ralph/TASKS.md` 及对应需求、方案；不把“禁止提交”“不新增表”等约束追加到通用协议。
+
+启动会校验 PROMPT 与 CLI 版本指纹，不匹配时拒绝执行。run 保存 `protocol.md` 快照，每轮使用同一快照；派发前及 provider 返回后发现源文件或快照变化时停止后续派发和重试，退出 `protocol_changed` / 8。保留已有成果，不自动恢复文件；这不是文件系统写隔离。工具升级须明确授权，并在停止运行后同步 CLI、协议和版本包。
+
 ## Ralph 是做什么的
 
 Ralph 只做一件事：反复启动 provider CLI 的 fresh oneshot，让 agent 每轮完成
-`.ralph/TASKS.md` 里的一个未完成任务，完成后提交 commit，然后退出本轮。
+`.ralph/TASKS.md` 里的一个未完成任务，保存完成与验证记录，按授权处理提交，然后退出本轮。
 
 - `run`: 真正执行任务循环。
 - `status`: 看当前或最近一次 run 的状态快照。
@@ -34,7 +42,7 @@ Ralph 只做一件事：反复启动 provider CLI 的 fresh oneshot，让 agent 
 安全边界也要先知道：
 
 - Provider CLI 会读取你的 workspace，并按任务修改文件。
-- Ralph 协议要求 agent 每轮完成后执行 `git add -A && git commit`。
+- Ralph 的提交和暂存行为遵守用户、项目与工作包授权；禁止提交时保留工作树成果和验证记录。
 - **Codex 的权限范围不止 workspace**：Codex adapter 为了允许 `.git/` 写入，固定使用
   `--sandbox danger-full-access`。该取值移除本地沙箱限制，模型生成的 shell 命令以你
   当前用户身份执行，不受 workspace 边界约束。Ralph 外层固定的是"哪个 workspace、
@@ -90,14 +98,14 @@ git status
 
 ### 2. 部署 release
 
-从 ralph-loop release 目录复制完整版本包：
+目标已有 `README.md`、`AGENTS.md`、`CLAUDE.md`、`.ralph/`、`.spec/`、`.agents/` 或 `docs/` 时，先复制到临时目录再逐项人工合并，保留项目事实、任务和已有 skills；不要执行下面的整包复制命令。发布包 README 是 Ralph 使用指南，不替代已有项目 README。
+
+没有同名文件时，从 ralph-loop release 目录复制完整版本包：
 
 ```bash
-cp -R /path/to/ralph-loop/release/0.1.6/. ./
+cp -R /path/to/ralph-loop/release/0.1.9/. ./
 ```
 
-上面的命令只适用于全新 workspace。目标已有 `AGENTS.md`、`CLAUDE.md`、`.ralph/`、
-`.spec/` 或 `docs/` 时，先复制到临时目录再人工合并，不要静默覆盖已有入口或事实源。
 不要从 ralph-loop 开发工程直接复制 `.ralph/`；那是本仓库的 dogfood 工作区。
 release 包不会包含 `.ralph/runs/`、`.ralph/status.json` 或 `.ralph/lock`。
 release 提供 `.ralph/.env.example` 作为配置示例，不携带真实 `.ralph/.env`；在目标
@@ -210,7 +218,7 @@ Ralph 只识别顶层 checkbox：
 
 - [ ] DEV-1: 创建 hello.txt，内容严格为 `hello ralph`，完成后 commit。
   - 文件路径：hello.txt
-  - 完成后：`git add -A && git commit -m "add hello.txt"`
+  - 完成后：仅在允许提交时暂存 `hello.txt` 和对应任务记录，并提交相关成果
 
 - [ ] DEV-2: 在 README.md 末尾追加 `<!-- setup complete -->`，完成后 commit。
 ```
@@ -456,6 +464,8 @@ provider 临时失败时最多重试 5 次：
 注意：
 
 - `watch` 在 TTY 里是 sticky 界面。
+- `watch --details` 提供可滚动的执行过程：先回放当前轮已有内容，再显示 AI 说明、工具开始/完成/失败和结果；不做紧凑摘要截断。TTY 下跟随换轮，run 结束后退出；接入管道时只输出当前轮快照。
+- 思考只展示 provider 在实时事件中提供的内容。Antigravity 原生会话可能含有实时流没有提供的 thinking，详情模式不补造；本轮结束后可检查采集成功的 `session.antigravity.jsonl`。
 - `watch` 没有 `-v` 参数。
 - 非 TTY 下只输出一行状态快照，然后退出。
 - `Ctrl+C` 只退出 watch，不会停止正在运行的 `ralph run`。
@@ -464,6 +474,13 @@ provider 临时失败时最多重试 5 次：
 
 ```bash
 ./.ralph/bin/ralph watch | cat
+```
+
+查看执行详情或用终端分页器回看当前轮：
+
+```bash
+./.ralph/bin/ralph watch --details
+./.ralph/bin/ralph watch --details | less
 ```
 
 ## `run` 参数速查
@@ -491,6 +508,8 @@ provider 临时失败时最多重试 5 次：
 | `RALPH_UI_HEALTH_GREEN_SEC` | `60` | provider 日志静默超过该秒数后健康灯变黄 |
 | `RALPH_UI_HEALTH_RED_SEC` | `300` | provider 日志静默超过该秒数后健康灯变红 |
 
+上述三项 UI 数值按十进制解析（可带前导零，最多 9 位）；事件行数须大于 0，健康灯阈值须非负且红阈值大于绿阈值。非法单值使用内置默认值，阈值顺序无效时整体恢复为 60/300 秒，不把配置值当作 Shell 算术表达式执行。
+
 第一次运行通常只需选 `RALPH_PROVIDER`，其余配置保持默认。需要调整时按目的选择：
 
 - 固定模型或推理强度：设置 `RALPH_PROVIDER_MODEL` / `RALPH_PROVIDER_EFFORT`。
@@ -516,8 +535,9 @@ Ralph 是无人值守循环，所以 provider 不允许弹交互式 approval。�
 一句话总结：**真实路径都等于"以你的用户身份无限制执行"，Ralph 没有 provider 侧
 的能力收窄层。**
 
-Codex 为什么用 `danger-full-access`：ralph 协议要求 agent 每轮执行
-`git add -A && git commit`，而 `workspace-write` 会禁止写 `.git/index.lock`。
+Codex 使用 `danger-full-access` 是既有 adapter 权限契约：获授权的提交需要写 `.git/`，
+而既有真实验证发现 `workspace-write` 会禁止写 `.git/index.lock`。禁止提交的工作包也
+不会自动收窄此权限；提交授权由项目与工作包规则约束。
 
 审计时需要看什么：
 
@@ -541,11 +561,12 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 
 | exit_reason | exit code | 意思 | 你下一步做什么 |
 |---|---:|---|---|
-| `done` | 0 | 全部任务执行结束，不表示需求已验收 | 看 commit 与最终产物；等待用户提出验收诉求，再由 Main Agent 按约定范围审查 |
+| `done` | 0 | 全部任务执行结束，不表示需求已验收 | 看工作树变更、验证记录与已获授权的提交；等待用户提出验收诉求，再由 Main Agent 按约定范围审查 |
 | `provider_failed` | 2 | provider CLI 报错或认证失败 | 看 `provider.stdout.log` 和 `exit-message.txt`，修 provider 环境后重跑 |
 | `timeout` | 3 | 单个 round 超过 `--round-timeout` | 放大 timeout、拆小任务，或人工处理当前任务 |
 | `locked` | 6 | 已经有一个 `ralph run` 在跑 | 用 `status` / `watch` 看现有 run，不要并发启动 |
 | `blocked_by_human` | 7 | 遇到 `HUMAN-N` 或防死循环触发 | 人类回答问题、更新任务、勾掉 HUMAN 任务后重跑 |
+| `protocol_changed` | 8 | 执行协议或快照变化 | 查看 last_error，核对协议来源；按授权恢复匹配版本后再决定重启，禁止自动覆盖 |
 | `interrupted` | 130 | 收到 Ctrl+C / SIGTERM | 看工作区和 run 目录，确认是否需要继续 |
 | `startup_failed` | 1 | 启动校验失败 | 修 `.ralph/TASKS.md` 格式、provider 配置或基础环境后重跑 |
 

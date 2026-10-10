@@ -164,10 +164,20 @@ ralph_format_duration() {
 # ── run_id 生成 ─────────────────────────────────────────────────────────────
 # 格式：YYYYMMDD-HHMMSS-<7位 git short sha>；无提交时用 nogit
 ralph_run_id() {
-  local ts short_sha
-  ts="$(date -u +"%Y%m%d-%H%M%S")"
+  local ts short_sha candidate runs_dir
   short_sha="$(git rev-parse --short=7 HEAD 2>/dev/null)" || short_sha="nogit"
-  echo "${ts}-${short_sha}"
+  runs_dir="${_RALPH_WORKSPACE:-$(ralph_workspace_root)}/.ralph/runs"
+  # 在 workspace lock 内分配；同秒快速重跑不得覆盖旧 run 的证据。
+  # 保留原有 ID 格式，碰撞时等下一秒重新取值。
+  while true; do
+    ts="$(date -u +"%Y%m%d-%H%M%S")"
+    candidate="${ts}-${short_sha}"
+    if [[ ! -e "$runs_dir/$candidate" && ! -L "$runs_dir/$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+    sleep 1
+  done
 }
 
 # ── lock 封装（跨平台：noclobber + PID 文件）────────────────────────────────

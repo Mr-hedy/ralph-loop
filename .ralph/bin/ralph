@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RALPH_VERSION="0.1.6"
+RALPH_VERSION="0.1.9"
+# 安装文档由构建脚本读取此支持基线；不据此新增启动拦截。
+RALPH_BASH_MIN_VERSION="3.2"
+# 通用协议的 Git blob 指纹；支持使用者仓库的 SHA-1 / SHA-256 对象格式。
+# 不属于 RALPH_* 配置，只有维护工具协议时才同步更新。
+_RALPH_PROTOCOL_BLOB_SHA1="8e2dd8228f872be486d318d1f4fe0bfec392feed"
+_RALPH_PROTOCOL_BLOB_SHA256="da4083ba20e09a32b3e851ee98cf94ad9ab978158d745658e1f09cac8daf2e67"
 
 RALPH_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 RALPH_ROOT="$(cd "$RALPH_BIN_DIR/.." && pwd -P)"
@@ -28,7 +34,7 @@ Commands:
   run     Start the agent run loop in the current workspace.
   help    Show this help or help for a subcommand.
   status  Show current or last run state.
-  watch   Watch run state with a sticky status bar.
+  watch   Watch run state or scrolling execution details.
 
 Examples:
   ralph run --provider claude
@@ -81,12 +87,14 @@ Exit reasons:
   timeout         Round exceeded --round-timeout.
   locked          Another ralph run is already active in this workspace.
   blocked_by_human First unchecked task is HUMAN-* (automatic on max-round/stall).
+  protocol_changed Execution protocol changed; dispatch stopped (exit 8).
   interrupted     SIGTERM/SIGINT received.
   startup_failed  Startup validation failed before the run loop began.
 
 Run directory layout (.ralph/runs/<run-id>/):
   result.json                Run summary (exit_reason, timestamps, last_error).
   context.json               Startup context snapshot.
+  protocol.md                Verified execution protocol used by this run.
   rounds/round-NNN/          Per-round artifacts:
     meta.json                Round metadata (session_id, exit_code, timing).
     provider.stdout.log     Provider stdout + stderr raw stream.
@@ -127,12 +135,14 @@ ralph_watch_help() {
 Usage:
   ralph watch [options]
 
-Watch the current or last run with a sticky status bar.
+Watch the current or last run with a sticky status bar or scrolling details.
 
 The display refreshes periodically. Press Ctrl-C to exit watch.
 Ctrl-C only exits watch — it does not affect the running ralph process.
 
 Options:
+  --details        Show AI messages, tool operations and results without
+                   summary truncation. Replay the current round first.
   --help           Show this help and exit.
 
 Output:
@@ -141,34 +151,46 @@ Output:
           When the run finishes, the final frame stays on screen until Ctrl-C.
   Non-TTY: One-line status bar snapshot, then exit 0.
           Use `ralph status` for detailed status fields.
+  --details: TTY follows new events and round changes until the run finishes
+             or Ctrl-C; non-TTY prints the current round snapshot and exits.
+             Thinking is shown only when the provider sends it in live events.
 
 When no status.json exists, prints "no active run" and exits.
 
 Examples:
   ralph watch
+  ralph watch --details
 EOF
 }
 
 ralph_watch_cmd() {
+  local details=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --help | -h)         ralph_watch_help; exit 0 ;;
+      --details)           details=1; shift ;;
       --verbose | -v)      ralph_usage_error "unknown flag: $1 (watch uses sticky mode by default in TTY; no -v flag)" ;;
       --*)                 ralph_usage_error "unknown flag: $1" ;;
       *)                   ralph_usage_error "unexpected argument: $1" ;;
     esac
   done
 
+  # watch 是独立进程，不能依赖另一个 run 进程加载的 UI 配置。
+  load_env "$(ralph_workspace_root)/.ralph/.env"
+
+  # shellcheck source=../lib/watch.sh
+  source "$RALPH_ROOT/lib/watch.sh"
+  if [[ "$details" -eq 1 ]]; then
+    ralph_watch_details
+    return 0
+  fi
+
   # Non-TTY fallback: print one-line watch bar once and exit (SC-024-4).
   if [[ ! -t 1 ]]; then
-    # shellcheck source=../lib/watch.sh
-    source "$RALPH_ROOT/lib/watch.sh"
     ralph_watch_once
     return 0
   fi
 
-  # shellcheck source=../lib/watch.sh
-  source "$RALPH_ROOT/lib/watch.sh"
   ralph_watch
 }
 

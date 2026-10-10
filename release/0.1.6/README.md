@@ -19,7 +19,7 @@ Ralph 不负责替你确定需求、生成初始任务清单或审核最终产�
 
 ## 使用前准备
 
-- 系统有 Bash 4+、Git、`jq`。目标目录是 Git 仓库。
+- 系统有 Bash 3.2+、Git、`jq`。目标目录是 Git 仓库。
 - 至少安装并登录一个 provider：`claude`、`codex` 或 `agy`。可用 `claude --version`、`codex --version`、`agy --version` 检查计划使用的命令。
 - 准备好允许 agent 工作的项目副本。三家真实 provider 均使用无人值守权限参数，工具调用会以当前用户身份执行，文件系统访问不受项目目录限制。权限细节见 [`.ralph/README.md` 的权限章节](.ralph/README.md#provider-权限边界与审计证据)。
 

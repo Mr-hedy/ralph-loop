@@ -3,27 +3,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
-bash -n "$ROOT/.ralph/bin/ralph" \
-  "$ROOT/.ralph/lib/common.sh" \
-  "$ROOT/.ralph/lib/tasks.sh" \
-  "$ROOT/.ralph/lib/session.sh" \
-  "$ROOT/.ralph/lib/adapter-claude.sh" \
-  "$ROOT/.ralph/lib/adapter-codex.sh" \
-  "$ROOT/.ralph/lib/adapter-fake.sh" \
-  "$ROOT/.ralph/lib/adapter-antigravity.sh" \
-  "$ROOT/.ralph/lib/run.sh" \
-  "$ROOT/.ralph/lib/status.sh" \
-  "$ROOT/.ralph/lib/sticky.sh" \
-  "$ROOT/.ralph/lib/watch.sh" \
-  "$ROOT/scripts/build-release.sh"
-"$ROOT/.ralph/bin/ralph" help >/dev/null
+# 沿用调用者的解释器；macOS 基线检查显式用 /bin/bash 启动。
+syntax_bash="$BASH"
+# bash -n 后的多个文件会成为首个脚本的参数，必须逐文件检查。
+for shell_file in "$ROOT/.ralph/bin/ralph" "$ROOT"/.ralph/lib/*.sh \
+  "$ROOT"/scripts/*.sh "$ROOT"/tests/*.sh "$ROOT"/tests/fixtures/mock-*; do
+  "$syntax_bash" -n "$shell_file"
+done
+"$syntax_bash" "$ROOT/.ralph/bin/ralph" help >/dev/null
 test -f "$ROOT/scripts/integration-test.sh"
-# 测试层语法检查（QA-1）：集成测试脚本与 mock fixture 都是 bash 脚本，
-# 语法错误在测试运行期会表现为难以定位的用例失败，提前到静态检查。
-bash -n "$ROOT/scripts/integration-test.sh" \
-  "$ROOT/tests/fixtures/mock-claude" \
-  "$ROOT/tests/fixtures/mock-codex" \
-  "$ROOT/tests/fixtures/mock-antigravity"
 
 if grep -q "npm run check" "$ROOT/README.md"; then
   echo "README.md points to an unsupported npm check command" >&2
@@ -89,6 +77,16 @@ test -f "$ROOT/.ralph/TASKS.md"
 current_version="$(sed -n 's/^RALPH_VERSION="\([^"]*\)"$/\1/p' "$ROOT/.ralph/bin/ralph")"
 [[ -n "$current_version" ]] || { echo "RALPH_VERSION not found" >&2; exit 1; }
 current_release="$ROOT/release/$current_version"
+bash_min_version="$(sed -n 's/^RALPH_BASH_MIN_VERSION="\([^"]*\)"$/\1/p' "$ROOT/.ralph/bin/ralph")"
+[[ "$bash_min_version" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "invalid Bash minimum version" >&2; exit 1; }
+# 只核对版本值和模板占位；生成说明由完整发布包比对验证。
+readme_bash_version="$(grep -Eo 'Bash[[:space:]]+[0-9]+(\.[0-9]+)?\+' "$ROOT/README.md" \
+  | sed 's/^Bash[[:space:]]*//; s/+$//' | sort -u)" || readme_bash_version=""
+[[ "$readme_bash_version" == "$bash_min_version" ]] \
+  || { echo "README Bash requirement differs from runtime minimum" >&2; exit 1; }
+grep -q 'Bash[[:space:]][[:space:]]*__BASH_MIN_VERSION__+' \
+  "$ROOT/templates/RELEASE-README.md" \
+  || { echo "release template must generate the Bash minimum version" >&2; exit 1; }
 [[ -d "$current_release/.spec" ]] || { echo "current release .spec missing: $current_release" >&2; exit 1; }
 if ! diff -rq "$ROOT/.spec" "$current_release/.spec" >/dev/null; then
   echo "current release .spec is out of sync with root .spec: $current_release" >&2
@@ -103,7 +101,8 @@ for source_file in "$ROOT"/.ralph/lib/*.sh; do
   cmp -s "$source_file" "$package_file" || { echo "release file out of sync: $package_file" >&2; exit 1; }
 done
 test ! -e "$current_release/.codex"
-test ! -e "$current_release/.agents"
+test -f "$current_release/.agents/skills/ralph/SKILL.md"
+cmp -s "$ROOT/.agents/skills/ralph/SKILL.md" "$current_release/.agents/skills/ralph/SKILL.md"
 test -x "$current_release/.ralph/bin/ralph"
 test -L "$current_release/CLAUDE.md"
 [[ "$(readlink "$current_release/CLAUDE.md")" == AGENTS.md ]]
@@ -118,6 +117,6 @@ if grep -Eq '^[[:space:]]*-[[:space:]]+\[[ xX]\]' "$current_release/.ralph/TASKS
   echo "release TASKS.md must be an empty initialization template" >&2
   exit 1
 fi
-bash "$ROOT/scripts/build-release.sh" --verify >/dev/null
+"$syntax_bash" "$ROOT/scripts/build-release.sh" --verify >/dev/null
 
 echo "ralph-loop check passed"

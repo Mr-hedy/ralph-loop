@@ -127,7 +127,7 @@ ralph oneshot 内 agent 触发 HUMAN-N 阻塞时，在阻塞任务**上方**插�
   - 落地：<docs 路径 / commit sha>
 ```
 
-然后改 `[x]`，commit。重跑 `ralph run`，下一轮 agent 看到 HUMAN-N 已勾，回到原阻塞任务按答案继续。
+然后由 Main Agent 按人类决定改 `[x]` 并保存记录；提交遵守用户、项目与工作包授权。重跑 `ralph run`，下一轮 agent 看到 HUMAN-N 已勾，回到原阻塞任务按答案继续。
 
 ## REVIEW-N 两种用法（互斥，不可混用）
 
@@ -187,6 +187,8 @@ ralph oneshot 内 agent 触发 HUMAN-N 阻塞时，在阻塞任务**上方**插�
 
 - 本文件（`.spec/rules/TASKS.md`）指导 **TASKS.md 的结构、格式和执行期间的记录方式**，不决定何时建立任务清单，也不替 Ralph 勾选任务
 - `.ralph/PROMPT.md` 规定 **agent 在 oneshot 内的执行协议**——是 runtime 层
+- 普通业务任务中的 Main Agent 与 oneshot 都不得修改 Ralph 的版本化控制文件（`.ralph/PROMPT.md`、`.ralph/bin/`、`.ralph/lib/`）。维护或升级工具须用户明确授权，并先停止运行；通用“提示词交付物”任务不构成修改执行协议的授权。
+- 长期项目规则写入项目 `AGENTS.md`；当前工作包的提交策略、允许修改范围及业务限制写入本任务源的当前有效结论与对应需求、方案。用户授权优先，不把这些事实复制进通用执行协议。
 - 重复内容（如自修改规则、HUMAN-N 触发条件、REVIEW-N 两种用法）以本文件为准；PROMPT.md 路由到本文件，不重复完整描述
 
 ## 验证

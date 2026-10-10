@@ -16,6 +16,11 @@ _ralph_status_json_val() {
   printf '%s' "$val"
 }
 
+# Extract from a single captured snapshot; readers must not reopen per field.
+_ralph_status_snapshot_val() {
+  printf '%s\n' "$1" | jq -r --arg key "$2" '.[$key] // empty'
+}
+
 # Display a value; null or empty → "-"
 _ralph_status_fmt() {
   if [[ "$1" == "null" || -z "$1" ]]; then
@@ -34,20 +39,22 @@ ralph_status() {
     return 0
   fi
 
-  local f="$status_file"
-  printf '%-15s %s\n' "run_id:"         "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "run_id")")"
-  printf '%-15s %s\n' "run_dir:"        "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "run_dir")")"
-  printf '%-15s %s\n' "workspace:"      "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "workspace")")"
-  printf '%-15s %s\n' "provider:"       "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "provider")")"
-  printf '%-15s %s\n' "model:"          "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "model")")"
-  printf '%-15s %s\n' "effort:"         "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "effort")")"
-  printf '%-15s %s\n' "started_at:"     "$(ralph_iso_to_local_display "$(_ralph_status_json_val "$f" "started_at")")"
-  printf '%-15s %s\n' "updated_at:"     "$(ralph_iso_to_local_display "$(_ralph_status_json_val "$f" "updated_at")")"
-  printf '%-15s %s\n' "round:"          "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "round")")"
-  printf '%-15s %s\n' "state:"          "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "state")")"
+  local status_json
+  status_json="$(jq -ec 'select(type == "object")' "$status_file" 2>/dev/null)" \
+    || { echo "ralph status: cannot read status.json" >&2; return 1; }
+  printf '%-15s %s\n' "run_id:"         "$(_ralph_status_fmt "$(_ralph_status_snapshot_val "$status_json" "run_id")")"
+  printf '%-15s %s\n' "run_dir:"        "$(_ralph_status_fmt "$(_ralph_status_snapshot_val "$status_json" "run_dir")")"
+  printf '%-15s %s\n' "workspace:"      "$(_ralph_status_fmt "$(_ralph_status_snapshot_val "$status_json" "workspace")")"
+  printf '%-15s %s\n' "provider:"       "$(_ralph_status_fmt "$(_ralph_status_snapshot_val "$status_json" "provider")")"
+  printf '%-15s %s\n' "model:"          "$(_ralph_status_fmt "$(_ralph_status_snapshot_val "$status_json" "model")")"
+  printf '%-15s %s\n' "effort:"         "$(_ralph_status_fmt "$(_ralph_status_snapshot_val "$status_json" "effort")")"
+  printf '%-15s %s\n' "started_at:"     "$(ralph_iso_to_local_display "$(_ralph_status_snapshot_val "$status_json" "started_at")")"
+  printf '%-15s %s\n' "updated_at:"     "$(ralph_iso_to_local_display "$(_ralph_status_snapshot_val "$status_json" "updated_at")")"
+  printf '%-15s %s\n' "round:"          "$(_ralph_status_fmt "$(_ralph_status_snapshot_val "$status_json" "round")")"
+  printf '%-15s %s\n' "state:"          "$(_ralph_status_fmt "$(_ralph_status_snapshot_val "$status_json" "state")")"
   printf '%-15s %s / %s checked\n' "tasks:" \
-    "$(_ralph_status_json_val "$f" "tasks_checked")" \
-    "$(_ralph_status_json_val "$f" "tasks_total")"
-  printf '%-15s %s\n' "exit_reason:"    "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "exit_reason")")"
-  printf '%-15s %s\n' "last_error:"     "$(_ralph_status_fmt "$(_ralph_status_json_val "$f" "last_error")")"
+    "$(_ralph_status_snapshot_val "$status_json" "tasks_checked")" \
+    "$(_ralph_status_snapshot_val "$status_json" "tasks_total")"
+  printf '%-15s %s\n' "exit_reason:"    "$(_ralph_status_fmt "$(_ralph_status_snapshot_val "$status_json" "exit_reason")")"
+  printf '%-15s %s\n' "last_error:"     "$(_ralph_status_fmt "$(_ralph_status_snapshot_val "$status_json" "last_error")")"
 }

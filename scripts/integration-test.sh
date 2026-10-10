@@ -6,6 +6,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
+# 子调用沿用启动 harness 的 Bash；基线验证显式用 /bin/bash 启动。
+# 不修改 PATH，保留依赖缺失模拟的隔离边界。
+TEST_BASH="$BASH"
+printf 'Test interpreter: %s (%s)\n' "$TEST_BASH" "$BASH_VERSION"
+
 # ── 测试基础设施 ──────────────────────────────────────────────────────────────
 
 PASS=0
@@ -41,7 +46,7 @@ setup_workspace() {
     ln -sf "$f" "$ws/.ralph/lib/$(basename "$f")"
   done
 
-  [[ "$no_prompt" -eq 0 ]] && printf '# Test prompt\nDo one task.\n' > "$ws/.ralph/PROMPT.md"
+  [[ "$no_prompt" -eq 0 ]] && cp "$REPO_ROOT/.ralph/PROMPT.md" "$ws/.ralph/PROMPT.md"
   if [[ "$no_tasks" -eq 0 ]]; then
     printf '%s\n' "- [ ] Task A" "- [ ] Task B" > "$ws/.ralph/TASKS.md"
   fi
@@ -107,7 +112,7 @@ git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || tru
 rc=0
 stdout_file="$(mktemp)"
 stderr_file="$(mktemp)"
-RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake \
+RALPH_FAKE_SCENARIO=happy "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake \
   >"$stdout_file" 2>"$stderr_file" || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 stdout_silent=0
@@ -133,7 +138,7 @@ echo "-- Exit reason: provider_failed (crash)"
 ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=crash bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=crash "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 if [[ "$reason" == "provider_failed" && "$rc" -eq 2 ]]; then
@@ -149,7 +154,7 @@ echo "-- Exit reason: provider_failed (api-error)"
 ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-stderr_out=$(RALPH_FAKE_SCENARIO=api-error bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
+stderr_out=$(RALPH_FAKE_SCENARIO=api-error "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 error_type="$(grep '"type"' "$run_dir/result.json" 2>/dev/null | sed 's/.*"type":[[:space:]]*"\([^"]*\)".*/\1/' | head -1)" || error_type=""
@@ -166,7 +171,7 @@ echo "-- Provider retry: rate_limit"
 ws=$(setup_workspace)
 rc=0
 stderr_file="$(mktemp)"
-RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="1 1" bash "$ws/.ralph/bin/ralph" run --provider fake --max-retry 2 \
+RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="1 1" "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-retry 2 \
   2>"$stderr_file" || rc=$?
 
 run_dir="$(latest_run_dir "$ws")"
@@ -186,7 +191,7 @@ echo "-- Provider retry: api-error (no retry)"
 ws=$(setup_workspace)
 rc=0
 stderr_file="$(mktemp)"
-RALPH_FAKE_SCENARIO=api-error bash "$ws/.ralph/bin/ralph" run --provider fake \
+RALPH_FAKE_SCENARIO=api-error "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake \
   2>"$stderr_file" || rc=$?
 retry_count=$(grep -c "retry" "$stderr_file" || true)
 if [[ "$retry_count" -eq 0 ]]; then
@@ -201,7 +206,7 @@ rm -f "$stderr_file"
 echo ""
 echo "-- Provider retry: status.json"
 ws=$(setup_workspace)
-RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="5 5" bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null &
+RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="5 5" "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null &
 PID=$!
 sleep 2 
 status_file="$ws/.ralph/status.json"
@@ -226,7 +231,7 @@ echo "-- DEV-12: retry does not inflate task_try (1 round + 5 retry → task_try
 ws=$(setup_workspace)
 rc=0
 RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="1 1 1 1 1" \
-  bash "$ws/.ralph/bin/ralph" run --provider fake --max-retry 5 2>/dev/null || rc=$?
+  "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-retry 5 2>/dev/null || rc=$?
 status_file="$ws/.ralph/status.json"
 task_try_json=$(jq -r '.task_try' "$status_file" 2>/dev/null || echo "null")
 round_json=$(jq -r '.round' "$status_file" 2>/dev/null || echo "null")
@@ -245,7 +250,7 @@ echo "-- DEV-12: retry × max_round=2 + 5 retry → exit provider_failed (NOT bl
 ws=$(setup_workspace)
 rc=0
 RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="1 1 1 1 1" \
-  bash "$ws/.ralph/bin/ralph" run --provider fake --max-retry 5 --max-round 2 2>/dev/null || rc=$?
+  "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-retry 5 --max-round 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 human_inserted=0
@@ -263,7 +268,7 @@ echo "-- Exit reason: timeout"
 ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=30 bash "$ws/.ralph/bin/ralph" run --provider fake --round-timeout 2 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=30 "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --round-timeout 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 round_dir="${run_dir}/rounds/round-001"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -287,7 +292,7 @@ ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
 RALPH_FAKE_SCENARIO=slow_child RALPH_FAKE_SLEEP=30 \
-  bash "$ws/.ralph/bin/ralph" run --provider fake --round-timeout 2 2>/dev/null || rc=$?
+  "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --round-timeout 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 round_dir="${run_dir}/rounds/round-001"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -313,7 +318,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 1 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=happy "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 if [[ "$reason" == "done" && "$rc" -eq 0 ]]; then
@@ -330,7 +335,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] DEV-1: Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 3 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=stagnation "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-round 3 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
@@ -357,7 +362,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] DEV-1: Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 3 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=stagnation "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 3 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
@@ -389,7 +394,7 @@ echo "-- Per-task stall: task switch resets stall count (stall-limit=2)"
 ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=partial_progress bash "$ws/.ralph/bin/ralph" run \
+RALPH_FAKE_SCENARIO=partial_progress "$TEST_BASH" "$ws/.ralph/bin/ralph" run \
   --provider fake --stall-limit 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -417,7 +422,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=happy "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 if [[ "$(get_exit_reason "$run_dir")" == "done" ]]; then
   if command -v jq >/dev/null 2>&1; then
@@ -446,7 +451,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] DEV-1: Implement feature X" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 3 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=stagnation "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-round 3 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 _h_lineno="$(grep -n '^\- \[ \] HUMAN-1:' "$ws/.ralph/TASKS.md" | head -1 | cut -d: -f1)" || _h_lineno=""
@@ -476,7 +481,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] QA-99: Test stall detection" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 3 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=stagnation "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 3 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 _h_lineno="$(grep -n '^\- \[ \] HUMAN-1:' "$ws/.ralph/TASKS.md" | head -1 | cut -d: -f1)" || _h_lineno=""
 _t_lineno="$(grep -n '^\- \[ \] QA-99:' "$ws/.ralph/TASKS.md" | head -1 | cut -d: -f1)" || _t_lineno=""
@@ -502,7 +507,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] DEV-1: Implement feature X" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=stagnation "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 if [[ "$reason" != "blocked_by_human" ]]; then
@@ -513,7 +518,7 @@ else
   rm -f "$ws/.ralph/TASKS.md.bak"
   # 重跑（这次用 happy scenario，agent 会完成 task）
   rc=0
-  RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
+  RALPH_FAKE_SCENARIO=happy "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
   run_dir2="$(latest_run_dir "$ws")"
   reason2="$(get_exit_reason "$run_dir2" 2>/dev/null)"
   if [[ "$reason2" == "done" && "$rc" -eq 0 ]]; then
@@ -540,7 +545,7 @@ cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
 TASKS_EOF
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=stagnation "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
@@ -561,7 +566,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] DEV-1: Will stall" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 2 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=stagnation "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 _rounds="$(jq '.rounds // 0' "$run_dir/result.json" 2>/dev/null)" || _rounds="?"
@@ -584,7 +589,7 @@ TASKS_EOF
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
 # partial_progress: round 1 完成 task 1，round 2+ 停滞 task 2
-RALPH_FAKE_SCENARIO=partial_progress bash "$ws/.ralph/bin/ralph" run \
+RALPH_FAKE_SCENARIO=partial_progress "$TEST_BASH" "$ws/.ralph/bin/ralph" run \
   --provider fake --stall-limit 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -613,7 +618,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] Write the hello world file for testing purposes" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=stagnation "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
@@ -645,7 +650,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+"$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 round_dir="${run_dir}/rounds/round-001"
 
@@ -689,7 +694,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+"$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 has_round_dir=0; no_iter_dir=1
 [[ -d "$run_dir/rounds/round-001" ]] && has_round_dir=1
@@ -713,7 +718,7 @@ cat > "$ws/.ralph/TASKS.md" <<'EOF'
 EOF
 git -C "$ws" add . && git -C "$ws" commit -q -m "tasks" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=stagnation bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 \
+RALPH_FAKE_SCENARIO=stagnation "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-round 2 \
   2>/dev/null 1>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -740,7 +745,7 @@ printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
 RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=10 \
-  bash "$ws/.ralph/bin/ralph" run --provider fake --round-timeout 2 --max-round 1 \
+  "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --round-timeout 2 --max-round 1 \
   2>/dev/null 1>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -755,9 +760,9 @@ cleanup_ws "$ws"
 echo ""
 echo "-- QA-4.5: old flags --max-iter and --timeout rejected"
 rc1=0
-err1=$(bash "$REPO_ROOT/.ralph/bin/ralph" run --max-iter 3 2>&1 1>/dev/null) || rc1=$?
+err1=$("$TEST_BASH" "$REPO_ROOT/.ralph/bin/ralph" run --max-iter 3 2>&1 1>/dev/null) || rc1=$?
 rc2=0
-err2=$(bash "$REPO_ROOT/.ralph/bin/ralph" run --timeout 60 2>&1 1>/dev/null) || rc2=$?
+err2=$("$TEST_BASH" "$REPO_ROOT/.ralph/bin/ralph" run --timeout 60 2>&1 1>/dev/null) || rc2=$?
 if [[ "$rc1" -ne 0 && "$err1" == *"unknown flag"* && "$rc2" -ne 0 && "$err2" == *"unknown flag"* ]]; then
   _pass "QA-4.5: --max-iter and --timeout rejected as unknown flags"
 else
@@ -773,7 +778,7 @@ printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
 RALPH_PROVIDER_MODEL="test-model-xyz" \
-  bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+  "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
 model_in_status=0
 grep -q '"model": *"test-model-xyz"' "$ws/.ralph/status.json" 2>/dev/null && model_in_status=1
 if [[ "$rc" -eq 0 && "$model_in_status" -eq 1 ]]; then
@@ -793,7 +798,7 @@ git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || tru
 rc=0
 # RALPH_MODEL (old) should NOT be read — model should stay default, not "old-should-be-ignored"
 RALPH_MODEL="old-should-be-ignored" \
-  bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+  "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
 old_model_ignored=0
 if grep -q '"model": *"old-should-be-ignored"' "$ws/.ralph/status.json" 2>/dev/null; then
   old_model_ignored=0  # BAD: old env was read
@@ -816,7 +821,7 @@ printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
 RALPH_FAKE_SCENARIO=stagnation \
-  bash "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 3 --max-round 0 \
+  "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --stall-limit 3 --max-round 0 \
   2>/dev/null 1>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -861,7 +866,7 @@ git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || tru
 rc=0
 stderr_file="$(mktemp)"
 RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=2 RALPH_PROGRESS_HEARTBEAT_SEC=1 \
-  bash "$ws/.ralph/bin/ralph" run --provider fake --max-round 1 \
+  "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-round 1 \
   >/dev/null 2>"$stderr_file" || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -887,7 +892,7 @@ git -C "$ws" add . && git -C "$ws" commit -q -m "two tasks" 2>/dev/null || true
 rc=0
 stdout_file="$(mktemp)"
 stderr_file="$(mktemp)"
-RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake \
+RALPH_FAKE_SCENARIO=happy "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake \
   >"$stdout_file" 2>"$stderr_file" || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -925,7 +930,7 @@ printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
 stderr_file="$(mktemp)"
-RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake \
+RALPH_FAKE_SCENARIO=happy "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake \
   >/dev/null 2>"$stderr_file" || rc=$?
 no_ansi=0
 stderr_content="$(cat "$stderr_file")"
@@ -946,7 +951,7 @@ git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || tru
 rc=0
 stdout_file="$(mktemp)"
 stderr_file="$(mktemp)"
-RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake -v \
+RALPH_FAKE_SCENARIO=happy "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake -v \
   >"$stdout_file" 2>"$stderr_file" || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -973,7 +978,7 @@ printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
 stderr_file="$(mktemp)"
-RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake \
+RALPH_FAKE_SCENARIO=happy "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake \
   2>"$stderr_file" | cat >/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -998,7 +1003,7 @@ git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || tru
 rc=0
 stderr_file="$(mktemp)"
 RALPH_PROGRESS_HEARTBEAT_SEC=17 RALPH_FAKE_SCENARIO=happy \
-  bash "$ws/.ralph/bin/ralph" run --provider fake \
+  "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake \
   >/dev/null 2>"$stderr_file" || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -1025,7 +1030,7 @@ cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
 TASKS_EOF
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=happy bash "$ws/.ralph/bin/ralph" run --provider fake \
+RALPH_FAKE_SCENARIO=happy "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake \
   >/dev/null 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 summary_ok=1
@@ -1051,7 +1056,7 @@ git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || tru
 rc=0
 stderr_file="$(mktemp)"
 RALPH_FAKE_SCENARIO=rate_limit RALPH_LOOP_RETRY_SCHEDULE="1 1 1" \
-  bash "$ws/.ralph/bin/ralph" run --provider fake --max-retry 3 \
+  "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake --max-retry 3 \
   >/dev/null 2>"$stderr_file" || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -1072,7 +1077,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-RALPH_FAKE_SCENARIO=append_task_once bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
+RALPH_FAKE_SCENARIO=append_task_once "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$ws")"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 result_total="$(jq '.tasks_total // 0' "$run_dir/result.json" 2>/dev/null)" || result_total=0
@@ -1103,7 +1108,7 @@ git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 lockf="$ws/.ralph/lock"
 echo "$$" > "$lockf"
 rc=0
-stderr_out=$(bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
+stderr_out=$("$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
 rm -f "$lockf"  # 释放
 run_dir="$(latest_run_dir "$ws")"
 if [[ "$rc" -eq 6 && -z "$run_dir" ]]; then
@@ -1121,7 +1126,7 @@ git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 # 用 SIGTERM（macOS bash 上 INT 在等待子进程时被 deferred/ignored；TERM 立即触发 trap）。
 # slow_child 验证 interrupted 和 timeout 一样会清理 provider 外部子进程。
 RALPH_FAKE_SCENARIO=slow_child RALPH_FAKE_SLEEP=30 RALPH_PROGRESS_HEARTBEAT_SEC=0 \
-  bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null &
+  "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null &
 bg_pid=$!
 child_pid=""
 for _ in 1 2 3 4 5; do
@@ -1156,7 +1161,7 @@ echo "-- Startup check: missing PROMPT.md"
 ws=$(setup_workspace --no-prompt)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-stderr_out=$(bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
+stderr_out=$("$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
 runs_count=$(count_runs "$ws")
 if [[ "$rc" -ne 0 && "$stderr_out" == *"ralph: startup check failed:"* && "$runs_count" -eq 0 ]]; then
   _pass "missing PROMPT.md: rc!=0, correct stderr prefix, no run dir"
@@ -1171,7 +1176,7 @@ echo "-- Startup check: missing TASKS.md"
 ws=$(setup_workspace --no-tasks)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-stderr_out=$(bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
+stderr_out=$("$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
 runs_count=$(count_runs "$ws")
 if [[ "$rc" -ne 0 && "$stderr_out" == *"ralph: startup check failed:"* && "$runs_count" -eq 0 ]]; then
   _pass "missing TASKS.md: rc!=0, correct stderr prefix, no run dir"
@@ -1186,7 +1191,7 @@ echo "-- Startup check: missing .env / RALPH_PROVIDER empty"
 ws=$(setup_workspace --no-env)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-stderr_out=$(env -u RALPH_PROVIDER bash "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
+stderr_out=$(env -u RALPH_PROVIDER "$TEST_BASH" "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
 
 runs_count=$(count_runs "$ws")
 if [[ "$rc" -ne 0 && "$stderr_out" == *"ralph: startup check failed:"* && "$runs_count" -eq 0 ]]; then
@@ -1201,7 +1206,7 @@ echo ""
 echo "-- Startup check: not a git repository"
 ws=$(setup_workspace --no-git)
 rc=0
-stderr_out=$(bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
+stderr_out=$("$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
 runs_count=$(count_runs "$ws")
 if [[ "$rc" -ne 0 && "$stderr_out" == *"ralph: startup check failed:"* && "$runs_count" -eq 0 ]]; then
   _pass "not a git repo: rc!=0, correct stderr prefix, no run dir"
@@ -1216,7 +1221,7 @@ echo "-- Startup check: unknown provider (no adapter file)"
 ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-stderr_out=$(bash "$ws/.ralph/bin/ralph" run --provider bogus 2>&1 >/dev/null) || rc=$?
+stderr_out=$("$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider bogus 2>&1 >/dev/null) || rc=$?
 runs_count=$(count_runs "$ws")
 if [[ "$rc" -ne 0 && "$stderr_out" == *"ralph: startup check failed:"* && "$runs_count" -eq 0 ]]; then
   _pass "unknown provider: rc!=0, correct stderr prefix, no run dir"
@@ -1231,7 +1236,7 @@ echo "-- Startup check: provider CLI not found (RALPH_FAKE_CLI)"
 ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 rc=0
-stderr_out=$(RALPH_FAKE_CLI=__nonexistent_cli_xxx__ bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
+stderr_out=$(RALPH_FAKE_CLI=__nonexistent_cli_xxx__ "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
 runs_count=$(count_runs "$ws")
 if [[ "$rc" -ne 0 && "$stderr_out" == *"ralph: missing dependency:"* && "$runs_count" -eq 0 ]]; then
   _pass "CLI not found: rc!=0, missing dependency prefix, no run dir"
@@ -1250,7 +1255,7 @@ git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 uuid_claude_bin="$(mktemp -d)"
 ln -sf "$REPO_ROOT/tests/fixtures/mock-claude" "$uuid_claude_bin/claude"
 rc=0
-stderr_out=$(env PATH="$uuid_claude_bin:$PATH" RALPH_UUID_FORCE_FAIL=1 bash "$ws/.ralph/bin/ralph" run --provider claude 2>&1 >/dev/null) || rc=$?
+stderr_out=$(env PATH="$uuid_claude_bin:$PATH" RALPH_UUID_FORCE_FAIL=1 "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider claude 2>&1 >/dev/null) || rc=$?
 rm -rf "$uuid_claude_bin"
 runs_count=$(count_runs "$ws")
 if [[ "$rc" -ne 0 && "$stderr_out" == *"ralph: startup check failed:"* && "$runs_count" -eq 0 ]]; then
@@ -1290,7 +1295,7 @@ ws=$(setup_workspace)
 printf '%s\n' "- [ ] Task A" > "$ws/.ralph/TASKS.md"
 git -C "$ws" add . && git -C "$ws" commit -q -m "single task" 2>/dev/null || true
 rc=0
-stderr_out=$(RALPH_FAKE_SCENARIO=happy RALPH_PROVIDER=fake bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
+stderr_out=$(RALPH_FAKE_SCENARIO=happy RALPH_PROVIDER=fake "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
 if [[ "$rc" -eq 0 && "$stderr_out" != *"missing dependency"* ]]; then
   _pass "dep happy: exit 0, no missing dependency in stderr"
 else
@@ -1304,7 +1309,7 @@ ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 tmpbin=$(_build_path_without git)
 rc=0
-stderr_out=$(env PATH="$tmpbin" bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
+stderr_out=$(env PATH="$tmpbin" "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
 rm -rf "$tmpbin"
 runs_count=$(count_runs "$ws")
 if [[ "$rc" -ne 0 && "$stderr_out" == *"ralph: missing dependency: git"* && "$runs_count" -eq 0 ]]; then
@@ -1320,7 +1325,7 @@ ws=$(setup_workspace)
 git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 tmpbin=$(_build_path_without git)
 rc=0
-stderr_out=$(env PATH="$tmpbin" RALPH_FAKE_CLI=__nonexistent_yyy__ bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
+stderr_out=$(env PATH="$tmpbin" RALPH_FAKE_CLI=__nonexistent_yyy__ "$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>&1 >/dev/null) || rc=$?
 rm -rf "$tmpbin"
 if [[ "$rc" -ne 0 \
   && "$stderr_out" == *"ralph: missing dependency: git"* \
@@ -1333,7 +1338,7 @@ cleanup_ws "$ws"
 
 # setup_claude_workspace — 单一来源（T2.2 建立，T2.5 扩展场景）
 # 设置全局 SETUP_CLAUDE_WS / SETUP_CLAUDE_BIN / SETUP_CLAUDE_HOME（不用 $() 子 shell）
-# 调用方：env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run
+# 调用方：env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run
 SETUP_CLAUDE_WS=""
 SETUP_CLAUDE_BIN=""
 SETUP_CLAUDE_HOME=""
@@ -1372,7 +1377,7 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "singl
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=happy \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 round_dir="${run_dir}/rounds/round-001"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -1421,7 +1426,7 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "singl
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=happy \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 round_dir="${run_dir}/rounds/round-001"
 jsonl_ok=0; capture_ok=0; history_ok=0
@@ -1455,7 +1460,7 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "singl
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=happy \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 round_dir="${run_dir}/rounds/round-001"
 jsonl_ok=0; capture_ok=0; src_ok=0; home_clean=1
@@ -1482,7 +1487,7 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "init"
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=mtime_fallback \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 round_dir="${run_dir}/rounds/round-001"
 jsonl_ok=0; warn_ok=0
@@ -1502,7 +1507,7 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "init"
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=missing_session \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 round_dir="${run_dir}/rounds/round-001"
 no_jsonl=0; warn_ok=0; empty_history_ok=0
@@ -1532,7 +1537,7 @@ _run_diagnose_case() {
   # 60+120+300=8min 会让本测试 hang），diagnose 测试只验证 error.type 分类
   RALPH_MOCK_CLAUDE_SCENARIO="$scenario" \
     env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-    bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-retry 0 2>/dev/null || rc=$?
+    "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-retry 0 2>/dev/null || rc=$?
   local run_dir error_type
   run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
   error_type="$(get_last_error_type "$run_dir")"
@@ -1590,7 +1595,7 @@ _run_claude_terminal_case() {
   # --max-retry 0：见 _run_diagnose_case 注释（禁用退避，避免测试 hang）
   RALPH_MOCK_CLAUDE_SCENARIO="$scenario" \
     env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-    bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 --max-retry 0 2>/dev/null || rc=$?
+    "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 --max-retry 0 2>/dev/null || rc=$?
   local run_dir round_dir got_event got_status
   run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
   round_dir="${run_dir}/rounds/round-001"
@@ -1619,7 +1624,7 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "termi
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=truncated_then_result \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 round_dir="${run_dir}/rounds/round-001"
 term_ok=0; raw_truncated_ok=0; raw_result_ok=0; warning_null_ok=0
@@ -1646,7 +1651,7 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "termi
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=no_terminal_event \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 round_dir="${run_dir}/rounds/round-001"
 warn_ok=0
@@ -1682,7 +1687,7 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "singl
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_PROVIDER_EFFORT=low \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
 rcv="$(get_received_effort "$round_dir")"
 if [[ "$rc" -eq 0 && "$rcv" == "low" ]]; then
@@ -1700,7 +1705,7 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "singl
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_PROVIDER_EFFORT=medium \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
 rcv="$(get_received_effort "$round_dir")"
 if [[ "$rc" -eq 0 && "$rcv" == "medium" ]]; then
@@ -1718,7 +1723,7 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "singl
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_PROVIDER_EFFORT=high \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
 rcv="$(get_received_effort "$round_dir")"
 if [[ "$rc" -eq 0 && "$rcv" == "high" ]]; then
@@ -1736,7 +1741,7 @@ git -C "$SETUP_CLAUDE_WS" add . && git -C "$SETUP_CLAUDE_WS" commit -q -m "singl
 rc=0
 RALPH_MOCK_CLAUDE_SCENARIO=happy RALPH_PROVIDER_EFFORT=none \
   env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"; round_dir="${run_dir}/rounds/round-001"
 rcv="$(get_received_effort "$round_dir")"
 if [[ "$rc" -eq 0 && -z "$rcv" ]]; then
@@ -1758,7 +1763,7 @@ tmpbin_nojq=$(_build_path_without jq)
 ln -sf "$REPO_ROOT/tests/fixtures/mock-claude" "$tmpbin_nojq/claude"
 rc=0
 stderr_out=$(env PATH="$tmpbin_nojq" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>&1 >/dev/null) || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>&1 >/dev/null) || rc=$?
 rm -rf "$tmpbin_nojq"
 runs_count=$(count_runs "$SETUP_CLAUDE_WS")
 if [[ "$rc" -ne 0 && "$stderr_out" == *"ralph: missing dependency: jq"* && "$runs_count" -eq 0 ]]; then
@@ -1776,7 +1781,7 @@ tmpbin_none=$(_build_path_without jq)
 rm -f "$tmpbin_none/claude"   # ensure claude also absent from PATH
 rc=0
 stderr_out=$(env PATH="$tmpbin_none" HOME="$SETUP_CLAUDE_HOME" \
-  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>&1 >/dev/null) || rc=$?
+  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>&1 >/dev/null) || rc=$?
 rm -rf "$tmpbin_none"
 runs_count=$(count_runs "$SETUP_CLAUDE_WS")
 if [[ "$rc" -ne 0 \
@@ -1797,7 +1802,7 @@ echo ""
 echo "-- ralph --version"
 rc=0
 expected_version="$(sed -n 's/^RALPH_VERSION="\([^"]*\)"$/\1/p' "$REPO_ROOT/.ralph/bin/ralph")"
-version_out=$(bash "$REPO_ROOT/.ralph/bin/ralph" --version 2>/dev/null) || rc=$?
+version_out=$("$TEST_BASH" "$REPO_ROOT/.ralph/bin/ralph" --version 2>/dev/null) || rc=$?
 if [[ "$rc" -eq 0 && -n "$expected_version" && "$version_out" == "ralph $expected_version ("* ]]; then
   _pass "ralph --version: exit 0, contains $expected_version"
 else
@@ -1807,7 +1812,7 @@ fi
 echo ""
 echo "-- ralph --help"
 rc=0
-bash "$REPO_ROOT/.ralph/bin/ralph" --help >/dev/null 2>/dev/null || rc=$?
+"$TEST_BASH" "$REPO_ROOT/.ralph/bin/ralph" --help >/dev/null 2>/dev/null || rc=$?
 if [[ "$rc" -eq 0 ]]; then
   _pass "ralph --help: exit 0"
 else
@@ -1817,7 +1822,7 @@ fi
 echo ""
 echo "-- ralph run --help"
 rc=0
-run_help_out=$(bash "$REPO_ROOT/.ralph/bin/ralph" run --help 2>/dev/null) || rc=$?
+run_help_out=$("$TEST_BASH" "$REPO_ROOT/.ralph/bin/ralph" run --help 2>/dev/null) || rc=$?
 if [[ "$rc" -eq 0 && "$run_help_out" == *"--provider"* && "$run_help_out" == *"--max-round"* ]]; then
   _pass "ralph run --help: exit 0, contains flag names"
 else
@@ -1827,7 +1832,7 @@ fi
 echo ""
 echo "-- ralph watch --help"
 rc=0
-watch_help_out=$(bash "$REPO_ROOT/.ralph/bin/ralph" watch --help 2>/dev/null) || rc=$?
+watch_help_out=$("$TEST_BASH" "$REPO_ROOT/.ralph/bin/ralph" watch --help 2>/dev/null) || rc=$?
 if [[ "$rc" -eq 0 && "$watch_help_out" == *"sticky"* && "$watch_help_out" != *"-v"* \
   && "$watch_help_out" != *"--verbose"* ]]; then
   _pass "ralph watch --help: exit 0, documents sticky mode, no -v flag"
@@ -1861,7 +1866,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
 }
 SJEOF
 rc=0
-status_out=$(bash "$ws/.ralph/bin/ralph" status 2>/dev/null) || rc=$?
+status_out=$("$TEST_BASH" "$ws/.ralph/bin/ralph" status 2>/dev/null) || rc=$?
 fields_ok=1
 for f in run_id: run_dir: workspace: provider: model: effort: started_at: updated_at: round: state: tasks: exit_reason: last_error:; do
   if [[ "$status_out" != *"$f"* ]]; then
@@ -1905,7 +1910,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
 SJEOF
 rc=0
 tmpout="$(mktemp)"
-bash "$ws/.ralph/bin/ralph" status --json > "$tmpout" 2>/dev/null || rc=$?
+"$TEST_BASH" "$ws/.ralph/bin/ralph" status --json > "$tmpout" 2>/dev/null || rc=$?
 diff_ok=0
 diff "$ws/.ralph/status.json" "$tmpout" >/dev/null 2>&1 && diff_ok=1
 rm -f "$tmpout"
@@ -1922,7 +1927,7 @@ ws=$(setup_workspace)
 rm -f "$ws/.ralph/status.json"
 ralph_files_before="$(find "$ws/.ralph" -type f | sort)"
 rc=0
-status_out=$(bash "$ws/.ralph/bin/ralph" status 2>/dev/null) || rc=$?
+status_out=$("$TEST_BASH" "$ws/.ralph/bin/ralph" status 2>/dev/null) || rc=$?
 ralph_files_after="$(find "$ws/.ralph" -type f | sort)"
 no_side_effects=0
 [[ "$ralph_files_before" == "$ralph_files_after" ]] && no_side_effects=1
@@ -1942,7 +1947,7 @@ cleanup_ws "$ws"
 echo ""
 echo "-- SC-024-2: ralph watch -v → rejected with exit 2"
 rc=0
-bash "$REPO_ROOT/.ralph/bin/ralph" watch -v 2>/dev/null || rc=$?
+"$TEST_BASH" "$REPO_ROOT/.ralph/bin/ralph" watch -v 2>/dev/null || rc=$?
 if [[ "$rc" -eq 2 ]]; then
   _pass "SC-024-2: ralph watch -v → exit 2 (flag removed)"
 else
@@ -1971,7 +1976,7 @@ cat > "$ws/.ralph/status.json" <<'SJEOF'
 }
 SJEOF
 rc=0
-watch_out=$(bash "$ws/.ralph/bin/ralph" watch 2>/dev/null | cat) || rc=$?
+watch_out=$("$TEST_BASH" "$ws/.ralph/bin/ralph" watch 2>/dev/null | cat) || rc=$?
 one_line=0
 line_count="$(printf '%s\n' "$watch_out" | wc -l | tr -d ' ')"
 [[ "$line_count" -eq 1 ]] && one_line=1
@@ -2007,7 +2012,7 @@ cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
 - [ ] DEV-1: 实现功能
 TASKS_EOF
 rc=0
-bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+"$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
 run_dir=$(latest_run_dir "$ws")
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 if [[ "$reason" == "blocked_by_human" && "$rc" -eq 7 ]]; then
@@ -2030,7 +2035,7 @@ cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
 - [ ] Task A
 TASKS_EOF
 rc=0
-bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+"$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
 run_dir=$(latest_run_dir "$ws")
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 if [[ "$reason" == "done" && "$rc" -eq 0 ]]; then
@@ -2050,7 +2055,7 @@ cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
 - [ ] Task B
 TASKS_EOF
 rc=0
-bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+"$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
 run_dir=$(latest_run_dir "$ws")
 has_iter_field=0
 if grep -q '"iteration_name"' "$run_dir/result.json" 2>/dev/null \
@@ -2070,7 +2075,7 @@ cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
 - [ ] dev-1: 小写前缀应该被拒绝
 TASKS_EOF
 rc=0
-err_out=$(bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 1>/dev/null) || rc=$?
+err_out=$("$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>&1 1>/dev/null) || rc=$?
 if [[ "$rc" -eq 1 ]] && echo "$err_out" | grep -q "UPPERCASE"; then
   _pass "lowercase prefix: exit 1 + stderr contains UPPERCASE"
 else
@@ -2084,7 +2089,7 @@ cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
 - [ ] Dev-1: 大小写混合也应该被拒绝
 TASKS_EOF
 rc=0
-err_out=$(bash "$ws/.ralph/bin/ralph" run --provider fake 2>&1 1>/dev/null) || rc=$?
+err_out=$("$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>&1 1>/dev/null) || rc=$?
 if [[ "$rc" -eq 1 ]] && echo "$err_out" | grep -q "UPPERCASE"; then
   _pass "mixed case prefix: exit 1 + stderr contains UPPERCASE"
 else
@@ -2099,7 +2104,7 @@ cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
 - [ ] Task B
 TASKS_EOF
 rc=0
-bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+"$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
 run_dir=$(latest_run_dir "$ws")
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 if [[ "$reason" == "done" && "$rc" -eq 0 ]]; then
@@ -2115,7 +2120,7 @@ cat > "$ws/.ralph/.env" <<TASKS_EOF
 RALPH_PROVIDER=fake
 RALPH_PROVIDER_CONFIG_DIR=~/test-cfg
 TASKS_EOF
-out=$(bash -c "source '$REPO_ROOT/.ralph/lib/common.sh'; load_env '$ws/.ralph/.env'; echo \"PCD=\$RALPH_PROVIDER_CONFIG_DIR\"")
+out=$("$TEST_BASH" -c "source '$REPO_ROOT/.ralph/lib/common.sh'; load_env '$ws/.ralph/.env'; echo \"PCD=\$RALPH_PROVIDER_CONFIG_DIR\"")
 expected="PCD=$HOME/test-cfg"
 if [[ "$out" == *"$expected"* ]]; then
   _pass "load_env tilde expansion: ~/test-cfg → \$HOME/test-cfg"
@@ -2125,7 +2130,7 @@ fi
 
 echo ""
 echo "-- adapter-claude.sh translates RALPH_PROVIDER_CONFIG_DIR → CLAUDE_CONFIG_DIR"
-out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+out=$(env -i HOME="$HOME" PATH="$PATH" "$TEST_BASH" -c "
   export RALPH_PROVIDER_CONFIG_DIR=/tmp/ralph-test-claude-cfg
   source '$REPO_ROOT/.ralph/lib/common.sh'
   source '$REPO_ROOT/.ralph/lib/adapter-claude.sh'
@@ -2139,7 +2144,7 @@ fi
 
 echo ""
 echo "-- adapter-claude.sh robustness: empty RALPH_PROVIDER_CONFIG_DIR → CLAUDE_CONFIG_DIR NOT exported"
-out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+out=$(env -i HOME="$HOME" PATH="$PATH" "$TEST_BASH" -c "
   source '$REPO_ROOT/.ralph/lib/common.sh'
   source '$REPO_ROOT/.ralph/lib/adapter-claude.sh'
   if [[ -z \${CLAUDE_CONFIG_DIR+x} ]]; then
@@ -2162,7 +2167,7 @@ cat > "$ws/.ralph/TASKS.md" <<TASKS_EOF
 - [ ] DEV-1: foo
 TASKS_EOF
 rc=0
-bash "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
+"$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider fake 2>/dev/null 1>/dev/null || rc=$?
 run_dir=$(latest_run_dir "$ws")
 if [[ -f "$run_dir/exit-message.txt" ]] \
    && grep -q "blocked_by_human" "$run_dir/exit-message.txt"; then
@@ -2210,7 +2215,7 @@ git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single 
 rc=0
 RALPH_MOCK_CODEX_SCENARIO=happy \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 round_dir="${run_dir}/rounds/round-001"
 reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -2248,7 +2253,7 @@ cleanup_codex_ws
 
 echo ""
 echo "-- SC-022-4: adapter-codex.sh translates RALPH_PROVIDER_CONFIG_DIR → CODEX_HOME"
-out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+out=$(env -i HOME="$HOME" PATH="$PATH" "$TEST_BASH" -c "
   export RALPH_PROVIDER_CONFIG_DIR=/tmp/ralph-test-codex-cfg
   source '$REPO_ROOT/.ralph/lib/common.sh'
   source '$REPO_ROOT/.ralph/lib/adapter-codex.sh'
@@ -2262,7 +2267,7 @@ fi
 
 echo ""
 echo "-- SC-022-4: adapter-codex.sh robustness: empty RALPH_PROVIDER_CONFIG_DIR → CODEX_HOME NOT exported"
-out=$(env -i HOME="$HOME" PATH="$PATH" bash -c "
+out=$(env -i HOME="$HOME" PATH="$PATH" "$TEST_BASH" -c "
   source '$REPO_ROOT/.ralph/lib/common.sh'
   source '$REPO_ROOT/.ralph/lib/adapter-codex.sh'
   if [[ -z \${CODEX_HOME+x} ]]; then
@@ -2290,7 +2295,7 @@ rc=0
 # Clear RALPH_PROVIDER_CONFIG_DIR so load_env can set it from .env (parent env may have it set)
 RALPH_MOCK_CODEX_SCENARIO=happy \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
-  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 round_dir="${run_dir}/rounds/round-001"
 jsonl_ok=0; capture_ok=0; src_ok=0; home_clean=1
@@ -2318,7 +2323,7 @@ git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single 
 rc=0
 RALPH_MOCK_CODEX_SCENARIO=missing_thread_id \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 round_dir="${run_dir}/rounds/round-001"
 warn_ok=0; history_ok=0
@@ -2343,7 +2348,7 @@ _run_codex_diagnose_case() {
   # --max-retry 0：见 _run_diagnose_case 注释
   RALPH_MOCK_CODEX_SCENARIO="$scenario" \
     env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-    bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-retry 0 2>/dev/null || rc=$?
+    "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-retry 0 2>/dev/null || rc=$?
   local run_dir error_type
   run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
   error_type="$(get_last_error_type "$run_dir")"
@@ -2405,7 +2410,7 @@ _run_codex_terminal_case() {
   local rc=0
   RALPH_MOCK_CODEX_SCENARIO="$scenario" \
     env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-    bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 --max-retry 0 2>/dev/null || rc=$?
+    "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 --max-retry 0 2>/dev/null || rc=$?
   local run_dir round_dir got_event got_status error_type
   run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
   round_dir="${run_dir}/rounds/round-001"
@@ -2443,7 +2448,7 @@ git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "termina
 rc=0
 RALPH_MOCK_CODEX_SCENARIO=truncated_then_completed \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 round_dir="${run_dir}/rounds/round-001"
 term_ok=0; raw_truncated_ok=0; raw_completed_ok=0; warning_null_ok=0
@@ -2467,7 +2472,7 @@ git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "termina
 rc=0
 RALPH_MOCK_CODEX_SCENARIO=error_only_rc0 \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 --max-retry 0 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-round 1 --max-retry 0 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 round_dir="${run_dir}/rounds/round-001"
 warn_ok=0
@@ -2488,7 +2493,7 @@ git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single 
 rc=0
 RALPH_MOCK_CODEX_SCENARIO=happy RALPH_PROVIDER_EFFORT=low \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 round_dir="${run_dir}/rounds/round-001"
 received_effort="$(grep -E '^[[:space:]]*\{' "$round_dir/provider.stdout.log" 2>/dev/null \
@@ -2509,7 +2514,7 @@ git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single 
 rc=0
 RALPH_MOCK_CODEX_SCENARIO=happy RALPH_PROVIDER_EFFORT=none \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 round_dir="${run_dir}/rounds/round-001"
 received_effort="$(grep -E '^[[:space:]]*\{' "$round_dir/provider.stdout.log" 2>/dev/null \
@@ -2530,7 +2535,7 @@ git -C "$SETUP_CODEX_WS" add . && git -C "$SETUP_CODEX_WS" commit -q -m "single 
 rc=0
 RALPH_MOCK_CODEX_SCENARIO=happy RALPH_PROVIDER_MODEL="" \
   env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" \
-  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 round_dir="${run_dir}/rounds/round-001"
 received_model="$(grep -E '^[[:space:]]*\{' "$round_dir/provider.stdout.log" 2>/dev/null \
@@ -2551,7 +2556,7 @@ tmpbin_codex_none=$(_build_path_without jq)
 rm -f "$tmpbin_codex_none/codex"   # ensure codex also absent from PATH
 rc=0
 stderr_out=$(env PATH="$tmpbin_codex_none" HOME="$SETUP_CODEX_HOME" \
-  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>&1 >/dev/null) || rc=$?
+  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>&1 >/dev/null) || rc=$?
 rm -rf "$tmpbin_codex_none"
 runs_count=$(count_runs "$SETUP_CODEX_WS")
 if [[ "$rc" -ne 0 \
@@ -2593,7 +2598,7 @@ cleanup_codex_ws
 	ws=$(setup_workspace)
 	git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 	rc=0
-	stderr_out=$(bash "$ws/.ralph/bin/ralph" run --provider unknown 2>&1 >/dev/null) || rc=$?
+	stderr_out=$("$TEST_BASH" "$ws/.ralph/bin/ralph" run --provider unknown 2>&1 >/dev/null) || rc=$?
 	assert_provider_gate_rejects "$ws" "gate unknown (--provider flag)" "$rc" "$stderr_out"
 	cleanup_ws "$ws"
 
@@ -2602,7 +2607,7 @@ cleanup_codex_ws
 	ws=$(setup_workspace --provider unknown)
 	git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 	rc=0
-	stderr_out=$(env -u RALPH_PROVIDER bash "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
+	stderr_out=$(env -u RALPH_PROVIDER "$TEST_BASH" "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
 	assert_provider_gate_rejects "$ws" "gate unknown (.env RALPH_PROVIDER)" "$rc" "$stderr_out"
 	cleanup_ws "$ws"
 
@@ -2611,7 +2616,7 @@ cleanup_codex_ws
 	ws=$(setup_workspace --no-env)
 	git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 	rc=0
-	stderr_out=$(env RALPH_PROVIDER=unknown bash "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
+	stderr_out=$(env RALPH_PROVIDER=unknown "$TEST_BASH" "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
 	assert_provider_gate_rejects "$ws" "gate unknown (process env)" "$rc" "$stderr_out"
 	cleanup_ws "$ws"
 
@@ -2624,7 +2629,7 @@ cleanup_codex_ws
 	git -C "$ws" add . && git -C "$ws" commit -q -m "init" 2>/dev/null || true
 	rc=0
 	stderr_out=$(env PATH="$ws/tests-bin:$PATH" RALPH_PROVIDER=unknown \
-	  bash "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
+	  "$TEST_BASH" "$ws/.ralph/bin/ralph" run 2>&1 >/dev/null) || rc=$?
 	assert_provider_gate_rejects "$ws" "gate unknown (CLI on PATH)" "$rc" "$stderr_out"
 	cleanup_ws "$ws"
 
@@ -2637,7 +2642,7 @@ cleanup_codex_ws
 	rc=0
 	RALPH_MOCK_CODEX_SCENARIO=archived_session \
 	  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
-	  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -2665,7 +2670,7 @@ cleanup_codex_ws
 	rc=0
 	RALPH_MOCK_CODEX_SCENARIO=no_session_at_all \
 	  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
-	  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -2697,7 +2702,7 @@ cleanup_codex_ws
 	rc=0
 	RALPH_MOCK_CODEX_SCENARIO=home_decoy \
 	  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" RALPH_PROVIDER_CONFIG_DIR="$missing_cfg" \
-	  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -2726,7 +2731,7 @@ cleanup_codex_ws
 	rc=0
 	RALPH_MOCK_CLAUDE_SCENARIO=home_decoy \
 	  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" RALPH_PROVIDER_CONFIG_DIR="$missing_cfg" \
-	  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -2756,7 +2761,7 @@ cleanup_codex_ws
 	rc=0
 	RALPH_MOCK_CODEX_SCENARIO=completed_then_rc1 \
 	  env PATH="$SETUP_CODEX_BIN:$PATH" HOME="$SETUP_CODEX_HOME" RALPH_PROVIDER_CONFIG_DIR="" \
-	  bash "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-retry 0 --max-round 1 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_CODEX_WS/.ralph/bin/ralph" run --provider codex --max-retry 0 --max-round 1 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_CODEX_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -2781,7 +2786,7 @@ cleanup_codex_ws
 	rc=0
 	RALPH_MOCK_CLAUDE_SCENARIO=happy \
 	  env PATH="$SETUP_CLAUDE_BIN:$PATH" HOME="$SETUP_CLAUDE_HOME" \
-	  bash "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_CLAUDE_WS/.ralph/bin/ralph" run --provider claude 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_CLAUDE_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	got_skip="$(grep -E '^\{' "$round_dir/provider.stdout.log" 2>/dev/null \
@@ -2841,7 +2846,7 @@ cleanup_codex_ws
 	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=happy \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -2866,7 +2871,7 @@ cleanup_codex_ws
 	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=happy \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity --model "test-model-3" --effort high 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity --model "test-model-3" --effort high 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	init_event="$(grep -E '^[[:space:]]*\{' "$round_dir/provider.stdout.log" 2>/dev/null | jq -c 'select(.event=="init")' 2>/dev/null | head -1)"
@@ -2889,7 +2894,7 @@ cleanup_codex_ws
 	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=no_session_at_all \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	cap_status="$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)"
@@ -2914,7 +2919,7 @@ cleanup_codex_ws
 	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=home_decoy \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	cap_status="$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)"
@@ -2934,7 +2939,7 @@ cleanup_codex_ws
 	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=denied_actions \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -2957,7 +2962,7 @@ cleanup_codex_ws
 	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=completed_then_rc1 \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
 	if [[ "$rc" -eq 2 && "$reason" == "provider_failed" ]]; then
@@ -2976,7 +2981,7 @@ cleanup_codex_ws
 	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=truncated_then_result \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -2994,7 +2999,7 @@ cleanup_codex_ws
 	git -C "$SETUP_AGY_WS" add . && git -C "$SETUP_AGY_WS" commit -q -m "init" 2>/dev/null || true
 	rc=0
 	stderr_out=$(env PATH="$SETUP_AGY_BIN:$PATH" RALPH_PROVIDER_CONFIG_DIR="/tmp/custom-config" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>&1 >/dev/null) || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>&1 >/dev/null) || rc=$?
 	artifacts_ok=1
 	[[ -d "$SETUP_AGY_WS/.ralph/runs" ]] && artifacts_ok=0
 	[[ -f "$SETUP_AGY_WS/.ralph/lock" ]] && artifacts_ok=0
@@ -3015,7 +3020,7 @@ cleanup_codex_ws
 	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=unknown_status \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	reason="$(get_exit_reason "$run_dir" 2>/dev/null)"
@@ -3038,7 +3043,7 @@ cleanup_codex_ws
 	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=path_traversal \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	cap_status="$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)"
@@ -3059,7 +3064,7 @@ cleanup_codex_ws
 	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=string_error \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	err_type="$(jq -r .error.type "$round_dir/meta.json" 2>/dev/null)"
@@ -3080,7 +3085,7 @@ cleanup_codex_ws
 	RALPH_MOCK_ALLOW_TASK_WRITE=1 \
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=interleaved_output \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(latest_run_dir "$SETUP_AGY_WS")"
 	round_dir="${run_dir}/rounds/round-001"
 	has_before=0; has_after=0
@@ -3129,7 +3134,7 @@ EOF
 	rc=0
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=success_with_error \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(find "$SETUP_AGY_WS/.ralph/runs" -mindepth 1 -maxdepth 1 -type d | head -1)"
 	round_dir="$run_dir/rounds/round-001"
 	reason="$(jq -r .exit_reason "$run_dir/result.json" 2>/dev/null)"
@@ -3153,7 +3158,7 @@ EOF
 	rc=0
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=typed_empty_message_error \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(find "$SETUP_AGY_WS/.ralph/runs" -mindepth 1 -maxdepth 1 -type d | head -1)"
 	round_dir="$run_dir/rounds/round-001"
 	reason="$(jq -r .exit_reason "$run_dir/result.json" 2>/dev/null)"
@@ -3177,7 +3182,7 @@ EOF
 	rc=0
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=symlink_transcript \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(find "$SETUP_AGY_WS/.ralph/runs" -mindepth 1 -maxdepth 1 -type d | head -1)"
 	round_dir="$run_dir/rounds/round-001"
 	cap_status="$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)"
@@ -3199,7 +3204,7 @@ EOF
 	rc=0
 	RALPH_MOCK_ANTIGRAVITY_SCENARIO=symlink_session_dir \
 	  env PATH="$SETUP_AGY_BIN:$PATH" HOME="$SETUP_AGY_HOME" ANTIGRAVITY_APP_DATA_DIR="$SETUP_AGY_HOME/.gemini/antigravity" \
-	  bash "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
+	  "$TEST_BASH" "$SETUP_AGY_WS/.ralph/bin/ralph" run --provider antigravity 2>/dev/null || rc=$?
 	run_dir="$(find "$SETUP_AGY_WS/.ralph/runs" -mindepth 1 -maxdepth 1 -type d | head -1)"
 	round_dir="$run_dir/rounds/round-001"
 	cap_status="$(jq -r .capture_status "$round_dir/meta.json" 2>/dev/null)"
@@ -3218,8 +3223,8 @@ EOF
 {"event":"result","result":{"status":"SUCCESS","error":{"type":"api","message":""}}}
 {"event":"result","result":{"status":"PENDING"}}
 {"event":"result","result":{"status":"ERROR"}}'
-	run_filter_out="$(printf '%s\n' "$agy_terminal_events" | bash -c 'source "$1"; _ralph_filter_verbose' _ "$REPO_ROOT/.ralph/lib/run.sh")" || run_filter_out=""
-	watch_filter_out="$(printf '%s\n' "$agy_terminal_events" | bash -c 'source "$1"; _ralph_watch_filter_events' _ "$REPO_ROOT/.ralph/lib/watch.sh")" || watch_filter_out=""
+	run_filter_out="$(printf '%s\n' "$agy_terminal_events" | "$TEST_BASH" -c 'source "$1"; _ralph_filter_verbose' _ "$REPO_ROOT/.ralph/lib/run.sh")" || run_filter_out=""
+	watch_filter_out="$(printf '%s\n' "$agy_terminal_events" | "$TEST_BASH" -c 'source "$1"; _ralph_watch_filter_events' _ "$REPO_ROOT/.ralph/lib/watch.sh")" || watch_filter_out=""
 	agy_filters_ok=1
 	for filtered in "$run_filter_out" "$watch_filter_out"; do
 	  [[ "$(printf '%s\n' "$filtered" | grep -c '✓ result')" -eq 1 \
@@ -3242,6 +3247,7 @@ EOF
 	_sticky_unit() {
 	  local code="$1"
 	  (
+	    unset NO_COLOR
 	    source "$REPO_ROOT/.ralph/lib/sticky.sh"
 	    _srefresh_size() { _SCOLS=100; _SROWS=30; }
 	    ralph_sticky_enter() {
@@ -3273,8 +3279,8 @@ EOF
 	echo ""
 	echo "-- Sticky: first frame line count (live)"
 	out="$(_sticky_unit 'ralph_sticky_enter; ralph_sticky_render_frame')"
-	# $(...) strips trailing \n, so add it back for accurate wc -l
-	line_count=$(printf '%s\n' "$out" | _strip_ansi | wc -l | tr -d ' ')
+	# 最后一行可能有结尾控制序列：先剥离，再按记录计数，不能额外补换行。
+	line_count=$(printf '%s' "$out" | _strip_ansi | awk 'END { print NR }')
 	if [[ "$line_count" -eq 11 ]]; then
 	  _pass "sticky frame (live): 11 lines (top+hr+6ev+hr+bottom+hint)"
 	else
@@ -3290,7 +3296,7 @@ EOF
 	  ralph_sticky_enter
 	  ralph_sticky_render_frame
 	')"
-	frozen_line_count=$(printf '%s\n' "$out_frozen" | _strip_ansi | wc -l | tr -d ' ')
+	frozen_line_count=$(printf '%s' "$out_frozen" | _strip_ansi | awk 'END { print NR }')
 	if [[ "$frozen_line_count" -eq 10 ]]; then
 	  _pass "sticky frame (frozen): 10 lines (no hint line, suffix in bottom)"
 	else
@@ -3486,7 +3492,7 @@ STTYEOF
 	  chmod +x "$tmpdir/stty-test.sh"
 	  cat > "$tmpdir/stty-test.exp" <<EXPEOF
 set timeout 10
-spawn bash "$tmpdir/stty-test.sh"
+spawn "$TEST_BASH" "$tmpdir/stty-test.sh"
 expect eof
 EXPEOF
 	  expect -f "$tmpdir/stty-test.exp" >/dev/null 2>&1 || true
@@ -3525,13 +3531,13 @@ _RALPH_STICKY_LOG_PATH="/dev/null"
 ralph_sticky_enter
 ralph_sticky_install_traps
 ralph_sticky_render_frame
-trap 'ralph_sticky_cleanup; stty_out=\$(stty -a < /dev/tty 2>/dev/null); ok=1; echo "\$stty_out" | grep -qE "[ :]icanon " || ok=0; echo "\$stty_out" | grep -qE "[ :]echo " || ok=0; echo "\$stty_out" | grep -qE "min = 1" || ok=0; echo "\$stty_out" | grep -qE "time = 0" || ok=0; if [[ "\$ok" -eq 1 ]]; then echo "OK" > "$result_file"; else echo "FAIL" > "$result_file"; fi' EXIT
+trap 'exit_code=\$?; ralph_sticky_cleanup; stty_out=\$(stty -a < /dev/tty 2>/dev/null); ok=1; [[ "\$exit_code" -eq 130 ]] || ok=0; echo "\$stty_out" | grep -qE "[ :]icanon " || ok=0; echo "\$stty_out" | grep -qE "[ :]echo " || ok=0; echo "\$stty_out" | grep -qE "min = 1" || ok=0; echo "\$stty_out" | grep -qE "time = 0" || ok=0; if [[ "\$ok" -eq 1 ]]; then echo "OK" > "$result_file"; else echo "FAIL" > "$result_file"; fi' EXIT
 sleep 10
 CTRLEOF
 	  chmod +x "$tmpdir/ctrlc-test.sh"
 	  cat > "$tmpdir/ctrlc-test.exp" <<EXPEOF
 set timeout 10
-spawn bash "$tmpdir/ctrlc-test.sh"
+spawn "$TEST_BASH" "$tmpdir/ctrlc-test.sh"
 sleep 1
 send "\003"
 expect eof
@@ -3558,7 +3564,7 @@ EXPEOF
 set timeout 30
 # expect 默认 spawn 出来的 pty 在某些 macOS 上 stty size 返回 0 0，导致 sticky.sh
 # 把 _SCOLS clamp 到 20，横线只画 20 ─ 字符。显式设 24x80 还原合理终端尺寸。
-spawn -ignore HUP bash -c "stty rows 24 cols 80 2>/dev/null; exec bash \"$ws/.ralph/bin/ralph\" run --provider fake -v"
+spawn -ignore HUP "$TEST_BASH" -c "stty rows 24 cols 80 2>/dev/null; exec \"$TEST_BASH\" \"$ws/.ralph/bin/ralph\" run --provider fake -v"
 expect {
     timeout { puts "EXPECT_TIMEOUT"; exit 1 }
     eof { puts "EXPECT_EOF" }
@@ -3587,7 +3593,7 @@ EXPEOF
 	  cat > "$ws/watch-sticky.exp" <<EXPEOF
 set timeout 10
 # 同 run-sticky：显式设 24x80，避免 expect pty stty size 返回 0 0 导致 _SCOLS=20。
-spawn -ignore HUP bash -c "stty rows 24 cols 80 2>/dev/null; exec bash \"$ws/.ralph/bin/ralph\" watch"
+spawn -ignore HUP "$TEST_BASH" -c "stty rows 24 cols 80 2>/dev/null; exec \"$TEST_BASH\" \"$ws/.ralph/bin/ralph\" watch"
 expect "ralph"
 expect "round"
 send \003
@@ -3608,7 +3614,49 @@ EXPEOF
 	  echo "expect not found, skipping sticky TTY tests"
 	fi
 
-	# ── 汇总 ─────────────────────────────────────────────────────────────────────
+# 本次修复的发布回归，复用当前 harness 的隔离 workspace 与结果汇总。
+source "$REPO_ROOT/tests/release-regressions.sh"
+run_release_regressions
+
+# 发布包部署回归：沿用 harness 解释器，显式启动 /bin/bash 可验证兼容基线。
+echo ""
+echo "-- Release deployment: selected Bash compatibility"
+release_bash="$TEST_BASH"
+release_version="$(sed -n 's/^RALPH_VERSION="\([^"]*\)"$/\1/p' "$REPO_ROOT/.ralph/bin/ralph")"
+mkdir -p "$REPO_ROOT/.tmp"
+ws="$(mktemp -d "$REPO_ROOT/.tmp/release-bash.XXXXXX")"
+cp -R "$REPO_ROOT/release/$release_version/." "$ws/"
+git -C "$ws" init -q
+printf '%s\n' "- [ ] Task A" "- [ ] Task B" > "$ws/.ralph/TASKS.md"
+rc=0
+env RALPH_PROVIDER=fake RALPH_PROVIDER_CONFIG_DIR="" RALPH_FAKE_CLI="$release_bash" \
+  RALPH_FAKE_SCENARIO=happy RALPH_LOOP_MAX_ROUND=0 RALPH_LOOP_ROUND_TIMEOUT=0 \
+  RALPH_LOOP_STALL_LIMIT=5 \
+  "$release_bash" "$ws/.ralph/bin/ralph" run > "$ws/stdout.log" 2> "$ws/stderr.log" || rc=$?
+run_dir="$(latest_run_dir "$ws")"
+version_out="$("$release_bash" "$ws/.ralph/bin/ralph" --version)"
+status_out="$("$release_bash" "$ws/.ralph/bin/ralph" status --json)"
+watch_out="$("$release_bash" "$ws/.ralph/bin/ralph" watch)"
+if [[ "$rc" -eq 0 && "$version_out" == "ralph $release_version ("* \
+   && -x "$ws/.ralph/bin/ralph" && -L "$ws/CLAUDE.md" \
+   && "$(readlink "$ws/CLAUDE.md")" == AGENTS.md \
+   && "$(find "$ws/.agents/skills" -type f | wc -l | tr -d ' ')" -eq 1 \
+   && -f "$ws/.agents/skills/ralph/SKILL.md" \
+   && "$(grep -c '^- \[x\]' "$ws/.ralph/TASKS.md")" -eq 2 \
+   && "$watch_out" == *"round 2 "* && "$watch_out" == *" 2/2 tasks"* \
+   && "$watch_out" == *"state: finished "* && "$watch_out" == *"exit_reason: done "* \
+   && ! -s "$ws/stdout.log" ]] \
+   && cmp -s "$REPO_ROOT/.agents/skills/ralph/SKILL.md" "$ws/.agents/skills/ralph/SKILL.md" \
+   && jq -e '.exit_reason == "done" and .rounds == 2 and .tasks_checked_end == 2 and .tasks_total == 2' "$run_dir/result.json" >/dev/null \
+   && printf '%s\n' "$status_out" | jq -e '.state == "finished" and .exit_reason == "done" and .tasks_checked == 2 and .tasks_total == 2' >/dev/null; then
+  _pass "release deployment: $release_bash, two tasks done, result/status/watch/version, symlink and only Ralph skill verified"
+else
+  _fail "release deployment: $release_bash smoke failed, rc=$rc run_dir=$run_dir"
+  cat "$ws/stderr.log"
+fi
+cleanup_ws "$ws"
+
+# ── 汇总 ─────────────────────────────────────────────────────────────────────
 
 echo ""
 echo "=== Results: PASS=$PASS FAIL=$FAIL ==="

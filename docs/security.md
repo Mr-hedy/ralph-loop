@@ -19,7 +19,7 @@ Ralph 是无人值守的 oneshot harness，每轮都必须跑到 provider 自然
 | provider | 绕过 approval 的 flag | 实际权限含义 | 额外约束 |
 |---|---|---|---|
 | Claude | `--dangerously-skip-permissions` + `--allowedTools "Bash,Read,Edit,Write,Glob,Grep"` | **绕过全部 permission 检查**（等价 `--permission-mode bypassPermissions`；官方权限模式表对该模式写的是 "What runs without asking: Everything"，适用场景标注 "Isolated containers and VMs only"）。同行的 `--allowedTools` 是 pre-approve（allow）规则，**不是**工具限制：官方明确 "Allow rules have no effect in `bypassPermissions`"，且 "To restrict which tools are available, use `--tools` instead"。因此那 6 项清单在本配置下**不构成能力边界**，不得当作 Claude 的权限收敛来读 | 白名单取值固定不做开关；当前 adapter 未使用任何能真正收窄能力的机制（deny 规则 `--disallowedTools` / 工具集 `--tools`） |
-| Codex  | `codex exec` + `--sandbox danger-full-access` | **移除本地沙箱限制**：模型生成的 shell 命令不再受 workspace 边界约束，以当前用户身份在整机可达范围内执行（官方措辞 "removes local sandbox restrictions"）；REQ-031 的"等同于 workspace 内任意写入权限"是这条的**下界**而非等价描述 | 为允许 oneshot 完成 `git add/commit`（`workspace-write` 会禁止写 `.git/index.lock`）；Ralph 外层固定 workspace、lock、timeout 和进程树清理 |
+| Codex  | `codex exec` + `--sandbox danger-full-access` | **移除本地沙箱限制**：模型生成的 shell 命令不再受 workspace 边界约束，以当前用户身份在整机可达范围内执行（官方措辞 "removes local sandbox restrictions"）；REQ-031 的"等同于 workspace 内任意写入权限"是这条的**下界**而非等价描述 | 为支持 oneshot 获授权后的 `git add/commit`（`workspace-write` 会禁止写 `.git/index.lock`）；Ralph 外层固定 workspace、lock、timeout 和进程树清理 |
 | Antigravity | `--dangerously-skip-permissions` | **绕过全部 permission 确认**：所有工具调用直接执行，模型生成的命令以当前用户身份在整机可达范围内执行，不受 workspace 边界约束 | 权限参数固定写死在 adapter 源码内，不做配置开关；Ralph 外层固定 workspace、lock、timeout 和进程树清理 |
 
 **有效权限汇总**：Claude、Codex 与 Antigravity 三条在各自 CLI 的语义下都等价于"以当前用户身份无限制执行"——Ralph 不存在 provider 侧的能力收窄层。区别只在实现方式：Codex 是显式 `danger-full-access` 沙箱模式，Claude 是 bypass permission 模式 + 一个在该模式下失效的 allow 清单，Antigravity 是 bypass permission 模式。
@@ -37,7 +37,14 @@ Claude 侧结论核查于 Claude Code CLI `2.1.270` 的 `claude --help`（"`--da
 - **不存在** provider 侧能力收窄层。若要真正限制 Claude 可用工具（改用 `--tools`）或恢复沙箱（Codex 改 `workspace-write`），必须先新增 REQ 并按 NFR-SEC-002 的同一流程审查，不能靠 `.env` 或 flag 顺带调整。
 - 如未来需要 policy file 或 CI 白名单，必须通过独立需求驱动（新增 REQ/NFR），不由 session capture 或其他功能需求间接触发。
 
-风险承担：这三种模式都会让 provider agent 直接执行本地工具。使用者在编写 `.ralph/PROMPT.md` 时对 agent 可执行的行为负责；运行 Ralph 前不应让 workspace 处于"agent 越界写入会造成不可接受损失"的状态。
+风险承担：这三种模式都会让 provider agent 直接执行本地工具。使用者在项目 `AGENTS.md`、任务源和对应事实源中声明授权与限制；通用 `.ralph/PROMPT.md` 不作业务配置入口。运行 Ralph 前不应让 workspace 处于"agent 越界写入会造成不可接受损失"的状态。
+
+## 执行协议完整性
+
+- CLI 内固定当前版本 PROMPT 的 SHA-1 / SHA-256 Git blob 指纹（兼容 Git 对象格式），不经 `.env`、环境变量或 CLI 参数覆盖；使用 `git hash-object --no-filters`，不写 Git 对象库，也不新增机器级依赖。
+- 启动时拒绝不匹配的协议（exit 1，无新 run）；run 使用经过校验的 `protocol.md` 快照，每轮和重试派发前、provider 返回后检查源文件与快照，先于任务完成判定和重试。变化或无法读取时退出 `protocol_changed` / 8，写明确错误，不自动恢复文件或撤销工作树。
+- Main Agent 与 oneshot 的普通业务任务不得改写 PROMPT、bin、lib；只有明确授权的工具维护/升级才可停止运行后更新。当前内容指纹检查覆盖 PROMPT 与 run 快照，bin/lib 的维护边界由协作规则声明，尚无整包运行时校验。
+- 这是在检查点发现变化并停止后续派发的机制，不是同一用户权限下的文件写隔离；不能抵御同时篡改 CLI、协议和指纹，或在两次检查间修改又恢复的行为。当前 oneshot 不会因文件变化自动中断，已有业务改动和任务勾选须由用户检查。
 
 ## `.ralph/.env` 解析约束
 
@@ -82,10 +89,10 @@ Ralph 工具本身不对 session 文件做脱敏，因为 provider 的 transcrip
 | 面 | 风险 | 缓解 |
 |---|---|---|
 | `.ralph/.env` | 注入 shell 代码 | 逐行解析 + `RALPH_` 前缀白名单（TC-STK-003） |
-| `.ralph/PROMPT.md` | 恶意 prompt 驱动 agent 做越权操作 | workspace 信任域 + Ralph 运行边界（Codex 使用 `danger-full-access`，风险由使用者承担） |
+| `.ralph/PROMPT.md` | 工作包约束污染通用协议，影响后续任务 | 版本指纹启动校验 + run 快照 + 派发/返回检查；不是同用户权限下的写隔离 |
 | provider CLI | 升级改变 flag 或 session 路径 | adapter 版本锚点 + session 采集降级为 warning（REQ-006） |
 | session 文件泄露 | 提交到公共仓库 | `.ralph/.gitignore` 建议 + 本条文档显式声明不入仓 |
-| 并发破坏 | 多个 `ralph run` 同时写 `runs/` | `flock` 独占 `.ralph/lock`，冲突快速退出 `locked`（REQ-012） |
+| 并发破坏 | 多个 `ralph run` 同时写 `runs/` | `noclobber` 原子创建 `.ralph/lock` 并记录持有进程 PID，冲突快速退出 `locked`（REQ-012） |
 | UUID 碰撞 / 预测 | 影响 Claude session 锚点 | 使用系统 `uuidgen` / `/proc/sys/kernel/random/uuid` / `python3 uuid4`，不自制随机（见 [`integrations.md#uuid-依赖`](./integrations.md#uuid-依赖)） |
 
 ## 审计与可追溯

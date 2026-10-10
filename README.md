@@ -15,13 +15,13 @@
 
 ## 快速开始
 
-面向部署使用者的完整功能说明、操作步骤、升级方法和版本更新记录见 [`release/0.1.6/README.md`](release/0.1.6/README.md)。
+面向部署使用者的完整功能说明、操作步骤、升级方法和版本更新记录见 [`release/0.1.9/README.md`](release/0.1.9/README.md)。
 
 ### 前置依赖
 
 | 依赖 | 用途 |
 |---|---|
-| bash 4+ | 运行 ralph |
+| Bash 3.2+ | 运行 ralph |
 | git | workspace 变更追踪 |
 | jq | meta.json 写入 |
 | Claude CLI (`claude`) | Claude provider CLI —— 参考 [安装文档](https://docs.anthropic.com/en/docs/claude-code) |
@@ -35,15 +35,17 @@
 
 ### 1. 部署到 workspace
 
+目标已有 `README.md`、`AGENTS.md`、`CLAUDE.md`、`.ralph/`、`.spec/`、`.agents/` 或 `docs/` 时，先复制到临时目录再逐项人工合并，保留项目事实和任务；下面的整包复制命令仅用于不存在这些同名文件的目标目录。
+
 ```bash
-cp -R <ralph-loop-repo>/release/0.1.6/. <your-workspace>/
+cp -R <ralph-loop-repo>/release/0.1.9/. <your-workspace>/
 ```
 
-部署包同时带入 `.ralph/`、`.spec/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md` 文档地图模板。已有同名文件时先人工合并，不要静默覆盖。
+部署包同时带入 `README.md`、`.ralph/`、`.spec/`、Ralph skill、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md` 文档地图模板。已有同名文件时先人工合并，不要静默覆盖。
 
 ### 2. 配置 workspace
 
-按 `release/0.1.6/.ralph/.env.example` 在 workspace 创建 `.ralph/.env`（最小配置）：
+按 `release/0.1.9/.ralph/.env.example` 在 workspace 创建 `.ralph/.env`（最小配置）：
 
 ```bash
 RALPH_PROVIDER=claude                         # claude / codex / antigravity
@@ -76,6 +78,7 @@ cd <your-workspace>
 ./.ralph/bin/ralph status                  # plain text：run_id / round / tasks 进度 / state / exit_reason 等
 ./.ralph/bin/ralph status --json           # 透传 .ralph/status.json 原始 JSON
 ./.ralph/bin/ralph watch                   # 实时监控：sticky TUI（Ctrl+C 退出）
+./.ralph/bin/ralph watch --details         # 回放当前轮并跟随 AI 说明、工具操作和结果
 ./.ralph/bin/ralph run -v                  # TTY 下显示 sticky TUI；非 TTY 自动降级 plain
 ```
 
@@ -100,6 +103,7 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 | `timeout` | 3 | 单轮执行超时 |
 | `locked` | 6 | workspace 已有 ralph 在跑（lock） |
 | `blocked_by_human` | 7 | 第一个未勾选任务前缀是 `HUMAN-`（等人类决策；不调 provider） |
+| `protocol_changed` | 8 | 执行协议或快照变化，停止继续派发，等待人工核对 |
 | `interrupted` | 130 | SIGINT 中断 |
 | `startup_failed` | 1 | 依赖缺失或初始化失败 |
 
@@ -112,7 +116,7 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 
 ## 当前状态
 
-- 项目版本：v0.1.6
+- 项目版本：v0.1.9
 - 当前开发任务：`.ralph/TASKS.md`（dogfood 模式，root `task.md` 已封版）
 - 续接状态：`handoff.md`
 - 工具入口：`.ralph/bin/ralph`
@@ -143,7 +147,7 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 
 - 本仓库是 ralph-loop 工具的**开发工程**。**v0.1 后切换为 dogfood 模式** — 自用 ralph 驱动后续开发；`.ralph/TASKS.md` 是当前任务源。
 - 对外部署只使用 `release/<version>/`；开发工程中的 `.ralph/` 是 dogfood 工作区，不直接复制到其他项目。
-- 当前 v0.1.6 release 包含 `.ralph/`、`.spec/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md`；目标协作脚手架还将加入 `.agents/skills/` 与必要的 `.codex/` 会话治理配置，实施状态以对应需求与架构文档为准。运行时产物不得进入 release。
+- 当前 v0.1.9 release 包含 `.ralph/`、`.spec/`、`.agents/skills/ralph/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md`；其他 skills 与必要的 `.codex/` 会话治理配置后续完善再交付，实施状态以对应需求与架构文档为准。运行时产物不得进入 release。
 - Ralph 需求沉淀在 `docs/requirements.md`（项目级）和 `docs/features/ralph-loop/requirements.md`（模块级）；架构和外部集成分别见 `docs/architecture.md` 与 `docs/integrations.md`。
 - 历史设计方案放 `docs/features/ralph-loop/history/I<N>-design.md`；历史任务归档放 `I<N>-FINAL-TASK.md`。
 - 项目过程事实写入 `docs/`，并从 `docs/README.md` 保持可发现；根 README 只在项目自身入口内容变化时更新。

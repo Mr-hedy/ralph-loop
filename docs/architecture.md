@@ -1,7 +1,7 @@
 # Architecture Overview
 
 - 状态：已确认
-- 来源：`docs/features/ralph-loop/requirements.md`（REQ-001 ~ REQ-032）和 `docs/features/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）；本文在 design 层面给出总体系统入口。
+- 来源：`docs/features/ralph-loop/requirements.md`（REQ-001 ~ REQ-032、REQ-054）和 `docs/features/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）；本文在 design 层面给出总体系统入口。
 - 范围：本文承载项目总体上下文，以及 Ralph 执行引擎的主要组成和稳定契约（CLI、运行目录、adapter 接口、退出码、stall、lock、错误诊断类别）。Codex Main Agent 协作控制面、后台派发、用户触发验收和长期记忆边界见 [`Vibecoding 协作方案`](./features/vibecoding-collaboration/solution.md)。
 Provider 特定命令构造、session 路径和诊断关键字在 [`integrations.md`](./integrations.md)；approval / sandbox 策略和安全边界在 [`security.md`](./security.md)。
 - 变更条件：CLI 契约、退出原因枚举、adapter 函数签名或 `.ralph/runs/<id>/` schema 变化时必须同步更新；并触发下游 `integrations.md` / `security.md` / 模块需求 / roadmap / task 检查。
@@ -15,7 +15,7 @@ Provider 特定命令构造、session 路径和诊断关键字在 [`integrations
 每轮执行流程：
 
 1. 读 `.ralph/TASKS.md`，若全部勾选 → 退出 `done`
-2. 拼 prompt：`.ralph/PROMPT.md` 全文 + runtime 上下文块（run_id、round、git sha 等）
+2. 校验版本协议与 run 级快照；拼 prompt：快照全文 + runtime 上下文块（run_id、round、git sha 等）
 3. 调 provider CLI oneshot，捕获 stdout/stderr
 4. 采集 provider 原生 session → 派生 `session.history.log`（人话视图）
 5. 错误诊断 + 收集 `changed_files`
@@ -28,27 +28,30 @@ Agent 端契约由 PROMPT.md 承载："每轮恰好完成一个未勾选任务�
 
 ```text
 ralph run
-  workspace = dirname(dirname(realpath($BASH_SOURCE)))      # .ralph/bin/ralph → workspace
+  workspace = physical parent of .ralph/                  # cd + pwd -P；由脚本所在目录定位
   cd "$workspace"
   load .ralph/.env (only RALPH_* keys)
   check_dependencies (git + provider_check_deps from sourced adapter)  # 缺失依赖一次性聚合输出后退出，见 ralph_require_cmd / ralph_report_missing_deps
-  validate: .ralph/PROMPT.md, .ralph/TASKS.md, RALPH_PROVIDER, .git/                # workspace 完整性（不再含 command -v RALPH_PROVIDER_CLI，已合并入依赖框架）
-  acquire .ralph/lock     # flock; conflict → exit `locked`, do NOT create run dir
+  validate: .ralph/PROMPT.md, .ralph/TASKS.md, RALPH_PROVIDER, git workspace root   # 普通仓库/worktree 的根；不接受父目录仓库，workspace 完整性（不再含 command -v RALPH_PROVIDER_CLI，已合并入依赖框架）
+  acquire .ralph/lock     # noclobber + PID 文件; conflict → exit `locked`, do NOT create run dir
   run_id = YYYYMMDD-HHMMSS-<shortsha>
   mkdir .ralph/runs/$run_id/rounds/
+  capture and verify .ralph/runs/$run_id/protocol.md against CLI protocol fingerprints
   start_sha = git rev-parse HEAD || ""
   write .ralph/runs/$run_id/context.json
   write .ralph/status.json (state=running)
   stall_count = 0
   for round in 1..INF:
+    verify workspace protocol and run snapshot before completion checks or retry
     tasks = parse_tasks(.ralph/TASKS.md)
     if all(t.checked for t in tasks): exit `done`
     # max_round / stall_limit 为 per-task 判定
     if max_round > 0 and current_task_try > max_round: exit `blocked_by_human` (auto-insert HUMAN)
-    prompt_file = render_prompt(.ralph/PROMPT.md, run_id, round, tasks)
+    prompt_file = render_prompt(run protocol snapshot, run_id, round, tasks)
     source adapter-$provider.sh
     fp_before = worktree_fingerprint()         # 本轮前快照
     provider_oneshot $prompt_file round-$N/provider.stdout.log round-$N/
+    verify protocol before retry or success; mismatch → exit protocol_changed (8)
     provider_collect_session round-$N/
     provider_diagnose round-$N/
     fp_after = worktree_fingerprint()          # 本轮后快照
@@ -104,7 +107,9 @@ ralph help    # 帮助
 
 ### `ralph watch` 参数
 
-`ralph watch` 始终采用 sticky TUI 渲染（TTY 模式）；非 TTY 输出一次 one-line watch bar 后退出。不再支持 `-v` / `--verbose` flag。详细字段由 `ralph status` 提供。
+`ralph watch` 默认采用 sticky TUI 渲染（TTY 模式）；非 TTY 输出一次 one-line watch bar 后退出。`--details` 切换为可滚动的执行过程，先回放当前轮，再跟随实时事件与换轮，run 结束后退出；非 TTY 只输出当前轮快照。不支持 `-v` / `--verbose` flag。详细状态字段由 `ralph status` 提供。
+
+紧凑 renderer 在绘制一帧时关闭终端自动折行，结束绘制及退出时恢复；事件按保守显示列宽截断并将换行、回车、制表符转为空格。事件区高度按实际窗口压缩并保留光标行，5 行及以下只显示顶栏，1 行时不输出换行；收缩清理不通过额外换行滚屏。健康灯的日志活动状态保留在渲染进程，日志替换也更新活动时间。TTY watch 的同一帧字段取自同一份状态快照，避免原子替换期间混合前后版本。完整内容仍由 `watch --details` 提供。
 
 ## 运行目录
 
@@ -138,7 +143,7 @@ ralph help    # 帮助
     lock                            # 运行期产物
 ```
 
-`.ralph/bin/` 和 `.ralph/lib/` 由本仓库发布，使用者通过 `cp -r`、git submodule 或 symlink 安装到各自 workspace。
+部署使用完整 `release/<version>/`。0.1.9 另交付 `.agents/skills/ralph/SKILL.md`，由项目 `AGENTS.md` 和兼容 `CLAUDE.md` 入口路由；后台托管规则独立于 provider。其他 skills 与会话 Hook 不进入本版发布包。
 
 ### Run 目录
 
@@ -147,6 +152,7 @@ ralph help    # 帮助
   context.json                      # 启动参数、provider、版本、start_sha
   result.json                       # 退出原因、迭代次数、任务统计、last_error
   TASKS.md                          # run 结束时的任务板快照
+  protocol.md                       # 本次 run 使用的通用协议快照（不进入 round 四文件契约）
   rounds/
     round-001/
       meta.json                     # 元数据（含 runtime_block + provider_started_at + capture_status + error）
@@ -160,11 +166,21 @@ ralph help    # 帮助
 
 round dir **4 文件契约** —— 详细命名约定见 [`integrations.md#round-目录文件结构-4-文件契约`](./integrations.md#round-目录文件结构4-文件契约)。
 
+### 协议完整性（REQ-054）
+
+CLI 固定协议的 SHA-1/SHA-256 Git blob 指纹；启动时拒绝不匹配的 PROMPT，run 使用 `protocol.md` 快照。`context.json.protocol_snapshot` 指向该快照，`protocol_expected_blobs` 记录版本指纹。每轮和重试派发前、provider 返回后检查源文件与快照，先于完成与重试判定；检测到变化时记录 `last_error.type=protocol_changed` 与文件路径，以 exit 8 结束。已创建的 round 同时写入 meta.error；保留日志、快照和工作树，不自动修复文件，不插入新的 HUMAN 任务。
+
+派发前先读取快照到临时输入，并校验实际读入的静态协议指纹，再追加 runtime 块；快照读取失败也经过 `protocol_changed` 收尾，写终态并释放锁，不能由 `set -e` 直接退出。
+
+项目规则与工作包约束由 agent 读取 AGENTS、TASKS 和任务引用的事实源；提交仅在授权允许时进行。当前完整性检测不是文件系统写隔离，不保证检查间临时改写一定可见，不在当前 provider 执行中轮询中断；安全边界见 security.md。
+
 ### `run_id` 规则
 
-`YYYYMMDD-HHMMSS-<7 位 git short sha>`。若无 git 提交，用 `YYYYMMDD-HHMMSS-nogit`。
+`YYYYMMDD-HHMMSS-<7 位 git short sha>`。若无 git 提交，用 `YYYYMMDD-HHMMSS-nogit`。持有 workspace lock 时分配；若同名目录已存在，等待下一秒重新取值，不覆盖已有 run 证据。
 
 ### `.ralph/status.json` schema
+
+状态在 `.ralph/` 内写入临时文件后原子替换，读者只看到旧或新完整版本。详情入口遇到空文件或非法 JSON 时最多重读四次（间隔 0.5 秒），持续失败明确报错退出。
 
 ```json
 {
@@ -254,7 +270,7 @@ round dir **4 文件契约** —— 详细命名约定见 [`integrations.md#roun
 字段说明：
 - `provider_started_at`：provider CLI 调用前的 ISO 8601 UTC 时间戳，用于 session 文件 mtime fallback 锚点（替代旧 `.session_start` 文件）
 - `terminal_event` / `terminal_status` / `terminal_warning`：provider 终态事件契约（REQ-029），语义见 [`integrations.md#终态事件契约`](./integrations.md#终态事件契约)
-- `runtime_block`：本轮 prompt 中动态部分（`<ralph-runtime>` 块内容），与 git `start_sha` 的 PROMPT.md 共同构成完整 prompt 还原源（替代旧 `prompt.md` 文件）
+- `runtime_block`：本轮 prompt 中动态部分（`<ralph-runtime>` 块内容），与 run 级 `protocol.md` 共同构成完整输入的还原源；不依赖工作树与 `start_sha` 完全一致。
 - `changed_files_total`：自 run 启动至本轮结束的累计文件变更
 - `changed_files_round`：本轮（vs 上轮）的文件变更，用于 stall 判定
 
@@ -286,7 +302,7 @@ RALPH_UI_HEALTH_RED_SEC=
 
 ## PROMPT.md 协议模板
 
-release 提供 PROMPT.md；使用者可以按项目情况补充，但以下协议段落是 Ralph 的硬契约（REQ-003 SC-003-1），修改后的 PROMPT.md 必须保留等价表述：
+release 提供版本化 PROMPT.md。普通项目开发中的 Main Agent 与 oneshot 不得修改它或追加工作包约束；只有用户明确授权维护或升级工具时才可在停止运行后更新协议、CLI 指纹和发布包。以下是通用任务协议的说明（REQ-003 SC-003-1），不是使用者定制入口：
 
 ```markdown
 # Ralph Loop 硬契约
@@ -297,14 +313,14 @@ release 提供 PROMPT.md；使用者可以按项目情况补充，但以下协�
 2. 从中选择**恰好一个**未勾选（`- [ ]`）的任务。
 3. 完成该任务的实现和验证。
 4. 把该任务从 `- [ ]` 改为 `- [x]`（保留标题与缩进不变）。
-5. 退出。不要追加新任务，不要一次勾多条，不要跨任务操作。
+5. 保存完成与验证记录，提交服从用户授权，然后退出；不要一次勾多条。现场发现的后续任务按 TASKS 追加规则记录。
 
 如果没有未勾选任务，直接退出，不做任何修改。
 
 失败时保持任务为 `- [ ]`，把失败原因写在该任务下一级子项里。
 ```
 
-Ralph 每轮把 PROMPT.md 全文拼到 oneshot 前，并附加 runtime 上下文块：
+Ralph 每轮把 run 级协议快照拼到 oneshot 输入中，并附加 runtime 上下文块：
 
 ```markdown
 <ralph-runtime>
@@ -394,6 +410,7 @@ provider_diagnose <round_dir>
 | `timeout` | 3 | 单 round 执行超时 | 有 | 有 |
 | `locked` | 6 | 已有 run 运行中 | **无** | **无** |
 | `blocked_by_human` | 7 | 第一个未勾选任务前缀是 `HUMAN-` 或触发 per-task 熔断 (I5) | 有 | 有 |
+| `protocol_changed` | 8 | run 中协议或快照变化/不可读，停止派发；不自动回滚 | 有 | 有 |
 | `interrupted` | 130 | SIGINT / Ctrl-C | 有 | 有 |
 
 **已于 I5 移除**：`max_iterations`（由 per-task `max_round` 熔断替代）和 `stagnated`（由 per-task `stall_limit` 触发 `blocked_by_human` 替代）。
@@ -414,7 +431,7 @@ v0.1.1 引入的协作协议层约定，承载 ralph + 人类 + main agent 三�
 | `SOL-N` | `.spec/rules/SOLUTION.md` |
 | `ROADMAP-N` | `.spec/rules/ROADMAP.md`（Roadmap 阶段规划） |
 | `PLAN-N` | `.spec/README.md` 阶段 4（任务列表规划，trantor PLAN / sprint planning 同义） |
-| (空) / `DEV-N` | `CLAUDE.md` + 代码事实（默认） |
+| (空) / `DEV-N` | 项目 `AGENTS.md` + 代码事实（默认） |
 | `QA-N` | `.spec/rules/TESTING.md` |
 | `REVIEW-N` | `.spec/rules/REVIEW.md` 或 `.spec/rules/ADVERSARIAL-REVIEW.md` |
 | `HUMAN-N` | 等人类决策（见下文 HUMAN-N 阻塞机制） |
@@ -427,7 +444,7 @@ v0.1.1 引入的协作协议层约定，承载 ralph + 人类 + main agent 三�
 
 1. 在阻塞任务**上方**插入 `- [ ] HUMAN-N: <问题>`（含上下文、选项、影响）。
 2. 阻塞任务后追加 `→ BLOCKED by HUMAN-N`，保留 `- [ ]`（不勾不删）。
-3. `git commit && exit`。
+3. 保存完成与验证记录，按授权处理提交，然后 exit。
 
 **Agent 强约束**：
 
@@ -445,7 +462,7 @@ v0.1.1 引入的协作协议层约定，承载 ralph + 人类 + main agent 三�
 
 - 在 Main Agent 对话里与人类协作得出共识；落地到对应的 feature 需求或项目架构文档。
 - HUMAN-N 任务描述末尾追加 `答（<日期>）: <答案摘要>，落地: <docs 路径>`。
-- HUMAN-N 改 `[x]` + commit；重跑 `ralph run`，agent 回到原阻塞任务按答案继续。
+- 按人类决定将 HUMAN-N 改 `[x]` 并保存记录，提交仍服从授权；重跑 `ralph run`，agent 回到原阻塞任务按答案继续。
 
 ## Stall 判定 (I5: Per-task)
 
@@ -483,10 +500,10 @@ if stall_count >= stall_limit:
 ## Lock 机制
 
 - 路径：`.ralph/lock`
-- 实现：`flock -xn 9`（非阻塞独占锁），`9>$lock_file`
-- 冲突：`flock` 失败 → stderr 报错、退出 `locked`、**不创建 run 目录**
+- 实现：子 shell 启用 `set -o noclobber`，原子创建 `.ralph/lock` 并写入持有进程 PID；不依赖 `flock` 命令。
+- 冲突：锁文件已存在、无法原子创建 → stderr 报错、退出 `locked`、**不创建 run 目录**
 - 释放：`ralph run` 正常或异常退出都释放（`trap` 清理)
-- Stale lock：v0.1 不做 stale 检测，使用者需要手动清理持有进程已死的 lock
+- Stale lock：读取持有进程 PID 并检查进程是否存活；持有进程已死时仍返回 `locked`，不自动清理，使用者确认后手动处理。
 
 ## 错误诊断类别
 
@@ -554,8 +571,8 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
                           └──→ tail 当前活跃 round log ──→ 事件区
 ```
 
-- `status`：单次读取 status.json，渲染 plain text（`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `round` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`），任务进度渲染为 `<checked> / <total> checked`。status.json 不存在时输出提示文案，exit 0。
-- `watch`：每 200ms (sticky 渲染循环) 重读 status.json，默认渲染 sticky TUI；非 TTY 环境输出一次 one-line watch bar 后退出。
+- `status`：单次读取 status.json，渲染 plain text（`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `round` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`），任务进度渲染为 `<checked> / <total> checked`。status.json 不存在时输出提示文案，exit 0；内容不可解析时 exit 1，不输出伪状态。
+- `watch`：每 200ms (sticky 渲染循环) 重读 status.json，默认渲染 sticky TUI；非 TTY 环境输出一次 one-line watch bar 后退出。启动独立加载项目 `.ralph/.env`，进程环境值优先。每个 TTY 帧及每次文本 status / 非 TTY watch 输出都从一次读取的 JSON 快照取值，避免原子更新时混读不同版本。
 
 ### Sticky TUI 布局 (I5)
 
@@ -571,14 +588,22 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 
 - **健康灯** (底栏首位)：🟢 (≤60s) / 🟡 (60~300s) / 🔴 (>300s) 监测 stdout 字节增长。退出时显示 ✓ / ✗ / ⏸。
 - **Per-task 状态**：底栏显示当前 task 的 round 数 and stall 数。
-- **事件区**：通过 tail `provider.stdout.log` 并过滤 marker 得到，滚动显示最近 6 条事件。
-- **退出行为**：`run -v` 结束后退出；`watch` 结束后不退出，最后一帧保留等 Ctrl-C。
+- **事件区**：通过 tail `provider.stdout.log` 并过滤 marker 得到，滚动显示最近 6 条摘要。Antigravity 的工具 ACTIVE/DONE/ERROR 分别呈现开始、完成和失败，完成/失败显示结果或错误摘要；`run -v` 使用相同语义。
+- **退出行为**：`run -v` 结束后退出；`watch` 结束后不退出，最后一帧保留等 Ctrl-C。 sticky 模式将 Ctrl-C 保留为输入，由渲染进程在 builtin 边界触发既有 INT trap；清理时恢复原终端设置。
 
 ### Watch 行为规则
 
+- **详情入口**：`watch --details` 读取当前轮 `provider.stdout.log` 的完整行并按字节偏移继续读取；文字、工具参数和结果不做摘要截断，终端控制字符会被清理。半行保留到后续刷新，换轮前读完上一轮尾部，随后从头读取新轮；TTY 下持续观察直到 run 结束或 Ctrl-C，非 TTY 输出当前轮快照后退出。不写运行产物，不启动 provider，也不改任务清单。
+
+每次 provider 派发在同一 round 内原子替换为空日志，再启动 provider；详情入口通过 inode 变化重置偏移，紧凑入口用 `tail -F` 跟随路径替换，避免更长的重试日志被当成旧日志续写。详情观察持有当前文件描述符以避免旧 inode 被重用；该描述符不写日志。当前日志仍只保存最新尝试，暂停观察期间错过的重试不作为完整历史承诺。未知 JSON 事件和无法解析的原始行在详情入口保留可读内容。
+
+Codex 命令结果读取官方 `aggregated_output`，兼容旧字段并显示退出码；同时展示实时流提供的 reasoning 摘要、文件变更、MCP 操作和搜索，不能把命令失败显示成普通成功。
+- **思考边界**：只显示实时事件明确提供的 thinking/thinking_delta，不从工具调用推断思考；Antigravity 的原生 transcript 仍由 adapter 在轮次结束后 best-effort 采集，详情入口不额外轮询原生目录。没有 AI 文字的轮次仍可通过工具操作、结果和错误观察执行过程。
+- **Antigravity 错误与回复**：`tool_info.error` 非空时即显示工具失败，即使 step 状态为 DONE；错误与输出同时存在时都保留。终态 `result.response` 作为最终回复展示，避免只在终态出现的说明被遗漏；没有文字增量的 `agent_response` 在详情模式显示其步骤状态。
+
 - **run_id 切换**：status.json `run_id` 变化时，sticky 渲染器全量重置，tail 目标切换到新 run 的 round log。
 - **round 切换**：同一 run 内 `round` 变化时，tail 目标自动切换到新 round log，偏移量重置。
-- **run 结束**：`state=finished` 后 watch 不自动退出，最后一帧保留并继续刷新。
+- **默认紧凑模式的 run 结束**：`state=finished` 后不自动退出，最后一帧保留并继续刷新；详情模式读完日志后退出。
 - **退出**：仅 Ctrl-C（SIGINT），退出时还原 stty 状态并显示光标。
 
 ### Watch 彩色规则
@@ -627,7 +652,7 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 
 ## Fake Provider 测试行为
 
-- `adapter-fake.sh` 由 `RALPH_FAKE_SCENARIO` 环境变量 select 场景（不依赖"第 N 轮"模式），核心场景：`happy`（勾第 1 条未勾选任务，`exit=0`）/ `stall`（不改 TASKS + 不改 git，`exit=0`）/ `crash`（`exit=非零`，无结构化错误，诊断为 `unknown`）/ `api-error`（`exit=非零` + stderr 含 api 错误关键字，诊断为 `api`）/ `slow`（`sleep` 远超 `--round-timeout`，用于 `timeout` 用例）/ `slow_child`（启动外部 child 并等待，用于 timeout/interrupted 进程树清理）/ `append_task_once`（运行中追加任务，用于任务总数刷新）。
+- `adapter-fake.sh` 由 `RALPH_FAKE_SCENARIO` 环境变量 select 场景（不依赖"第 N 轮"模式），核心场景：`happy`（勾第 1 条未勾选任务，`exit=0`）/ `stagnation`（不改 TASKS + 不改 git，`exit=0`）/ `crash`（`exit=非零`，无结构化错误，诊断为 `unknown`）/ `api-error`（`exit=非零` + stderr 含 api 错误关键字，诊断为 `api`）/ `slow`（`sleep` 远超 `--round-timeout`，用于 `timeout` 用例）/ `slow_child`（启动外部 child 并等待，用于 timeout/interrupted 进程树清理）/ `append_task_once`（运行中追加任务，用于任务总数刷新）。
 接受 `RALPH_FAKE_CLI` 覆盖 `RALPH_PROVIDER_CLI`、`RALPH_FAKE_SLEEP` 控制 sleep 时长。
 - Skill 封装（REQ-016）的具体接口在 v0.1 完成后单独设计。
 - `docs/testing.md` 在 T1 集成测试脚本成形后补齐。

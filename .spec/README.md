@@ -67,6 +67,7 @@
 
 - `.spec/` 定义协作规则、事实源边界、文档结构、动作触发条件与产物契约、流程质量门和模板；带文件变更或状态迁移的具体执行步骤由项目声明的 workflow 承载。项目尚未声明 workflow 时，仅按 `.spec/rules/TASKS.md` 的手动归档 fallback 执行归档，不把该 fallback 扩展成其他动作的通用 workflow。
 - 当前任务事实源必须唯一；不要创建根 `task.md` 或其他并行任务板。
+- 版本化执行工具的控制文件与项目事实分离。普通开发不得由 Main Agent 或任务执行者自行改写控制协议来传递用户约束；长期项目规则进入项目 agent 入口，工作包约束进入任务源与对应事实源。维护或升级执行工具须明确授权，并在停止运行后进行。
 - Checkpoint、handoff 和任务执行的触发条件、约束及产物契约可由 `.spec/` 定义；具体执行步骤由项目声明的动作 workflow 承载。TASKS 归档在缺少 workflow 时遵循其明确的手动 fallback。
 - Review 和 adversarial review 是 agent 对本次工作执行的流程质量门，默认不产出独立文档；整轮 Ralph 产物的验收由用户提出诉求后启动，不能由 Ralph 终态自动触发。
 - Postmortem 是带运行过程产物的动作，执行协议由项目声明的 postmortem 动作流程承载。

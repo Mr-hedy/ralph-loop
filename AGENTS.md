@@ -7,7 +7,7 @@
 ## Project Identity
 
 - `ralph-loop` 正在建设为面向 Codex Main Agent 的 vibecoding 协作脚手架；当前已实现核心是 shell-first Ralph CLI harness，用 provider CLI fresh oneshot 循环执行使用者 workspace `.ralph/TASKS.md` 中的长任务。
-- **项目最终产物 = `release/<version>/`**。目标组成包含 `.ralph/`、`.spec/`、`.agents/skills/`、必要的 `.codex/` 会话治理配置和 agent 入口文件；当前 v0.1.6 release 仍只交付已实现部分。开发工程中的 `.ralph/` 仅用于 dogfood，不直接对外复制。
+- **项目最终产物 = `release/<version>/`**。目标组成包含 `.ralph/`、`.spec/`、`.agents/skills/`、必要的 `.codex/` 会话治理配置和 agent 入口文件；当前 v0.1.9 release 仍只交付已实现部分。开发工程中的 `.ralph/` 仅用于 dogfood，不直接对外复制。
 - 本仓库是 ralph-loop 工具的开发工程；当前专项从需求澄清、run loop、provider adapter、status/watch 和 session capture 逐步推进。
 - 项目事实沉淀在 `README.md`、`docs/requirements.md`、`docs/features/`、`docs/architecture.md`、`docs/security.md`、`docs/integrations.md`、`docs/testing.md`、`.ralph/TASKS.md` 和邻近代码中。
 - 本仓库自 v0.1 后使用 `.ralph/TASKS.md` dogfood 推进开发；release 中的 `.ralph/TASKS.md` 是等待首次项目会话补齐的空模板。root `task.md` 已封版作为 v0.1 历史归档。
@@ -22,6 +22,7 @@
 - `release/<version>/` 是对外部署单元；目标结构见 `docs/features/vibecoding-collaboration/solution.md`，当前实现由 `scripts/build-release.sh` 决定。`runs/`、`lock`、`status.json`、真实 `.env` 和未脱敏会话状态不得进入 release 的版本控制内容。
 - `.agents/skills/` 承载带明确运行产物或状态迁移的动作 workflow。
 - 不要把模板占位当成已确认项目事实。
+- 本开发工程可按用户授权维护 Ralph 控制协议；部署到使用者项目后，`.ralph/PROMPT.md`、`bin/`、`lib/` 属版本化工具文件，普通业务任务不得改写。项目与工作包约束按 `.spec/rules/TASKS.md` 路由。
 
 ## Default Orientation
 
@@ -42,7 +43,7 @@
 
 ## Ralph 集成
 
-本项目使用 Ralph Loop 执行多轮 agent 工作。需要启动、配置、查看状态或排障时，先阅读 `.ralph/README.md`；Ralph 的 oneshot 协议和任务调度由 `.ralph/` 自身管理，本文件不重复其内部逻辑。
+本项目使用 Ralph Loop 执行多轮 agent 工作。主 Agent 需要启动、托管、查看状态或排障时，先阅读 `.agents/skills/ralph/SKILL.md`；配置与 CLI 细节见 `.ralph/README.md`。Ralph 的 oneshot 协议和任务调度由 `.ralph/` 自身管理，本文件不重复其内部逻辑。
 
 ## Runtime 命名边界
 

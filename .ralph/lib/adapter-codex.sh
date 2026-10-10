@@ -47,7 +47,7 @@ provider_oneshot() {
   # --json: JSONL events to stdout (thread.started / turn.started / item.started /
   #         item.completed / turn.completed / turn.failed / error)
   # -C <workspace>: workspace root
-  # --sandbox danger-full-access: ralph oneshot protocol requires git add/commit;
+  # --sandbox danger-full-access: supports git add/commit when explicitly authorized;
   # workspace-write cannot create .git/index.lock in real Codex CLI runs.
   # -c model_reasoning_effort=<value>: effort（none/空 → 不拼 flag）
   # --model <value>: model selection（空 → 不拼 flag）
@@ -395,7 +395,8 @@ _codex_derive_history() {
       ""
     elif .type == "item.completed" and (.item.type // "") == "command_execution" then
       "[tool-result name=Bash]",
-      ((.item.output // .item.stdout // "") | .[0:2000]),
+      "status=" + (.item.status // "unknown") + " exit=" + ((.item.exit_code // "unknown") | tostring),
+      ((.item.aggregated_output // .item.output // .item.stdout // "") | .[0:2000]),
       ""
     else empty end
   ' > "$out" 2>/dev/null || true

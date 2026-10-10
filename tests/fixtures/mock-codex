@@ -51,7 +51,7 @@ _emit_item_started_command_execution() {
   local command="$1"
   local id="${2:-item_001}"
   jq -nc --arg cmd "$command" --arg id "$id" \
-    '{type:"item.started",item:{id:$id,type:"command_execution",command:$cmd,status:"in_progress"}}'
+    '{type:"item.started",item:{id:$id,type:"command_execution",command:$cmd,aggregated_output:"",status:"in_progress"}}'
 }
 
 _emit_item_completed_command_execution() {
@@ -59,7 +59,7 @@ _emit_item_completed_command_execution() {
   local output="$2"
   local id="${3:-item_001}"
   jq -nc --arg cmd "$command" --arg out "$output" --arg id "$id" \
-    '{type:"item.completed",item:{id:$id,type:"command_execution",command:$cmd,output:$out,exit_code:0}}'
+    '{type:"item.completed",item:{id:$id,type:"command_execution",command:$cmd,aggregated_output:$out,exit_code:0,status:"completed"}}'
 }
 
 _emit_turn_completed() {

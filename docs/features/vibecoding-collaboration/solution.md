@@ -1,7 +1,7 @@
 # Vibecoding Collaboration Architecture
 
 - 状态：草案
-- 来源：`docs/features/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）；2026-09-16 用户确认的 Codex Main Agent / Ralph 黑盒执行模型。
+- 来源：`docs/features/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）；2026-09-16 用户确认的 Codex Main Agent / Ralph 黑盒执行模型；2026-10-10 宿主原生后台托管边界确认。
 - 范围：Main Agent 协作控制面、Ralph 后台执行面、最终产物验收、handoff/checkpoint/postmortem 记忆面的长期结构和稳定边界。
 - 不负责：Ralph 内部 run loop、provider adapter、round schema 和错误诊断细节；这些继续由 `docs/architecture.md`、`docs/integrations.md` 和 `docs/security.md` 管理。
 - 变更条件：Main Agent 产品、后台执行托管方式、事实源、会话生命周期事件、release 组成或动作 workflow 发生变化时重新评估。
@@ -87,7 +87,7 @@ Ralph 的运行状态：只用于启动、等待、停止和失败诊断
 
 | Skill | 主要动作 | 主要产物 |
 |---|---|---|
-| `ralph` | 启动、等待、查看终态、诊断 Ralph | 后台进程控制；Ralph 自有 run artifacts |
+| `ralph` | 原生后台派发、按宿主能力汇报、查看终态、诊断 Ralph | 宿主命令句柄；Ralph 自有 run artifacts |
 | `handoff` | 保存、恢复、完整交接 Main Agent 会话 | `handoff.md`、接手会话状态 |
 | `checkpoint` | 在已验收安全点创建稳定锚点 | Git commit、checkpoint note |
 | `postmortem` | 沉淀重复/系统性失败和预防机制 | postmortem entry、提炼后的规则/检查 |
@@ -147,16 +147,24 @@ Task Readiness Gate 必须确认：
 
 ### 4.2 后台派发
 
+2026-10-10 已确认本节的托管边界；具体操作唯一入口为 `.agents/skills/ralph/SKILL.md`。宿主指 Main Agent 所在工作台，provider 指 Ralph 调用的 oneshot CLI。例如，Codex 工作台运行 Antigravity provider 时按 Codex 的原生托管能力处理；Claude Code CLI 运行 Codex provider 时按 Claude 的原生托管与通知能力处理。本节可用于不同宿主，不改变本方案其他 Codex 会话治理设计的首期范围。
+
 ```text
 用户明确要求使用 Ralph
   → Main Agent 运行前检查
   → 记录派发前 Git 基线和写入权
-  → 在本地后台启动 `ralph run`
-  → Main Agent 不消费正常过程输出
-  → 等待运行终态
+  → 通过宿主原生后台机制启动 `ralph run`
+  → 有界核对命令句柄、run_id 和启动状态
+  → 主会话回到可交互状态，不持续消费过程输出
+  → 原生完成通知到达或用户查询时，读取终态并汇报
+  → 等待用户提出产物验收诉求
 ```
 
-后台控制句柄至少能回答：仍在运行、已结束、需要注意。具体采用 Codex 终端会话、detached shell 或新增 Ralph 管理接口，在实现验证后锁定。
+选择宿主原生托管，使用户能看到后台命令运行标识，并保留可查询输出和完成状态的句柄。句柄与 workspace、Ralph `run_id` 的对应关系保留在会话及必要的 handoff 中，Ralph 状态仍以现有 status/result 为准；不新增 runtime 字段。启动状态未确认、句柄丢失或 `locked` 时核对现有运行，不能重启来掩盖不确定性。命令快速结束时直接报告实际结果。
+
+使用宿主原生完成通知：能把完成结果交回 Main Agent 的宿主应主动汇报；不能的宿主在启动时说明人工查看。当前 Codex 桌面版原生命令试验观察到运行标识与完成后移除，但未观察到主会话空闲时自动回复；这不构成所有宿主或未来版本的限制。Claude Code 的原生后台通知应继续使用，机制依据见 [后台 Bash 命令](https://code.claude.com/docs/en/interactive-mode#background-bash-commands)；本轮尚未进行 Claude 交互界面的端到端演练。
+
+不使用脱离宿主管理的 shell 代替原生后台托管，也不为补齐通知擅自增加定时检查、Hook 唤醒补丁或外挂客户端。前者无法保证工作台运行可见，后者增加长任务的额外生命周期与维护责任。宿主不具备托管能力时，明确说明并由用户选择前台或人工执行；主会话不以持续等待维持运行标识。
 
 正常路径不调用 `ralph watch`，也不把 provider stdout 注入主会话。非正常结束时先读 `exit_reason`、阻塞任务和最小错误摘要；只有这些不足以定位问题时才按需查看日志。
 
@@ -304,6 +312,8 @@ release/<version>/
 
 首期选定项目级 `.codex/hooks.json`，因为它能随 release 自包含部署，且当前平台明确为 macOS。用户首次使用或 Hook 内容变化后必须在 Codex 中审查并信任；未信任时核心开发流程仍可继续，只失去自动 handoff 评估。独立插件保留为能力稳定后的可选分发方式，不与首期入口并存。
 
+当前 0.1.9 仅新增 `.agents/skills/ralph/SKILL.md`，通过发布入口显式路由，使不自动发现该目录的宿主也可读取操作协议。handoff、checkpoint、postmortem skills 与 `.codex/` 会话治理仍待完善，不随本版交付；上面的目录树是目标结构。
+
 ## 9. 兼容与迁移
 
 - 现有 Ralph CLI、adapter、run schema 和 provider 行为保持兼容。
@@ -335,7 +345,7 @@ release/<version>/
 ### 后续观察
 
 - 每次压缩都触发评估是否过于频繁尚未通过真实长会话校准；首期先保持无计数状态机的最小实现，出现干扰后再增加静默策略。
-- Ralph 后台托管方式可能受 Codex terminal/session 生命周期影响；必须验证断开、恢复和进程归属。
+- Ralph 后台托管可能受宿主 terminal/session 生命周期影响；必须验证断开、恢复和进程归属。规则随 0.1.9 Ralph skill 交付，不代表所有宿主已完成端到端验证；失去句柄时先核对现有 run，不自动再启动。
 
 ### 已接受边界
 
@@ -346,6 +356,7 @@ release/<version>/
 
 - 临时 workspace 端到端：自然语言需求 → 用户要求任务清单 → 后台 Ralph → 用户要求验收 → 按范围审查产物 → 可讨论 checkpoint。
 - 上下文隔离：正常执行不向 Main Agent 注入完整 provider 输出；失败只返回最小诊断。
+- 宿主/provider 分离：覆盖 Codex 宿主 + Antigravity provider、Claude 宿主 + Codex provider；检查原生运行标识、查询句柄、主会话可交互及按能力汇报。另查快速结束、锁冲突、句柄丢失和原生能力缺失时不会误报运行或重复启动。
 - 故障注入：Ralph `done` 后不自动启动验收；用户要求验收时，若代码故意不满足 SC，Main Agent 输出标明范围的 `rework-required` 并与用户沟通返工。
 - 并发保护：Ralph running 时阻止或明确拒绝 Main Agent 业务写入。
 - Handoff fixture：`SessionStart(source=compact)`、未信任/禁用退化、延后、授权和接手核验状态迁移。

@@ -9,11 +9,13 @@
 
 本文基于官方文档、本机 CLI help 和本机会话目录观测。
 
-本机版本：
+初始校准版本（历史记录，不代表当前安装版本）：
 
 - Claude Code：`2.1.114`
 - Codex CLI：`0.125.0`（CLI）；Desktop app 内核 `0.128.0-alpha.1`
 - Antigravity CLI：`1.2.12`（CLI 名称 `agy`）
+
+2026-10-09 的发布烟测使用 Codex CLI `0.159.2`、Claude Code `2.1.284`、Antigravity `1.3.2`；实际 run 与验证边界见 [测试文档](./testing.md)。
 
 参考资料：
 
@@ -43,7 +45,7 @@
 不再保留：
 - `session.<provider>.stdout.<ext>`（与 `provider.stdout.log` 字节相同，重复）
 - `chat.log` / `tools.log`（合并进 `session.history.log`，避免双视图）
-- `prompt.md` / `.session_start`（前者可由 `meta.json.runtime_block` + `meta.json.start_sha` 还原 PROMPT.md；后者由 `meta.json.provider_started_at` 时间戳替代）
+- round 内的 `prompt.md` / `.session_start`（前者由 run 级 `protocol.md` + `meta.json.runtime_block` 还原输入；后者由 `meta.json.provider_started_at` 时间戳替代）
 
 新增 provider 必须遵循此 4 文件契约；偏离需通过新需求或文档 PR 显式覆盖。
 
@@ -131,7 +133,8 @@ claude -p "$prompt" \
 - 不传 `--continue`、`--resume`、`--fork-session`。
 - 不传 `--no-session-persistence`。
 - stdout（stream-json events 流）+ stderr 全量保存为 `rounds/round-NNN/provider.stdout.log`。
-- provider 退出后，按 `<claude_root>/projects/<cwd_hash>/<session_id>.jsonl` 定位 session 文件，其中 `claude_root = ${CLAUDE_CONFIG_DIR:-$HOME/.claude}`（CLAUDE_CONFIG_DIR 由 RALPH_PROVIDER_CONFIG_DIR 翻译而来，见本文 §Adapter 配置目录翻译契约 + REQ-022）。`cwd_hash` 规则：先 `realpath` 解析 symlink，再把所有非 `[A-Za-z0-9-]` 字符替换为 `-`。
+- provider 退出后，按 `<claude_root>/projects/<cwd_hash>/<session_id>.jsonl` 定位 session 文件，其中 `claude_root = ${CLAUDE_CONFIG_DIR:-$HOME/.claude}`（CLAUDE_CONFIG_DIR 由 RALPH_PROVIDER_CONFIG_DIR 翻译而来，见本文 §Adapter 配置目录翻译契约 + REQ-022）。`cwd_hash` 规则：先用 `cd -- "$path" && pwd -P` 解析目录物理路径（不依赖外部 `realpath` 命令），再把所有非 `[A-Za-z0-9-]` 字符替换为 `-`。
+- 物理路径解析失败时写入 `capture_status=warning` 和 `workspace physical path resolution failed`，不继续用空路径搜索；该可选采集失败不阻塞 run。
 - 找到后复制为 `rounds/round-NNN/session.claude.jsonl`。
 - 若未找到，按 `meta.json.provider_started_at` 时间戳（-1s 缓冲）作 mtime fallback 搜索 session_dir 下 `*.jsonl`。
 
@@ -166,7 +169,7 @@ Codex 文档还说明：
 - `codex exec --json` 会把运行事件输出为 JSONL（到 stdout），事件类型包括 `thread.started`、`turn.started`、`item.started`、`item.completed`、`turn.completed`、`turn.failed` 和 `error`。
 - `thread.started` 事件含 `thread_id` 字段（与 rollout 文件名中的 session ID 一致）。
 - `codex exec --ephemeral` 会跳过 session rollout 文件持久化。
-- `--full-auto` 已废弃。ralph 使用 `--sandbox danger-full-access`，因为 ralph oneshot 协议要求 agent 执行 `git add -A && git commit`，真实 Codex CLI 的 `workspace-write` 会禁止写 `.git/index.lock`。
+- `--full-auto` 已废弃。ralph 保留既有 `--sandbox danger-full-access` 契约，以支持获授权的 `.git/` 写入；真实 Codex CLI 的 `workspace-write` 曾禁止写 `.git/index.lock`。是否暂存、提交仍由用户、项目及工作包授权决定，禁止提交不会自动改变沙箱参数。
 - **`danger-full-access` 的权限含义**：移除本地沙箱限制，模型生成的 shell 命令不再受 workspace 边界约束，以当前用户身份在整机可达范围内执行；REQ-031 的"等同于 workspace 内任意写入权限"是这条的下界。该取值写死在 `adapter-codex.sh`，不随 `.env` / CLI flag 变化。权限语义、风险承担和审计路径的权威表述在 [`security.md` §Approval / Sandbox 固定策略](./security.md#approval--sandbox-固定策略) 与 §权限参数的审计路径；配置目录翻译（`RALPH_PROVIDER_CONFIG_DIR` → `CODEX_HOME`）只影响凭据/配置来源，不影响沙箱模式。`--sandbox` 取值清单来自本机 `codex exec --help`（`read-only` / `workspace-write` / `danger-full-access`）。
 - session ID 可从 picker、`/status` 或 `~/.codex/sessions/` 下的文件获取。
 - `CODEX_API_KEY` 环境变量仅在 `codex exec` 中支持，用于 CI 认证。
@@ -195,7 +198,7 @@ codex exec --json \
 
 - 使用 `-C "$workspace"` 明确 workspace root。
 - 使用 `--json` 获取 JSONL 事件流（到 stdout）。
-- 使用 `--sandbox danger-full-access`，确保 Codex 能完成 `.git/` 写入和本轮 commit；外层仍由 ralph 固定 workspace、任务清单和运行目录边界。
+- 使用 `--sandbox danger-full-access`，支持获授权的 `.git/` 写入和提交；外层仍由 ralph 固定 workspace、任务清单和运行目录边界，不构成文件系统写隔离。
 - 不传 `--ephemeral`。
 - 不使用 `codex exec resume`；resume 是明确非目标（见需求文档非目标段）。
 - 不传 `--full-auto`（已废弃）。
@@ -206,6 +209,8 @@ codex exec --json \
 - 若没有拿到 `thread_id`，退化为查找 started_at 之后修改、且首行 `session_meta.payload.cwd` 等于 workspace 的候选文件。
 
 Ralph 不额外保存 `session.codex.stdout.jsonl`：`--json` stdout 事件流已作为 `provider.stdout.log` 全量保存，与 4 文件 round 契约一致，不引入额外持久化文件。
+
+Codex 执行可观察性：命令完成事件的输出取自官方 `item.aggregated_output`（兼容 `output` / `stdout`），退出码和失败状态进入显示摘要与派生 history。事件字段以 [Codex 官方类型定义](https://github.com/openai/codex/blob/main/sdk/typescript/src/items.ts) 为核对入口；mock 必须使用真实字段，不允许因 fixture 与解析器共同写错而假通过。实时视图另外显示 provider 提供的 reasoning 摘要、文件变更、MCP 操作和搜索；这不是隐藏思考的获取机制。
 
 ### Effort 映射
 
@@ -258,6 +263,8 @@ agy --print "$prompt" \
 - 从 `provider.stdout.log` 的 `init` 事件中提取 `conversation_id`。
 - 按上述目录优先级检查本轮会话的原生 transcript；只有非空普通文件通过会话目录和文件物理路径校验且复制成功时，才写入 `session.antigravity.jsonl` 和 `capture_status=ok`，否则写入 `capture_status=warning` 与原因。
 - 从 `provider.stdout.log` 派生 `session.history.log`：解析 `init` 会话 ID、`step_update` 中的 assistant 文本增量、工具名与输出、子 agent 摘要，并记录 `[result] status=<status>`；未出现在原始事件中的 thinking 不补造。
+- 实时观察用 `watch --details`：兼容嵌套 `step_update` 与旧的顶层字段，区分工具 ACTIVE/DONE/ERROR；`tool_info.error` 优先于 DONE 状态判断失败，保留同时提供的输出，并展示终态 `result.response` 中的最终回复。此入口不读取 provider 原生目录。
+- 2026-10-09 核对本机 `agy 1.3.2 --help` 与[官方 headless 协议](https://www.antigravity.google/docs/cli/headless/)：未发现公开的思考正文输出开关或流式 thinking 字段；`usage.thinking_tokens` 只是计数。现场流没有思考正文，而采集的原生 transcript 有 thinking，故不能承诺此版本实时显示思考。若事件实际提供 thinking/thinking_delta，显示层会展示；缺失时仍可观察回复、工具过程及结果。
 
 ### 参数映射
 

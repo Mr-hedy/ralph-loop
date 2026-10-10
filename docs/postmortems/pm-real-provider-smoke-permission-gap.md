@@ -21,8 +21,9 @@ failure_pattern:
   - "mock provider 没有建模新 workspace trust 行为，真实 Gemini CLI 在未跳过 trust 时把 yolo approval 降级回 default"
   - "把自动化集成测试通过误当成 release-ready，缺少真实 provider smoke 的环境和阻塞证据分层"
 prevention_checks:
-  - "发布前必须在临时 git workspace 执行真实 provider smoke：`cp -r .ralph/ <tmp>/.ralph/`，至少一条任务完成、产生 commit、`exit_reason=done`、`capture_status=ok`"
-  - "adapter 修改 sandbox / approval / trust / session capture 时，mock 测试必须断言关键参数，同时真实 smoke 必须覆盖至少一个 commit 写入"
+  - "新 HOME 复制凭据后认证失败，不代表本机未登录；原生登录态验证须按 docs/testing.md 先取得用户对原生目录写入的授权"
+  - "发布前必须将当前完整 release 复制到临时 git workspace 执行真实 provider smoke：至少一条任务完成、目标文件正确、`exit_reason=done`、`capture_status=ok`；提交行为按用户授权验证"
+  - "adapter 修改 sandbox / approval / trust / session capture 时，mock 测试必须断言关键参数；真实 smoke 的提交写入须先获授权，禁止提交场景须验证无新增 commit 或暂存"
   - "真实 smoke 失败时先分类：产品缺陷、provider 认证缺失、本机环境缺失；只有产品缺陷修复后才能声明 release-ready"
 ---
 
@@ -53,8 +54,8 @@ prevention_checks:
 - 类型：`manual-check`
 - 位置：release closeout / provider adapter 变更收口。
 - 通过标准：
-  - Claude / Codex / Gemini 分别在临时 git workspace 执行真实 smoke。
-  - 每个可认证 provider 至少完成 1 条任务、写入目标文件、勾选任务、产生 commit、`result.json.exit_reason=done`。
+  - 当前发布支持的 Claude / Codex / Antigravity 分别在临时 git workspace 执行真实 smoke；历史 Gemini 结论不代替当前验证。
+  - 每个可认证 provider 至少完成 1 条任务、目标文件内容正确、勾选任务、`result.json.exit_reason=done`。明确授权提交时验证 commit；禁止提交时验证 HEAD 与暂存区未改变。
   - round 目录存在 `provider.stdout.log`、provider native session 文件和 `session.history.log`；`meta.json.capture_status=ok`。
   - 对无法认证的 provider，必须记录具体 auth 阻塞，而不是记为通过。
 - 适用范围：所有 provider adapter 命令参数、session capture、approval/sandbox/trust 策略、release readiness 判断。
@@ -81,3 +82,11 @@ prevention_checks:
 
 - 配置本机 Gemini auth 后，重新执行 Gemini 真实 smoke，并把结果写入 release 验证结论。
 - 若未来要完全自动化 release gate，需要新增独立脚本生成临时 workspace、复制 `.ralph/`、按 provider 跑真实 smoke；该脚本必须显式处理认证缺失为 blocked，而不是 failed/pass 混淆。
+
+## 2026-10-09：隔离 HOME 与现有登录态不能等同
+
+0.1.8 发布验证中，Codex/Claude 在临时配置域成功；AGY 仅复制单个 OAuth 缓存到新 HOME 后，在认证阶段退出，0 模型轮次。用户指出本机已经登录。直接原因是验证改变了 AGY 的认证环境；复制凭据文件并未建立完整的原生登录上下文，不能据此断言本机认证缺失。具体依赖的原生认证存储没有被独立验证，不将其猜测写成根因事实。
+
+经用户授权原生 HOME 的会话/认证缓存写入后，同一合成 workspace 用现有登录态完成任务，`run_id=20261009-132330-de88f1f`，done、1/1、capture ok，无重新登录、无新增 commit。当前三个 provider 的真实烟测与边界见 `docs/testing.md`。
+
+预防机制已进入 `docs/testing.md` 的 HOME 隔离规则：自动测试保持隔离；真实 smoke 先核对原生认证机制，必要时明确授权本机登录态写入。认证阶段失败与模型执行后的产品失败分开记录；不得把一次失败准备归因于用户未登录。

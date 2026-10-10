@@ -8,6 +8,11 @@ if [[ "${1:-}" == "--verify" ]]; then
   shift
 fi
 version="$(sed -n 's/^RALPH_VERSION="\([^"]*\)"$/\1/p' "$repo_root/.ralph/bin/ralph")"
+bash_min_version="$(sed -n 's/^RALPH_BASH_MIN_VERSION="\([^"]*\)"$/\1/p' "$repo_root/.ralph/bin/ralph")"
+if [[ ! "$bash_min_version" =~ ^[0-9]+\.[0-9]+$ ]]; then
+  echo "invalid RALPH_BASH_MIN_VERSION in .ralph/bin/ralph" >&2
+  exit 1
+fi
 requested_version="${1:-$version}"
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ || "$requested_version" != "$version" || $# -gt 1 || ( "$mode" == "verify" && $# -ne 0 ) ]]; then
   echo "usage: $0 [$version|--verify] (must match .ralph/bin/ralph)" >&2
@@ -15,6 +20,17 @@ if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ || "$request
 fi
 
 src_ralph="$repo_root/.ralph"
+# build 和 verify 共用协议指纹门，避免构建出启动时必然被拒绝的包。
+protocol_blob="$(git -C "$repo_root" hash-object --no-filters -- "$src_ralph/PROMPT.md")"
+case "${#protocol_blob}" in
+  40) protocol_algorithm="SHA1" ;;
+  64) protocol_algorithm="SHA256" ;;
+  *) echo "invalid protocol blob fingerprint" >&2; exit 1 ;;
+esac
+expected_protocol_blob="$(sed -n "s/^_RALPH_PROTOCOL_BLOB_${protocol_algorithm}=\"\([^\"]*\)\"$/\1/p" "$src_ralph/bin/ralph")"
+[[ "$protocol_blob" == "$expected_protocol_blob" ]] \
+  || { echo "PROMPT.md differs from the versioned protocol fingerprint" >&2; exit 1; }
+
 current_release="$repo_root/release/$version"
 if [[ "$mode" == "build" && -e "$current_release" ]]; then
   echo "release already exists: $current_release" >&2
@@ -27,7 +43,7 @@ fi
 scratch="$(mktemp -d "$repo_root/release/.build-$version.XXXXXX")"
 trap 'rm -r -- "$scratch"' EXIT
 out="$scratch/package"
-mkdir -p "$out/.ralph/bin" "$out/.ralph/lib" "$out/.spec" "$out/docs"
+mkdir -p "$out/.ralph/bin" "$out/.ralph/lib" "$out/.spec" "$out/docs" "$out/.agents/skills/ralph"
 cp "$src_ralph/bin/ralph" "$out/.ralph/bin/ralph"
 grep -Fxq "RALPH_VERSION=\"$version\"" "$out/.ralph/bin/ralph"
 for file in "$src_ralph"/lib/*.sh; do
@@ -38,6 +54,8 @@ cp "$src_ralph/PROMPT.md" "$out/.ralph/PROMPT.md"
 cp "$src_ralph/README.md" "$out/.ralph/README.md"
 cp "$src_ralph/.gitignore" "$out/.ralph/.gitignore"
 cp -R "$repo_root/.spec/." "$out/.spec/"
+# 0.1.9 只交付 Ralph workflow；其他开发工程 skills 尚未进入发布范围。
+cp "$repo_root/.agents/skills/ralph/SKILL.md" "$out/.agents/skills/ralph/SKILL.md"
 
 cat > "$out/.ralph/TASKS.md" <<'EOF'
 # Tasks
@@ -144,6 +162,7 @@ cat > "$out/docs/README.md" <<'EOF'
 | 想了解什么 | 先读 |
 |---|---|
 | Ralph 运行方式 | `../.ralph/README.md` |
+| 主 Agent 启动、后台托管和查询 Ralph | `../.agents/skills/ralph/SKILL.md` |
 | 当前任务 | `../.ralph/TASKS.md` |
 | 需求、方案、测试、审查规范 | `../.spec/README.md` |
 | 某个功能需求 | `features/<feature>/requirements.md`（按需创建） |
@@ -155,9 +174,19 @@ cat > "$out/docs/README.md" <<'EOF'
 新增文档时必须同步更新本地图；本文件只做导航，不承载正文。
 EOF
 
-sed "s/__VERSION__/${version}/g" "$repo_root/templates/RELEASE-README.md" > "$out/README.md"
+sed -e "s/__VERSION__/${version}/g" \
+  -e "s/__BASH_MIN_VERSION__/${bash_min_version}/g" \
+  "$repo_root/templates/RELEASE-README.md" > "$out/README.md"
 
 if [[ "$mode" == "verify" ]]; then
+  # 字节一致不足以证明包自包含：diff 默认会解引用软链。
+  # 包内唯一允许的软链是兼容入口 CLAUDE.md -> AGENTS.md。
+  while IFS= read -r link; do
+    if [[ "$link" != "$current_release/CLAUDE.md" ]] || [[ "$(readlink "$link")" != AGENTS.md ]]; then
+      echo "unexpected release symlink: $link" >&2
+      exit 1
+    fi
+  done < <(find "$current_release" -type l)
   if ! diff -rq "$out" "$current_release"; then
     echo "release differs from generated output: $current_release" >&2
     exit 1

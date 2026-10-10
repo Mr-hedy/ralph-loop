@@ -123,11 +123,12 @@ provider_oneshot() {
 # ── provider_collect_session ─────────────────────────────────────────────────
 
 # _claude_cwd_hash <path>
-# cwd_hash 严格步骤：先 realpath 解 symlink，再字符替换（步骤顺序固定，见 PM-0002）
+# cwd_hash 严格步骤：先解析目录物理路径，再字符替换（步骤顺序固定，见 PM-0002）
 # 参见开发仓库 docs/integrations.md §Claude Session 机制
 _claude_cwd_hash() {
   local resolved
-  resolved="$(realpath "$1")"
+  resolved="$(cd -- "$1" >/dev/null 2>&1 && pwd -P)" || return 1
+  [[ -n "$resolved" ]] || return 1
   printf '%s' "$resolved" | sed 's/[^A-Za-z0-9-]/-/g'
 }
 
@@ -145,7 +146,12 @@ provider_collect_session() {
   fi
 
   local cwd_hash
-  cwd_hash="$(_claude_cwd_hash "${_RALPH_WORKSPACE}")"
+  if ! cwd_hash="$(_claude_cwd_hash "${_RALPH_WORKSPACE}")"; then
+    update_meta_jq "$round_dir" \
+      '.capture_status = "warning" | .capture_warning = "workspace physical path resolution failed"'
+    touch "$round_dir/session.history.log"
+    return 0
+  fi
   # session root 感知 CLAUDE_CONFIG_DIR（由 RALPH_PROVIDER_CONFIG_DIR 翻译而来，REQ-022 / SC-022-3）
   local claude_root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
   local session_dir="$claude_root/projects/$cwd_hash"

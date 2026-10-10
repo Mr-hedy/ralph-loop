@@ -49,7 +49,7 @@
 - 项目过程文档唯一入口：`docs/README.md`；按地图进入需求、架构、测试、研究、复盘或 checkpoint。
 - 协作规范入口：`.spec/README.md`；任务路由和规则由 Spec 体系维护。
 - 项目产品/工程说明：`README.md`，由项目自行维护。
-- 当前任务事实源：由项目入口确认后填写。
+- 当前任务事实源：`.ralph/TASKS.md`；初始为空，用户决定生成任务清单后补齐。
 
 新增、移动、重命名或归档 `docs/` 文档时同步更新 `docs/README.md`；不要把正文或运行日志堆进本文件。
 
@@ -66,5 +66,12 @@
 ## Spec / Ralph 集成
 
 本项目使用 `.spec/` 作为协作规范和质量门；需要判断任务类型和适用规则时，先阅读
-`.spec/README.md`。需要启动、配置、查看状态或排障 Ralph 时，先阅读 `.ralph/README.md`。
+`.spec/README.md`。主 Agent 需要启动、托管、查看状态或排障 Ralph 时，先阅读
+`.agents/skills/ralph/SKILL.md`；配置和 CLI 细节见 `.ralph/README.md`。
 Ralph 的 oneshot 协议和任务调度由 `.ralph/` 自身管理，本文件不复制其内部逻辑。
+宿主工作台与 oneshot provider 分开选择；oneshot 不重复启动外层 Ralph。
+
+`.ralph/PROMPT.md`、`.ralph/bin/` 和 `.ralph/lib/` 是版本化工具控制文件。普通项目开发中，
+Main Agent 与 oneshot 均不得自行修改或追加工作包约束；只有用户明确授权维护或升级
+Ralph 工具时才可在停止运行后更新。长期项目规则写入本文件，当前工作包约束写入
+任务事实源与对应需求、方案；提交与外部操作遵守用户授权，不改控制协议来传递限制。
