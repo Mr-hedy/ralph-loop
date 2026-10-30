@@ -48,10 +48,23 @@ HOOK
   cp -R "$REPO_ROOT/.ralph/bin" "$REPO_ROOT/.ralph/lib" "$ws/.ralph/"
   cp "$REPO_ROOT/.ralph/PROMPT.md" "$REPO_ROOT/.ralph/README.md" "$REPO_ROOT/.ralph/.gitignore" "$ws/.ralph/"
   cp -R "$REPO_ROOT/.spec" "$REPO_ROOT/templates" "$ws/"
-  cp "$REPO_ROOT/.agents/skills/ralph/SKILL.md" "$ws/.agents/skills/ralph/"
+  cp -R "$REPO_ROOT/.agents/skills/ralph/." "$ws/.agents/skills/ralph/"
   cp -R "$package" "$ws/release/$version"
   git -C "$ws" init -q
   "$TEST_BASH" "$ws/scripts/build-release.sh" --verify > "$ws/verify-before" 2>&1
+  # 模式入口链接必须随包落地；移走任一 reference 都必须让完整包校验失败。
+  local mode_reference
+  for mode_reference in foreground.md background.md; do
+    mv "$ws/release/$version/.agents/skills/ralph/references/$mode_reference" "$ws/$mode_reference"
+    rc=0
+    "$TEST_BASH" "$ws/scripts/build-release.sh" --verify > "$ws/verify-missing-reference" 2>&1 || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+      _pass "release verification rejects missing Ralph reference: $mode_reference"
+    else
+      _fail "release verification accepted missing Ralph reference: $mode_reference"
+    fi
+    mv "$ws/$mode_reference" "$ws/release/$version/.agents/skills/ralph/references/$mode_reference"
+  done
   mv "$ws/release/$version/.ralph/bin/ralph" "$ws/external-cli"
   ln -s "$ws/external-cli" "$ws/release/$version/.ralph/bin/ralph"
   rc=0

@@ -14,7 +14,7 @@ Ralph Loop 是放在 Git 项目里的 AI 开发任务循环工具。你准备任
 | 停止与恢复 | 任务全部勾选后结束；遇到超时、provider 失败、轮次或无进展限制时留下明确状态与本地证据，可修复后再次运行 |
 | 数据采集 | 每次 run 保存总结；每轮保存元数据、原始输出和可读历史，安全采集成功时另存 provider 原生会话副本 |
 | 协作规范 | `.spec/` 提供需求、方案、测试和审查规则；`AGENTS.md` 是待按实际项目填写的 agent 入口模板 |
-| 主 Agent 操作 Ralph | 项目级 Ralph skill 指导原生后台托管、运行查询和按宿主能力汇报；独立于所选 provider |
+| 主 Agent 操作 Ralph | 一个 Ralph skill，默认前台、支持后台，按需加载流程；涵盖任务调整、独立复审与必要返工，独立于所选 provider |
 
 Ralph 不负责替你确定需求、生成初始任务清单或审核最终产物。使用者和主 agent 先确定项目事实及任务；执行后仍应验收代码、测试和提交。
 
@@ -40,7 +40,7 @@ cp -R /path/to/ralph-loop/release/0.1.9/. ./
 
 部署后先阅读并补齐 `AGENTS.md`，按实际项目维护 `docs/README.md`，需要协作规范时阅读 `.spec/README.md`。`CLAUDE.md` 是指向 `AGENTS.md` 的软链接。
 
-通过主 Agent 使用 Ralph 时，入口会路由到 [Ralph skill](.agents/skills/ralph/SKILL.md)。工作台支持原生后台托管时，启动核对后主会话即可继续交互；支持原生完成通知时主动汇报，不支持时需人工查询。skill 不为工作台新增通知能力，也不擅自创建定时检查或外挂程序。直接在终端运行 CLI 的方式照常可用。
+通过主 Agent 使用 Ralph 时，入口会路由到 [Ralph skill](.agents/skills/ralph/SKILL.md)，按需读取前台或后台流程。默认前台参与，依据关键证据调整任务并独立复审；用户指定或执行与验证路径已可靠时支持后台托管。完整工作包执行包含范围内的必要返工，较窄请求优先，修改任务前须确认全部写入停止。后台启动核对后交还控制权；原生通知可恢复主会话时继续已授权复审，否则需用户返回。skill 不新增通知能力或定时任务。直接在终端运行 CLI 的方式照常可用。
 
 ## 配置与首次运行
 
@@ -133,19 +133,19 @@ Claude 和 Codex 会把配置目录分别传给 `CLAUDE_CONFIG_DIR` 与 `CODEX_H
 | `.ralph/PROMPT.md`、`.ralph/TASKS.md` | 每轮工作协议与空任务模板 |
 | `.ralph/.env.example`、`.ralph/README.md` | 配置示例与详细手册 |
 | `.spec/` | 协作规则和文档模板 |
-| `.agents/skills/ralph/SKILL.md` | 主 Agent 操作 Ralph 的 workflow；本版仅交付这一项 skill |
+| `.agents/skills/ralph/` | `SKILL.md` 共同规则与 `references/foreground.md`、`references/background.md` 模式流程；本版仅交付 Ralph skill |
 | `AGENTS.md`、`CLAUDE.md` | 项目 agent 入口模板及软链接 |
 | `docs/README.md` | 项目过程文档地图模板 |
 
 `PROMPT.md`、`bin/`、`lib/` 是版本化工具控制文件，普通项目开发中的 Main Agent 与 oneshot 不得修改或追加工作包约束。长期项目规则进入 `AGENTS.md`，工作包约束进入 TASKS 和对应事实源，提交服从用户授权。启动校验协议指纹；run 保存 `protocol.md` 快照，检测到变化时停止后续派发，不自动恢复文件或回滚业务成果。
 
-升级已有 workspace 时，先停止运行、备份并逐项比较新旧发布包。保留已有 `.ralph/TASKS.md`、`.ralph/.env`、项目 `AGENTS.md`、`.spec/` 定制、其他项目 skills 和 `docs/` 事实源；在明确授权下同步更新 CLI、adapter、通用协议、Ralph skill 与模板，并把主 Agent 的 Ralph skill 路由合并进项目入口。若已有同名 Ralph skill，先核对其定制和来源。旧 PROMPT 中若混入项目约束，先迁移到项目与任务事实源，不把业务定制合并回新版通用协议。升级后运行 `./.ralph/bin/ralph --version`，再用一个小任务验证实际行为。
+升级已有 workspace 时，先停止运行、备份并逐项比较新旧发布包。保留已有 `.ralph/TASKS.md`、`.ralph/.env`、项目 `AGENTS.md`、`.spec/` 定制、其他项目 skills 和 `docs/` 事实源；在明确授权下同步更新 CLI、adapter、通用协议、Ralph skill 与模板，并把主 Agent 的 Ralph skill 路由合并进项目入口。若已有同名 Ralph skill，先核对其定制和来源；入口与两份 references 必须一起同步，相关项目入口及 `.spec/` 的验收/任务调整规则也需合并。2026-10-30 的技能升级按用户要求保留 `0.1.9` 版本号，核对包内文件与本节版本说明才能区分新旧内容。旧 PROMPT 中若混入项目约束，先迁移到项目与任务事实源，不把业务定制合并回新版通用协议。升级后运行 `./.ralph/bin/ralph --version`，再用一个小任务验证实际行为。
 
 ## 版本更新记录
 
 | 版本 | 主要变化 |
 |---|---|
-| **0.1.9** | 修复紧凑 watch / run -v 宽字符折行、窗口过矮或事件区过大导致头部堆积；修复健康灯活动状态丢失、status/watch 混读状态和 watch 未加载项目 UI 配置，避免同秒快速重跑覆盖 run 证据；交付项目级 Ralph skill，按宿主原生能力托管后台任务及汇报，与 provider 独立。 |
+| **0.1.9** | 修复紧凑 watch / run -v 宽字符折行、窗口过矮或事件区过大导致头部堆积；修复健康灯活动状态丢失、status/watch 混读状态和 watch 未加载项目 UI 配置，避免同秒快速重跑覆盖 run 证据；交付项目级 Ralph skill，与 provider 独立。2026-10-30 同版本更新：默认前台、支持后台，两份 references 按需读取；范围内动态调整任务、独立复审与必要返工，保留单写入者、累计预算和较窄授权边界。 |
 | **0.1.8** | 修正安装依赖与覆盖说明；支持 Git worktree 启动；Claude 路径解析不再依赖 `realpath`；统一 Bash 支持基线；新增 `watch --details` 执行过程入口，区分工具状态并显示结果；保护通用协议，增加版本指纹、run 快照和变化停止机制，提交服从用户授权；修复协议读取失败收尾、状态原子更新与重试日志跟随，补齐 Codex 真实命令输出和执行事件。 |
 | **0.1.6** | 移除旧的 Gemini CLI adapter 与测试替身，统一当前 provider 入口；完善配置默认值与设置时机、发布包使用指南和版本记录。 |
 | **0.1.5** | 接入 Antigravity CLI；采集运行事件与原生 transcript，完善错误判定、会话路径校验和真实端到端验证。 |

@@ -43,7 +43,7 @@
 
 ## Ralph 集成
 
-本项目使用 Ralph Loop 执行多轮 agent 工作。主 Agent 需要启动、托管、查看状态或排障时，先阅读 `.agents/skills/ralph/SKILL.md`；配置与 CLI 细节见 `.ralph/README.md`。Ralph 的 oneshot 协议和任务调度由 `.ralph/` 自身管理，本文件不重复其内部逻辑。
+本项目使用 Ralph Loop 执行多轮 agent 工作。主 Agent 需要执行、托管、查看状态或排障时，先阅读 `.agents/skills/ralph/SKILL.md`，按需读取前台或后台流程；模式选择、任务调整、恢复与独立复审在该入口维护。完整工作包执行默认包含范围内的调整、独立复审与必要返工，用户较窄指令优先；变更任务前须确认执行与写入已停止。配置与 CLI 细节见 `.ralph/README.md`。Ralph 的 oneshot 协议和任务调度由 `.ralph/` 自身管理，本文件不重复其内部逻辑。
 
 ## Runtime 命名边界
 

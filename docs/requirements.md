@@ -4,16 +4,16 @@
 
 ## 项目定位
 
-`ralph-loop` 是一个面向 Codex Main Agent 的 vibecoding 协作脚手架。它把需求澄清、方案设计、任务拆解、后台执行、最终产物验收、会话交接、稳定锚点和失败知识沉淀组织为可追溯的协作生命周期。
+`ralph-loop` 是一个面向 Codex Main Agent 的 vibecoding 协作脚手架。它把需求澄清、方案设计、任务拆解、Ralph 执行协作、独立产物验收、会话交接、稳定锚点和失败知识沉淀组织为可追溯的协作生命周期。
 
-其中 Ralph harness 是独立的后台执行引擎：它为使用者 workspace 提供 `ralph run` / `ralph status` / `ralph watch`，用 provider CLI 的 fresh oneshot 循环驱动长任务执行，把运行状态和诊断证据沉淀到 `.ralph/`。Codex Main Agent 不消费 Ralph 的正常执行过程；用户提出验收诉求后，Main Agent 按约定范围检查最终代码、测试、文档和 Git 状态。
+其中 Ralph harness 是独立执行引擎：它为使用者 workspace 提供 `ralph run` / `ralph status` / `ralph watch`，用 provider CLI 的 fresh oneshot 循环驱动长任务执行，把运行状态和诊断证据沉淀到 `.ralph/`。Main Agent 默认前台观察关键证据，符合条件时可后台托管；完整工作包执行包含独立复审和必要返工，用户较窄指令优先。具体选择与授权边界见模块需求和 Ralph skill。
 
 本仓库是 ralph-loop 工具**本身**的开发工程，并在 v0.1 后以 `.ralph/TASKS.md` 进行 dogfood；开发工程运行状态不进入对外 release。
 
 ## 全局目标
 
 - 提供一个可被 coding agent 或维护者调用的 shell 工具，让长任务在多轮 fresh oneshot 中可观察、可恢复、可复盘。
-- 提供 Codex Main Agent 协作 harness，让人类通过自然语言完成需求、方案和任务准备，并在用户授权后把执行交给后台 Ralph。
+- 提供 Codex Main Agent 协作 harness，让人类通过自然语言完成需求、方案和任务准备，并在用户授权后按选定模式把实施交给 Ralph。
 - 隔离 Main Agent 决策上下文和 Ralph/provider 执行上下文，以最终 repository 产物作为两者交付接口。
 - 通过 handoff、checkpoint 和 postmortem 分别治理主会话接续、已验收稳定状态和可复用失败知识。
 - 覆盖 Claude Code、Codex CLI、Antigravity CLI 三家 provider，通过统一 adapter 抽象解耦 provider 差异。
@@ -28,7 +28,7 @@
 - 不支持全局 `ralph` 命令；工具以 per-workspace 方式分发，每个 workspace 自带 `.ralph/bin/ralph` + `.ralph/lib/*`。
 - 不把本仓库 dogfood 的 `.ralph/TASKS.md`、run artifacts、lock、status 或私有配置复制到对外 release。
 - 不把 provider 原生 session 当作任务完成事实源。
-- 不把 Ralph 退出码、任务勾选或运行总结当作需求验收结论；用户要求验收后，Main Agent 必须按约定范围检查最终工程产物。
+- 不把 Ralph 退出码、任务勾选或运行总结当作需求验收结论；Main Agent 必须按已有工作流授权或用户验收范围检查最终工程产物。
 - 不使用 Ralph round、stall 或 provider 日志触发 Main Agent handoff。
 - 不默认 resume provider session；每轮都是 fresh oneshot。
 - 不引入数据库，不依赖完整 Markdown parser，不做复杂 TUI。
@@ -37,7 +37,7 @@
 
 - **维护者**：直接在使用者 workspace 手动跑 `ralph run`，并据产物复盘。
 - **coding agent 协作者**：通过 Bash 工具调用 `ralph run` 驱动长任务。
-- **Codex Main Agent**：承担需求、方案、任务拆解、后台派发和最终产物验收，是 vibecoding 协作的 Team Leader。
+- **Codex Main Agent**：承担需求、方案、任务维护、执行托管和独立产物验收，是 vibecoding 协作的 Team Leader。
 - **ralph 工具开发者**（本仓库）：按项目事实源迭代工具本身。
 
 ## 跨模块约束
@@ -57,7 +57,7 @@
 | 模块 | 角色 | 需求 | 业务结构 | 状态 |
 |---|---|---|---|---|
 | Vibecoding collaboration | Codex Main Agent 协作控制面、最终验收和长期记忆边界 | [`features/vibecoding-collaboration/requirements.md`](./features/vibecoding-collaboration/requirements.md) | 流程和状态边界见需求文档 | 已确认 |
-| Ralph harness | 后台执行引擎；提供 `ralph run/status/watch` 和 provider adapter | [`features/ralph-loop/requirements.md`](./features/ralph-loop/requirements.md) | 当前不适用（命令行工具，无持久化业务实体） | 已确认 |
+| Ralph harness | 执行引擎；提供 `ralph run/status/watch` 和 provider adapter | [`features/ralph-loop/requirements.md`](./features/ralph-loop/requirements.md) | 当前不适用（命令行工具，无持久化业务实体） | 已确认 |
 | Antigravity CLI 接入 | 扩展 Ralph 的正式 provider 入口和等价 round 证据 | [`features/antigravity-cli/requirements.md`](./features/antigravity-cli/requirements.md) | 当前不适用（provider 集成） | 已确认 |
 
 ## 全局验收口径
@@ -65,13 +65,13 @@
 项目级验收由模块验收汇总构成，判据为：
 
 - Ralph harness 模块的相关 `SC-*` 通过，证明本次涉及的执行引擎契约。
-- Vibecoding collaboration 模块的相关 `SC-033-*` ~ `SC-047-*` 通过，才能证明对应 Main Agent 协作能力；Hook、Skills 和后台验收流程尚未全部实施，不能将需求追踪矩阵的“完整”误读为实现已验收。
+- Vibecoding collaboration 模块的相关 `SC-033-*` ~ `SC-047-*` 通过，才能证明对应 Main Agent 协作能力；Hook、其他 Skills 和完整协作流程尚未全部交付或验证，不能将需求追踪矩阵的“完整”误读为实现已验收。
 - 模块之外的跨模块端到端验证入口：`bash scripts/check.sh`（结构性回归）+ 各模块声明的集成测试。
 
 ## 架构与专题
 
 - 系统总体架构与稳定契约：[`architecture.md`](./architecture.md)。
-- Codex Main Agent 协作、后台派发和最终验收：[`features/vibecoding-collaboration/solution.md`](./features/vibecoding-collaboration/solution.md)。
+- Codex Main Agent 协作、执行模式和独立验收：[`features/vibecoding-collaboration/solution.md`](./features/vibecoding-collaboration/solution.md)。
 - 外部系统集成（Claude / Codex / Antigravity session 采集）：[`integrations.md`](./integrations.md)。
 - 安全边界（approval / sandbox 策略）：[`security.md`](./security.md)。
 - 阶段规划：[`roadmap.md`](./roadmap.md)。

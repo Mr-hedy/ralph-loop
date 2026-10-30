@@ -5,7 +5,7 @@
 | 想了解什么 | 先读 |
 |---|---|
 | Ralph 运行方式 | `../.ralph/README.md` |
-| 主 Agent 启动、后台托管和查询 Ralph | `../.agents/skills/ralph/SKILL.md` |
+| 主 Agent 前台/后台执行、任务调整、独立复审和查询 Ralph | `../.agents/skills/ralph/SKILL.md`，按需读取模式 references |
 | 当前任务 | `../.ralph/TASKS.md` |
 | 需求、方案、测试、审查规范 | `../.spec/README.md` |
 | 某个功能需求 | `features/<feature>/requirements.md`（按需创建） |

@@ -5,7 +5,7 @@
 | 主题 | 文档 | 状态 | 说明 |
 |---|---|---|---|
 | 项目入口 | `../README.md` | 已确认 | 项目定位、入口地图和项目边界 |
-| Ralph 动作 workflow | `../.agents/skills/ralph/SKILL.md` | 已确认 | 主 Agent 按宿主原生能力启动、托管、查询和汇报；0.1.9 单独交付，其他 skills 后续完善 |
+| Ralph 动作 workflow | `../.agents/skills/ralph/SKILL.md` | 已确认 | 默认前台、按需后台的托管、任务调整与独立复审；0.1.9 交付入口及两份模式 references，其他 skills 后续完善 |
 | 协作规范 | `../.spec/README.md` | 已确认 | 协作模型、阶段和事实源边界 |
 | 当前开发任务 | `../.ralph/TASKS.md` | 执行中 | 本仓库 dogfood 的唯一任务事实源；release 构建另生成空模板，不复制这里的任务状态 |
 | v0.1 历史任务 | `../task.md` | 已封版 | T0–T6 历史任务史 + 22 条决策追溯（v0.1.0 发布于 2026-04-28） |
@@ -13,12 +13,12 @@
 | 早期任务协议 | `research/task-protocol-legacy-2026-04.md` | 历史 | 仅用于理解早期 `task.md` 协作方式；现行规则见 `.spec/rules/TASKS.md` |
 | TASKS 格式回溯 | `research/tasks-md-format-spec-2026-05.md` | 历史 | 记录 2026-05 的格式演进和旧版同步建议；现行规则见 `.spec/rules/TASKS.md` |
 | 项目级需求 | `requirements.md` | 已确认 | 项目全局目标、跨模块边界和模块索引 |
-| Vibecoding 协作需求 | `features/vibecoding-collaboration/requirements.md` | 已确认 | Codex Main Agent、宿主/provider 分离的 Ralph 后台托管、用户触发验收、handoff/checkpoint/postmortem 边界，REQ-033 ~ REQ-047 |
+| Vibecoding 协作需求 | `features/vibecoding-collaboration/requirements.md` | 已确认 | Codex Main Agent、前台/后台模式、动态任务调整与独立复审、handoff/checkpoint/postmortem 边界，REQ-033 ~ REQ-047 |
 | Ralph 模块需求 | `features/ralph-loop/requirements.md` | 已确认 | Ralph harness 模块 REQ-001 ~ REQ-032、REQ-054（协议完整性）及历史决策追踪 |
 | Antigravity CLI 接入需求 | `features/antigravity-cli/requirements.md` | 已确认 | 新 provider 的执行、证据采集、权限、诊断与发布验收，REQ-048 ~ REQ-053；自 release/0.1.5 起交付 |
 | Antigravity CLI 接入方案 | `features/antigravity-cli/solution.md` | 已确认 | 流式输出优先的采集映射、原生会话校验、终态与配置域取舍；已由真实 AGY smoke 校准闭环 |
 | 架构 Overview | `architecture.md` | 已确认 | 总体系统入口；Ralph CLI 契约、watch 执行详情、协议完整性与运行目录 schema、adapter 函数签名、退出原因、stagnation、lock、错误诊断类别 |
-| Vibecoding 协作方案 | `features/vibecoding-collaboration/solution.md` | 草案 | Codex Main Agent 控制面；宿主原生后台托管边界已确认；用户触发验收和长期协作记忆 |
+| Vibecoding 协作方案 | `features/vibecoding-collaboration/solution.md` | 草案 | Codex Main Agent 控制面；前台/后台协作边界已确认；独立复审与长期协作记忆 |
 | 外部集成 | `integrations.md` | 已确认 | Claude / Codex / Antigravity 原生 session 路径、采集命令、退化策略、UUID 依赖 |
 | 安全边界 | `security.md` | 已确认 | approval/sandbox 固定策略、`.env` 解析约束、secrets 禁入规则、攻击面 |
 | 测试规范 | `testing.md` | 已确认 | 测试入口、基础设施、隔离规则、系统 Bash 3.2 基线、发布包部署、终端画面回归和当前覆盖范围 |
@@ -39,7 +39,7 @@
 | 领域 | 文档 | 状态 | 说明 |
 |---|---|---|---|
 | Overview | `architecture.md` | 已确认 | 系统上下文、稳定契约和架构文档索引 |
-| Vibecoding Collaboration | `features/vibecoding-collaboration/solution.md` | 草案 | Main Agent 协作、后台派发、用户触发验收、handoff/checkpoint/postmortem 边界 |
+| Vibecoding Collaboration | `features/vibecoding-collaboration/solution.md` | 草案 | Main Agent 执行协作、独立复审、handoff/checkpoint/postmortem 边界 |
 | Antigravity CLI 接入 | `features/antigravity-cli/solution.md` | 已确认 | 新 provider 的流式证据采集、终态和原生会话校验方案 |
 | API | — | 当前不适用 | Ralph 是 CLI 工具，无 HTTP/RPC API |
 | Backend | — | 当前不适用 | Bash 模块结构在 `architecture.md#运行目录` 覆盖 |

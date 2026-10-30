@@ -1,124 +1,76 @@
 ---
 name: ralph
-description: Use when the user explicitly asks to run or inspect Ralph, execute the project task list through Ralph, continue a Ralph run, monitor Ralph status/watch output, or diagnose a Ralph CLI run. Do not use for requirements discussion, solution design, task decomposition, handoff, checkpoint, or postmortem actions unless Ralph is the tool being operated.
+description: Coordinate authorized Ralph task execution, recovery, and independent review. Default to foreground supervision with evidence-based task adjustments; support managed background execution when explicitly requested or supported by a proven execution and validation path. Also use for Ralph status and diagnostics, without treating inspection as permission to start or change work. Exclude standalone requirements discussion and planning without Ralph execution.
 ---
 
 # Ralph
 
-Use the Ralph CLI shipped in the workspace. Ralph owns loading its prompt,
-task source, provider adapter, run state, and artifacts; this skill should say
-how to operate Ralph, not reimplement Ralph's task loop.
+Use the Ralph CLI provided by the current project. Ralph handles implementation, testing, and oneshot scheduling; the Main Agent maintains requirements and tasks, manages execution, and performs independent review. This skill defines the collaboration workflow; it does not rewrite Ralph's control program.
 
-# Commands
+## Identify the request first
 
-Run from the workspace root:
+- **Execute or continue a work package**: By default, this includes execution, necessary task adjustments, independent review, and defect repairs within the current authorization. If the user asks only to start a run, limits the number of rounds, or excludes review, honor that narrower scope.
+- **Status or diagnostics only**: Read the existing run and evidence. This request alone does not authorize starting or restarting a run, changing tasks, or declaring product acceptance.
+- Progress questions or additional conditions during execution preserve the original objective; they do not automatically revoke existing authorization for the full workflow. Honor an explicit pause, stop, or reduction in scope. Do not treat a user-requested pause as an ordinary interruption to resume automatically.
+- The objective, success criteria, and permission boundaries must be clear; later implementation choices may be refined as evidence emerges. Each task about to be handed to Ralph must still be executable and verifiable. Resolve missing critical product decisions first rather than handing guesses to the loop.
+- Loading this skill does not grant execution authorization. Do not repeatedly seek confirmation for repairs already authorized within scope. New objectives, changes to critical contracts, or additional permissions or budget remain user decisions. Execution or review does not automatically authorize commits, pushes, deployments, archival, or new scheduled tasks.
+
+## Select a mode and read it on demand
+
+1. The user's explicit mode choice and currently applicable constraints take precedence.
+2. Otherwise, default to **foreground**. Use foreground for new feature work packages, unproven implementation paths, acceptance that requires ongoing judgment, and tasks whose suitability for background execution is uncertain. A complete task breakdown, a small diff, or existing tests alone does not establish suitability for background execution.
+3. Choose background on your own only when the execution path has been validated, scope is fixed, results can be reliably checked, and ongoing independent judgment is unnecessary; briefly explain the evidence. An explicit user request is also sufficient to select background, while making clear that it does not provide continuous Main Agent supervision.
+4. State the mode and reason before launch; do not switch silently during execution. If the user explicitly chose background and ongoing intervention becomes necessary, recommend foreground and wait for the mode-change decision. This does not prevent necessary protective action already authorized by the user.
+
+Read only the selected mode's workflow:
+
+- [Foreground: continuous observation and evidence-based task adjustments](references/foreground.md)
+- [Background: managed execution and independent review after completion](references/background.md)
+
+Foreground and background describe how the Main Agent manages and participates in execution. They do not select a provider or introduce new Ralph CLI flags. Ordinary status requests do not require loading both mode references.
+
+## Launch and run identity
+
+Read the applicable project entrypoint, the sole task source, and relevant specifications. Verify the explicit working directory, branch, Git status, and existing runs. Preserve user changes; do not create or switch worktrees merely because the default directory differs. Follow the project's task rules when adjusting tasks.
+
+Use the command specified by the user and project. If neither provides a more specific command, run this explicitly in the verified workspace:
 
 ```bash
-./.ralph/bin/ralph run
+./.ralph/bin/ralph run --verbose
 ```
 
-If no provider is configured in `.ralph/.env`, pass one explicitly:
+Keep the configured provider/model/effort. Do not override the provider because the host is Codex, or read or print the entire `.env`. If no provider is configured and no choice has been established, clarify rather than selecting another provider yourself. Business-model call budgets are separate from Ralph's implementation provider. Preserve cumulative consumption across processes and restarts; conservatively count requests whose dispatch is uncertain against the budget, and stop new calls when the remaining budget is unknown or insufficient.
+
+Use the host's native execution facility and retain a command handle that supports inspection and stopping. Perform a bounded startup check, correlating the handle with the actual workspace, `run_id`, and launch command. If the command exits immediately, check its terminal result directly. A stale status.json does not prove that this launch succeeded.
+
+Record the mode, worktree/branch, handle, run_id, and next checkpoint. Preserve exact identifiers in context handoffs. A lost handle, an interrupted conversation, or temporarily quiet logs does not prove that Ralph has stopped. On resumption, verify the existing process and run state first. If the run is `locked`, do not start another instance or remove the lock on your own.
+
+## Shared boundaries for task adjustments and recovery
+
+- Keep one task source and one implementation writer. While Ralph is running, the Main Agent observes read-only: do not concurrently edit tasks, specifications, or code, or start builds that modify the same artifacts. Let Ralph handle normal implementation problems through its own checks.
+- Before adjusting tasks, gracefully stop that run through its native handle. If necessary, send an interrupt signal only to the launcher process confirmed to belong to that workspace/run. Confirm that Ralph, the provider, and related writing processes have exited and the lock has been released before editing tasks. Stopping watch or losing a handle does not stop the run. If termination is uncertain, diagnose first and preserve the current state.
+- Record the concrete finding, evidence, impact, and revised acceptance checks in the original task source. Within authorization, refine unfinished tasks, fill omissions, or append repair tasks while following the project's history-preservation rules. Do not rewrite completed-task history or mark work complete without evidence. Ralph still implements code and test repairs.
+- Before restarting, check partial changes, completed tasks, evidence, budget, and the previous exit reason. Preserve progress and counters. Do not blindly rerun the entire acceptance suite or use restarts to bypass user-specified round, time, or call limits. Diagnose environment or provider failures without weakening the product contract.
+- When the same failure recurs without new evidence, or budget, permissions, or critical decisions are missing, stop blind retries and explain the cause and the smallest outstanding decision. Preserve the current state on `protocol_changed` or a control-protocol mismatch; do not automatically repair tool files.
+
+## Independent review and completion
+
+For a full work package, the default workflow includes Main Agent review after execution. Compare requirements and success criteria against the actual diff, code, the conditions exercised by tests, persisted state or generated artifacts, and necessary end-to-end behavior. Ralph's `[x]`, `done`, and test exit codes prove only their respective scope; they do not replace independent acceptance. Apply the project's adversarial-review rules to high-impact boundaries. When the user requests an overall adversarial-review, cover the entire authorized work package.
+
+For a real defect, explain the evidence, update the task source under the boundaries above, and continue Ralph repairs and review within the original authorization and selected mode. Do not repeatedly seek permission for the same scope. Do not turn style preferences, future capabilities, or repeated tests into new acceptance gates; reuse evidence for an unchanged, already-validated version. If authorization covers only startup or status, or the user explicitly defers review, report the actual execution state and state that acceptance review has not been performed; do not expand the workflow.
+
+Report these separately:
+
+- **Execution result**: Native exit code, `result.json`/terminal summary for the same `run_id`, and task progress. Mark missing evidence as unconfirmed; do not substitute another run's result.
+- **Acceptance result**: Specific grounds for passing, requiring changes, or being blocked; behavior actually verified, unverified scope, and remaining budget. Do not declare completion while blocking issues remain open.
+
+## Inspection and tool boundaries
 
 ```bash
-./.ralph/bin/ralph run --provider claude
-./.ralph/bin/ralph run --provider codex
-./.ralph/bin/ralph run --provider antigravity
-```
-
-Useful controls:
-
-- `--max-round <n>`: cap rounds per task.
-- `--round-timeout <sec>`: cap a provider oneshot.
-- `--stall-limit <n>`: stop after repeated no-progress rounds.
-- `--verbose` / `-v`: show live provider events when attached to a TTY.
-
-# Background execution
-
-The host is the workbench running the Main Agent. The provider is the CLI
-Ralph invokes for oneshots. Choose background task management by the host's
-capabilities, independently of `--provider`.
-
-When the user asks Ralph to execute prepared tasks, use background execution
-by default unless they explicitly request foreground execution:
-
-1. Use the host's native managed background command facility. It must expose
-   a running-task indicator and a handle for inspecting command output and
-   completion. Do not substitute `nohup`, `disown`, or an unmanaged `&` launch
-   that loses the host's task tracking. If the capability is unavailable or
-   unknown, explain the limitation and let the user choose foreground or
-   manual execution before launching.
-   Record the existing Ralph run state before launching the command.
-2. Perform a bounded startup check. Confirm the managed command is still
-   running and correlate it with Ralph's current `run_id` and workspace.
-   Stale status alone is insufficient. Keep the command, workspace, native
-   handle and `run_id` in the conversation, and in handoff material if a
-   handoff occurs. Report what actually started and how to inspect it.
-   If startup failed or the command already finished, report that outcome.
-   If correlation remains uncertain, report the uncertainty and retain the
-   handle; do not declare startup successful or launch another run.
-3. Return control to the user after startup checking. Do not keep the Main
-   Agent turn active by repeatedly polling, waiting for the whole run, or
-   running `watch`. The user may discuss other work; the same checkout still
-   has only one business-file writer while Ralph is running.
-4. Use native completion notifications when the host provides them. When
-   the completion result reaches the Main Agent, read that run's
-   `.ralph/runs/<run_id>/result.json` and terminal summary, and report the
-   outcome using the Evidence rules below. Do not substitute a newer run's
-   status; if terminal evidence is missing, report it as unconfirmed. If the
-   host cannot resume the Main Agent on completion, explain at startup that
-   the user must request status or inspect it manually. Do not add scheduled
-   checks, a hook wakeup workaround, or an external relay to fill that gap
-   without a separate user request.
-
-A missing running indicator or lost handle does not prove completion. Check
-the existing run when asked; do not automatically restart it. Completion
-reporting does not trigger acceptance, checkpoint, handoff, or postmortem.
-
-# Observe
-
-Use these instead of starting a second run:
-
-```bash
-./.ralph/bin/ralph status
 ./.ralph/bin/ralph status --json
-./.ralph/bin/ralph watch
 ./.ralph/bin/ralph watch --details
 ```
 
-`watch` exits with `Ctrl+C` without stopping the active run. If Ralph reports
-`locked`, inspect the existing run with `status` or `watch`.
-Use `watch --details` for scrolling AI messages, tool operations and results.
-It replays the current round first; on a TTY it follows until the run finishes,
-while a pipe receives one current-round snapshot. Thinking is visible only
-when the provider includes it in live events.
+`watch` is an observation interface; Ctrl+C only exits observation. Read tool steps, errors, and validation output as needed. Do not replay entire provider logs, reasoning text, full process arguments, or credentials.
 
-# Evidence
-
-After a run, report only decisive facts:
-
-- command run and exit code;
-- `run_id`, `exit_reason`, and task progress from Ralph status/result files;
-- key error type or blocker, if any;
-- artifact path only when useful, such as `.ralph/runs/<run_id>/exit-message.txt`.
-
-Do not treat provider stdout, provider session text, or exit code alone as task
-completion evidence. Use Ralph's run summary and task state.
-
-# Boundaries
-
-- Treat `.ralph/PROMPT.md`, `bin/` and `lib/` as versioned tool controls.
-  Ordinary project work must not rewrite them to pass user constraints to
-  oneshots. Put durable rules in project `AGENTS.md` and work-package constraints
-  in `.ralph/TASKS.md` and its referenced requirements/solution.
-- Follow the user's staging/commit/push authorization. A no-commit instruction
-  does not require changing the execution protocol.
-- If startup rejects the protocol or a run reports `protocol_changed`, report
-  the mismatch and preserve the worktree. Do not automatically restore files
-  or restart. Tool maintenance/upgrades require explicit authorization, a
-  stopped run and a matching version package.
-- Do not manually execute the task loop when the user asked to run Ralph.
-- Do not create another task source.
-- Do not edit Ralph's task source unless the user explicitly asks for task
-  editing rather than running Ralph.
-- Do not run checkpoint, handoff, or postmortem workflows just because a Ralph
-  run completed.
+`.ralph/PROMPT.md`, `.ralph/bin/`, and `.ralph/lib/` are versioned control files. This skill does not authorize modifying them or `.env`. Tool upgrades require separate explicit authorization and a stopped run. Put stable project conventions in the project entrypoint, and work-package constraints in the sole task source and its source-of-truth documents. Do not create another execution loop or parallel task board.

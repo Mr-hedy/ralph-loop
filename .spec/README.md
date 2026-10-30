@@ -27,9 +27,9 @@
 | 3. 方案决策 | 仅在存在真实方案取舍时比较方案、边界、风险和代价 | `.spec/rules/SOLUTION.md` | 对应 feature、专题架构或当前任务事实源章节 |
 | 4. 实施任务 | 用户决定生成任务清单后，把已确认的需求、架构和方案决策转成可执行、可验证、decision complete 的任务 | 项目声明的任务协议 | 当前任务事实源 |
 | 5. 验证设计 | 明确测试规范、命令、人工检查和未覆盖风险 | `.spec/rules/TESTING.md` | feature `testing.md` 或按需创建的 `docs/testing.md` |
-| 6. Review | agent 检查自己本次交付物的质量；整轮 Ralph 产物由用户提出验收诉求后按约定范围审查 | `.spec/rules/REVIEW.md` | 对话 findings、事实源修订；返工任务按用户决定追加 |
-| 7. Adversarial Review | 主动寻找矛盾、遗漏、过度设计和不可验证点；在方案取舍和稳定合约变更时自动触发 | `.spec/rules/ADVERSARIAL-REVIEW.md` | 对话风险清单、事实源修订；返工任务按用户决定追加 |
-| 8. 任务执行 | 用户决定生成任务清单并授权执行后，按唯一任务事实源开展工作 | 项目声明的动作 workflow | 当前任务事实源 |
+| 6. Review | agent 检查自己本次交付物的质量；整轮 Ralph 产物按已授权工作流或用户验收诉求审查 | `.spec/rules/REVIEW.md` | 对话 findings、事实源修订；已有授权范围内的返工任务 |
+| 7. Adversarial Review | 主动寻找矛盾、遗漏、过度设计和不可验证点；在方案取舍和稳定合约变更时自动触发 | `.spec/rules/ADVERSARIAL-REVIEW.md` | 对话风险清单、事实源修订；已有授权范围内的返工任务 |
+| 8. 任务执行 | 用户决定生成任务清单并授权执行后，按唯一任务事实源开展工作；按项目入口约定托管、调整和复审 | 项目声明的动作 workflow；使用 Ralph 时按需读取选定模式 | 当前任务事实源 |
 
 ## 快速路由
 
@@ -69,7 +69,7 @@
 - 当前任务事实源必须唯一；不要创建根 `task.md` 或其他并行任务板。
 - 版本化执行工具的控制文件与项目事实分离。普通开发不得由 Main Agent 或任务执行者自行改写控制协议来传递用户约束；长期项目规则进入项目 agent 入口，工作包约束进入任务源与对应事实源。维护或升级执行工具须明确授权，并在停止运行后进行。
 - Checkpoint、handoff 和任务执行的触发条件、约束及产物契约可由 `.spec/` 定义；具体执行步骤由项目声明的动作 workflow 承载。TASKS 归档在缺少 workflow 时遵循其明确的手动 fallback。
-- Review 和 adversarial review 是 agent 对本次工作执行的流程质量门，默认不产出独立文档；整轮 Ralph 产物的验收由用户提出诉求后启动，不能由 Ralph 终态自动触发。
+- Review 和 adversarial review 是 agent 对本次工作执行的流程质量门，默认不产出独立文档；整轮 Ralph 产物的验收依据已授权工作流或用户验收诉求。项目入口已明确完整执行包含独立复审时，无需再次索取同范围授权；仅查状态等较窄请求不扩展，Ralph 终态本身不代表验收通过。
 - Postmortem 是带运行过程产物的动作，执行协议由项目声明的 postmortem 动作流程承载。
 - 失败处理是流程质量门：项目已有 `docs/postmortems/README.md` 时，先读并搜索相关条目；若尚未建立该入口，先按项目事实定位失败。问题属于重复、系统性、回归或预防机制失效且需要持久化时，使用项目声明的 postmortem 动作流程；项目尚未声明流程时，先建立并索引项目的 postmortem 入口，不把未创建的文件当作可读事实源。
 - 创建 checkpoint 前必须执行 postmortem sweep；只有发现值得沉淀的失败模式时才创建或更新 postmortem，并在 checkpoint note 里记录 sweep 结果。

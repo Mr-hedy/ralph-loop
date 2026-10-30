@@ -54,8 +54,11 @@ cp "$src_ralph/PROMPT.md" "$out/.ralph/PROMPT.md"
 cp "$src_ralph/README.md" "$out/.ralph/README.md"
 cp "$src_ralph/.gitignore" "$out/.ralph/.gitignore"
 cp -R "$repo_root/.spec/." "$out/.spec/"
-# 0.1.9 只交付 Ralph workflow；其他开发工程 skills 尚未进入发布范围。
-cp "$repo_root/.agents/skills/ralph/SKILL.md" "$out/.agents/skills/ralph/SKILL.md"
+# 只交付 Ralph 入口及两种模式；其他开发工程 skills 尚未进入发布范围。
+mkdir -p "$out/.agents/skills/ralph/references"
+for skill_file in SKILL.md references/foreground.md references/background.md; do
+  cp "$repo_root/.agents/skills/ralph/$skill_file" "$out/.agents/skills/ralph/$skill_file"
+done
 
 cat > "$out/.ralph/TASKS.md" <<'EOF'
 # Tasks
@@ -74,7 +77,8 @@ cat > "$out/.ralph/TASKS.md" <<'EOF'
 
 ## 规则
 
-> 任务只能追加；每轮只执行一个顶层任务；完成任务必须记录完成、验证和未验证项。
+> oneshot 按追加规则维护任务，每轮只执行一个顶层任务；完成任务必须记录完成、验证和未验证项。
+> Main Agent 的监督调整遵循 `.spec/rules/TASKS.md`，先确认写入停止，保留已完成任务历史。
 
 ## 当前任务
 
@@ -162,7 +166,7 @@ cat > "$out/docs/README.md" <<'EOF'
 | 想了解什么 | 先读 |
 |---|---|
 | Ralph 运行方式 | `../.ralph/README.md` |
-| 主 Agent 启动、后台托管和查询 Ralph | `../.agents/skills/ralph/SKILL.md` |
+| 主 Agent 前台/后台执行、任务调整、独立复审和查询 Ralph | `../.agents/skills/ralph/SKILL.md`，按需读取模式 references |
 | 当前任务 | `../.ralph/TASKS.md` |
 | 需求、方案、测试、审查规范 | `../.spec/README.md` |
 | 某个功能需求 | `features/<feature>/requirements.md`（按需创建） |

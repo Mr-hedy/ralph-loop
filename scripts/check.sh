@@ -101,8 +101,10 @@ for source_file in "$ROOT"/.ralph/lib/*.sh; do
   cmp -s "$source_file" "$package_file" || { echo "release file out of sync: $package_file" >&2; exit 1; }
 done
 test ! -e "$current_release/.codex"
-test -f "$current_release/.agents/skills/ralph/SKILL.md"
-cmp -s "$ROOT/.agents/skills/ralph/SKILL.md" "$current_release/.agents/skills/ralph/SKILL.md"
+for skill_file in SKILL.md references/foreground.md references/background.md; do
+  test -f "$current_release/.agents/skills/ralph/$skill_file"
+  cmp -s "$ROOT/.agents/skills/ralph/$skill_file" "$current_release/.agents/skills/ralph/$skill_file"
+done
 test -x "$current_release/.ralph/bin/ralph"
 test -L "$current_release/CLAUDE.md"
 [[ "$(readlink "$current_release/CLAUDE.md")" == AGENTS.md ]]

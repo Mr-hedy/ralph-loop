@@ -1,27 +1,27 @@
 # Vibecoding Collaboration Architecture
 
 - 状态：草案
-- 来源：`docs/features/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）；2026-09-16 用户确认的 Codex Main Agent / Ralph 黑盒执行模型；2026-10-10 宿主原生后台托管边界确认。
-- 范围：Main Agent 协作控制面、Ralph 后台执行面、最终产物验收、handoff/checkpoint/postmortem 记忆面的长期结构和稳定边界。
+- 来源：`docs/features/vibecoding-collaboration/requirements.md`（REQ-033 ~ REQ-047）；2026-10-10 宿主/provider 边界与 2026-10-30 默认前台、动态调整及独立复审确认。
+- 范围：Main Agent 协作控制面、Ralph 执行面、最终产物验收、handoff/checkpoint/postmortem 记忆面的长期结构和稳定边界。
 - 不负责：Ralph 内部 run loop、provider adapter、round schema 和错误诊断细节；这些继续由 `docs/architecture.md`、`docs/integrations.md` 和 `docs/security.md` 管理。
-- 变更条件：Main Agent 产品、后台执行托管方式、事实源、会话生命周期事件、release 组成或动作 workflow 发生变化时重新评估。
+- 变更条件：Main Agent 产品、执行模式与托管方式、事实源、会话生命周期事件、release 组成或动作 workflow 发生变化时重新评估。
 
 ## 1. 架构目标
 
-本架构让 Codex Main Agent 像 Team Leader 一样保留需求、方案和用户提出的验收诉求，把高噪声任务执行交给 Ralph。两者不通过模型总结交接工作，而通过已确认任务和最终 repository 状态交互。
+本架构让 Main Agent 维护需求、方案与任务，按模式参与 Ralph 执行并独立复审。双方通过唯一任务源、真实工程产物与必要执行证据协作；完整 provider 会话不回灌，运行自报不替代验收。
 
 ```text
 人类
   ↕
 Codex Main Agent
-  需求澄清 → 方案设计 → 用户要求任务拆解 → 派发 → 用户要求验收
+  需求澄清 → 方案设计 → 用户要求任务拆解 → 授权执行 → 独立复审
        │                              ↑
        └────── 已确认任务 ──→ Ralph ─┘
                               │
                               └─ provider fresh oneshot
 
 Main Agent 的验收对象：最终代码、测试、文档和 Git 状态
-Ralph 的运行状态：只用于启动、等待、停止和失败诊断
+Ralph 的运行状态：用于托管与诊断；关键执行证据可触发任务修订，不直接证明验收通过
 ```
 
 ## 2. 方案取舍
@@ -29,7 +29,7 @@ Ralph 的运行状态：只用于启动、等待、停止和失败诊断
 ### 2.1 选定方案：双平面 + repository 交付接口
 
 - **Main Agent 控制面**：人类协作、`.spec/` harness、需求/方案/任务、派发、验收和动作 workflow。
-- **Ralph 执行面**：后台 shell harness、provider fresh oneshot、run 状态和执行证据。
+- **Ralph 执行面**：shell harness、provider fresh oneshot、run 状态和执行证据。
 - **Repository 交付接口**：任务源向执行面传递已确认工作；代码、测试、文档和 Git 状态向控制面交付最终产物。
 - **协作记忆面**：handoff、checkpoint、postmortem 各自保存不同生命周期的持久信息。
 
@@ -61,10 +61,10 @@ Ralph 的运行状态：只用于启动、等待、停止和失败诊断
 
 - 与用户通过自然语言澄清目标和约束；
 - 按 `.spec/` 维护需求和架构，在用户决定生成任务清单后拆解任务；
-- 在用户明确要求后派发 Ralph；
+- 在用户授权后按 Ralph skill 选择前台或后台并派发，保持原 provider/model/effort；
 - Ralph 运行期间保持单写入者边界；
-- 用户提出验收诉求后，按约定范围审查最终 repository 产物并重新执行必要验证；
-- 与用户沟通验收结果，再按用户决定追加返工任务或请求人工决策；
+- 完整执行授权内独立审查最终产物与实际行为，复用同版本有效证据并补齐必要验证；遵从仅启动/状态或暂缓复审等较窄指令；
+- 说明具体证据，确认写入停止后在已有授权内调整任务或追加必要返工；新的目标、关键契约、权限或预算决定交给用户；
 - 在适用时执行 handoff、checkpoint 和 postmortem 动作 workflow。
 
 不负责：
@@ -87,12 +87,12 @@ Ralph 的运行状态：只用于启动、等待、停止和失败诊断
 
 | Skill | 主要动作 | 主要产物 |
 |---|---|---|
-| `ralph` | 原生后台派发、按宿主能力汇报、查看终态、诊断 Ralph | 宿主命令句柄；Ralph 自有 run artifacts |
+| `ralph` | 前台/后台托管、证据驱动任务调整、独立复审与范围内返工、状态与诊断 | 宿主句柄与 run_id；任务修订；有证据的执行/验收结论 |
 | `handoff` | 保存、恢复、完整交接 Main Agent 会话 | `handoff.md`、接手会话状态 |
 | `checkpoint` | 在已验收安全点创建稳定锚点 | Git commit、checkpoint note |
 | `postmortem` | 沉淀重复/系统性失败和预防机制 | postmortem entry、提炼后的规则/检查 |
 
-需求澄清、方案设计、任务写作和 agent 对自身交付物的 Review 继续由 `.spec/` 指导，不新增同名动作 Skills。生成任务清单及整轮 Ralph 产物验收的时机由用户决定。
+需求澄清、方案设计、任务写作和 agent 对自身交付物的 Review 继续由 `.spec/` 指导，不新增同名动作 Skills。任务清单由用户决定建立；完整工作包执行包含独立复审与必要返工，单独审查和较窄指令按用户范围。
 
 ### 3.4 Ralph 执行引擎
 
@@ -110,16 +110,16 @@ Ralph 继续遵守既有稳定契约：
 
 ### 3.5 最终产物验收器
 
-整轮产物验收由用户提出诉求后启动，是 Main Agent workflow，不由 Ralph 执行。Main Agent 先确定本次范围和深度；若要给整个工作包 `accepted` 结论，至少检查：
+独立产物验收由 Main Agent 执行，完整工作包授权默认包含，较窄请求不扩展。Main Agent 按现有授权确定范围和深度；若要给整个工作包 `accepted` 结论，至少检查：
 
 1. 读取需求成功标准、方案约束和任务完成标准；
 2. 确认 Ralph 已结束且 workspace 不再被写入；
 3. 以派发前基线对比最终 Git diff/commits；
 4. 阅读关键实现和测试；
-5. 重新运行与风险匹配的验证；
+5. 核对同版本已有证据，补齐与风险匹配的验证，确认断言实际证明目标行为；
 6. 检查文档、generated output 和稳定契约；
 7. 输出标明范围的 `accepted`、`accepted-with-residual-risk`、`rework-required` 或 `blocked`；局部验收不声明整个工作包通过；
-8. 与用户沟通失败差距，再按用户决定追加可验证的返工任务。
+8. 说明真实差距，在既有授权内追加可验证修复并交回 Ralph；超出控制边界时交给用户决定。
 
 局部或快速 Review 可以只检查用户指定范围，但必须列明未覆盖的需求与未运行的验证，不得给整个工作包 `accepted` 结论。Codex 原生 diff/review 能力可以作为代码审查证据，但不能替代需求级验收。
 
@@ -145,46 +145,42 @@ Task Readiness Gate 必须确认：
 - Ralph 能在无需重新做产品决策的情况下执行；
 - Main Agent 知道最终如何验收。
 
-### 4.2 后台派发
+### 4.2 执行模式与动态任务调整
 
-2026-10-10 已确认本节的托管边界；具体操作唯一入口为 `.agents/skills/ralph/SKILL.md`。宿主指 Main Agent 所在工作台，provider 指 Ralph 调用的 oneshot CLI。例如，Codex 工作台运行 Antigravity provider 时按 Codex 的原生托管能力处理；Claude Code CLI 运行 Codex provider 时按 Claude 的原生托管与通知能力处理。本节可用于不同宿主，不改变本方案其他 Codex 会话治理设计的首期范围。
-
-```text
-用户明确要求使用 Ralph
-  → Main Agent 运行前检查
-  → 记录派发前 Git 基线和写入权
-  → 通过宿主原生后台机制启动 `ralph run`
-  → 有界核对命令句柄、run_id 和启动状态
-  → 主会话回到可交互状态，不持续消费过程输出
-  → 原生完成通知到达或用户查询时，读取终态并汇报
-  → 等待用户提出产物验收诉求
-```
-
-选择宿主原生托管，使用户能看到后台命令运行标识，并保留可查询输出和完成状态的句柄。句柄与 workspace、Ralph `run_id` 的对应关系保留在会话及必要的 handoff 中，Ralph 状态仍以现有 status/result 为准；不新增 runtime 字段。启动状态未确认、句柄丢失或 `locked` 时核对现有运行，不能重启来掩盖不确定性。命令快速结束时直接报告实际结果。
-
-使用宿主原生完成通知：能把完成结果交回 Main Agent 的宿主应主动汇报；不能的宿主在启动时说明人工查看。当前 Codex 桌面版原生命令试验观察到运行标识与完成后移除，但未观察到主会话空闲时自动回复；这不构成所有宿主或未来版本的限制。Claude Code 的原生后台通知应继续使用，机制依据见 [后台 Bash 命令](https://code.claude.com/docs/en/interactive-mode#background-bash-commands)；本轮尚未进行 Claude 交互界面的端到端演练。
-
-不使用脱离宿主管理的 shell 代替原生后台托管，也不为补齐通知擅自增加定时检查、Hook 唤醒补丁或外挂客户端。前者无法保证工作台运行可见，后者增加长任务的额外生命周期与维护责任。宿主不具备托管能力时，明确说明并由用户选择前台或人工执行；主会话不以持续等待维持运行标识。
-
-正常路径不调用 `ralph watch`，也不把 provider stdout 注入主会话。非正常结束时先读 `exit_reason`、阻塞任务和最小错误摘要；只有这些不足以定位问题时才按需查看日志。
-
-### 4.3 用户触发的验收和返工
+具体操作唯一入口为 [Ralph skill](../../../.agents/skills/ralph/SKILL.md)。该入口定义请求范围、模式选择、启动身份、停止/恢复与复审共同边界；[前台流程](../../../.agents/skills/ralph/references/foreground.md) 和 [后台流程](../../../.agents/skills/ralph/references/background.md) 按选定模式读取。宿主负责托管，provider 负责 oneshot，两者独立；不新增 runtime 模式字段或 CLI 参数。
 
 ```text
-Ralph 结束
-  → 执行已结束，等待用户提出验收诉求
-  → 用户确定验收范围和深度
-  → Main Agent 取得唯一写入权
-  → 读取最终 workspace
-  → 追踪 REQ / SC / 方案 / TASK
-  → 按本次范围审查；宣称整体通过前复跑风险匹配验证
-     ├─ 通过：标明范围的 accepted → 可讨论 checkpoint
-     ├─ 有剩余风险：accepted-with-residual-risk → 用户裁决
-     ├─ 不通过：rework-required → 与用户沟通后追加返工任务
-     └─ 无法验证：blocked → 与用户沟通
+用户授权工作包执行
+  → 核对 workspace/branch、已有 run、任务与配置
+  → 明确模式和依据；默认前台，用户明确模式优先
+  → 原生执行句柄 ↔ workspace ↔ run_id 启动核对
+     ├─ 前台：持续参与，按需读取关键事件和实际产物
+     │    → 证据显示需调整：停止并确认所有写入退出 → 修订任务 → 承接进度续跑
+     └─ 后台：启动核对后交还控制权
+          → 原生完成通知或用户返回 → 核对原 run 终态
 ```
 
-Ralph 的 `done`、`tasks_checked_end == tasks_total` 或 exit code 0 只表示执行流程结束，不触发 Main Agent 自动验收，也不表示需求完成。用户可在长时间运行期间与 Main Agent 讨论其他事项；同一 checkout 的业务文件仍遵守单写入者边界。
+前台持续参与不等于频繁打断。正常实现尝试、失败测试与日志暂静由 Ralph 处理；目标偏离、假设失效、验收假阳性或证据/预算风险才构成介入依据。运行中的源码只作为线索，以稳定产物或停止后核对确认发现。Main Agent 修改任务、规格或启动写产物的验证前，确认 Ralph、provider 与相关写入进程退出且锁释放。
+
+修订保留原任务要求、完成历史与证据；未完成任务可细化并记录理由，完成任务的缺陷另追加修复。重启承接部分成果及累计预算，不绕过用户的轮次、时间或调用限制。明确暂停后不自动恢复；失去句柄或退出 watch 不等于停止，锁冲突时核对原 run；控制协议异常保留现场，不自动修改工具文件。
+
+后台必须由宿主原生能力管理，保持可见状态与可查询/停止的句柄。支持原生自动恢复时接续汇报与已授权复审；不支持时启动即说明须用户返回。2026-10-10 的宿主观察仅属于当时环境记录，不证明当前或所有宿主能力；每次使用按实际能力核对。不用 `nohup`、脱管 shell、定时任务或外挂通知替代缺失能力。用户指定后台而后续需要持续判断时，说明证据并等待模式变更决定，已有授权内的必要保护动作仍可执行。
+
+### 4.3 独立复审与返工
+
+```text
+核对原 run 的执行终态与完成范围
+  → 完整工作包授权：Main Agent 独立复审
+    较窄请求或暂缓复审：只报告执行结果与未验收状态
+  → 追踪 REQ / SC / 方案 / TASK 到实际产物及行为
+  → 复用有效证据，补齐必要验证
+     ├─ 通过：标明范围的 accepted
+     ├─ 有剩余风险：accepted-with-residual-risk，说明接受依据
+     ├─ 真实缺陷：rework-required → 唯一任务源追加修复 → Ralph 实施 → 再复审
+     └─ 关键决定/权限/预算缺失或无法验证：blocked → 说明最小待决事项
+```
+
+Ralph 的 `done`、任务勾选或 exit code 0 只证明相应执行状态。验收需覆盖真实代码、测试条件、持久化或生成物和必要端到端行为；阻塞问题未关闭不得宣称工作包完成。已有授权内的必要修复不重复确认，也不把风格偏好、未来能力或重复测试变为新验收门。运行与验收结果分别汇报；不会因完成自动提交、部署、归档或创建 checkpoint。
 
 ### 4.4 Main Agent Handoff
 
@@ -256,7 +252,7 @@ Postmortem 必须回答：现象、直接触发、根因、修复、适用范围
 
 - `AGENTS.md`：项目入口、职责边界和路由。
 - Repository files：`.spec/`、`docs/`、任务源和动作 Skills。
-- 本地 shell/terminal：启动和控制后台 Ralph。
+- 本地 shell/terminal：按选定模式启动和控制 Ralph。
 - Project Hooks：通过 `SessionStart(source=compact)` 观察真实压缩并注入 handoff 评估；项目 Hook 需要用户审查并信任。
 - Code review/diff surface：最终产物的代码审查证据。
 - Thread/task 创建与导航：用户批准后的完整 handoff。
@@ -282,8 +278,8 @@ Postmortem 必须回答：现象、直接触发、根因、修复、适用范围
 | 状态 | 业务文件写入者 | Main Agent 允许动作 |
 |---|---|---|
 | 规划/验收 | Main Agent | 读写、验证、形成任务 |
-| Ralph running | Ralph/provider | 只读运行状态；不得修改同一业务文件 |
-| Ralph stopped | Main Agent | 取得写入权后 Review 或修复 |
+| Ralph running | Ralph/provider | 按模式只读观察关键证据；不改任务、规格、代码或启动同产物构建 |
+| Ralph stopped | Main Agent | 确认全部写入停止后复审、修订任务；代码与测试修复交回 Ralph |
 | Handoff waiting | 当前 Main Agent | 保存交接；接手方只读核验 |
 | Handoff transferred | 接手 Main Agent | 源会话停止业务修改 |
 
@@ -312,7 +308,7 @@ release/<version>/
 
 首期选定项目级 `.codex/hooks.json`，因为它能随 release 自包含部署，且当前平台明确为 macOS。用户首次使用或 Hook 内容变化后必须在 Codex 中审查并信任；未信任时核心开发流程仍可继续，只失去自动 handoff 评估。独立插件保留为能力稳定后的可选分发方式，不与首期入口并存。
 
-当前 0.1.9 仅新增 `.agents/skills/ralph/SKILL.md`，通过发布入口显式路由，使不自动发现该目录的宿主也可读取操作协议。handoff、checkpoint、postmortem skills 与 `.codex/` 会话治理仍待完善，不随本版交付；上面的目录树是目标结构。
+当前 0.1.9 交付 `.agents/skills/ralph/SKILL.md` 与 `references/foreground.md`、`references/background.md`，发布入口显式路由。2026-10-30 按用户要求在同版本同步此次技能升级；已部署 workspace 仍需人工合并升级内容，单看版本号不能区分此次修订。handoff、checkpoint、postmortem skills 与 `.codex/` 会话治理仍待完善，不随本版交付；上面的目录树是目标结构。
 
 ## 9. 兼容与迁移
 
@@ -327,9 +323,9 @@ release/<version>/
 | 风险 | 失败场景 | 控制 |
 |---|---|---|
 | 任务未准备好就派发 | Ralph 重新做产品决策或实现错误方向 | Task Readiness Gate；高影响缺口转 HUMAN |
-| 后台双写 | Main Agent 与 Ralph 覆盖彼此改动 | 单写入者状态；并行时 worktree 隔离 |
-| 自报完成误判 | tasks 全勾但产物不满足需求 | 独立 Acceptance Review + 复跑验证 |
-| 过程回灌污染 | provider 日志挤占 Main Agent 上下文 | 正常路径不读日志；失败最小诊断 |
+| 执行期双写 | Main Agent 与 Ralph 覆盖彼此改动 | 单写入者状态；并行时 worktree 隔离 |
+| 自报完成误判 | tasks 全勾但产物不满足需求 | 独立复审 + 风险匹配验证 |
+| 过程回灌污染 | provider 日志挤占 Main Agent 上下文 | 前台只读取决策所需证据；后台不持续观察；不回灌完整会话 |
 | Handoff 机械提醒 | 每次压缩都直接要求切换会打断工作 | Hook 只要求评估；安全位置、上下文质量和切换收益仍需判断；真实使用出现干扰后再增加静默策略 |
 | 记忆事实漂移 | handoff/checkpoint/postmortem 复制需求正文 | 唯一事实源表 + 引用而非复制 |
 | Codex 能力变化 | Hook 或任务 API 变更导致流程失效 | Codex 集成层独立、fail-open、版本兼容 smoke |
@@ -338,8 +334,8 @@ release/<version>/
 
 ### 实施前置条件
 
-- **双写保护尚未实现**：后台派发前必须定义并验证写入权协议，否则 Main Agent 可在 Ralph 运行时破坏工作区一致性。
-- **验收入口缺失**：当前有 review 规则但没有明确的用户触发式最终产物验收 workflow；不能用 `ralph` Skill 的运行结果报告代替。
+- **写入权协议依赖 agent 遵守**：技能已定义停止与核验要求，尚无机器强制隔离；需通过真实宿主停止/恢复演练检验，不能把文档规则称作已实现的防护。
+- **独立复审已纳入 Ralph skill**：规则覆盖不代表新会话行为已验证；需在真实工作包检查模式选择、任务调整和范围内返工能否稳定复现。
 - **Hook 信任和路径尚未做真实 smoke**：文档已确认 Codex 事件契约，但项目级配置的信任提示、Git 根路径解析和 turn 中间自动压缩续跑仍需在当前 Codex/macOS 版本验证后才能进入 release。
 
 ### 后续观察
@@ -354,10 +350,10 @@ release/<version>/
 
 ## 12. 验证方向
 
-- 临时 workspace 端到端：自然语言需求 → 用户要求任务清单 → 后台 Ralph → 用户要求验收 → 按范围审查产物 → 可讨论 checkpoint。
-- 上下文隔离：正常执行不向 Main Agent 注入完整 provider 输出；失败只返回最小诊断。
+- 临时 workspace 端到端：任务准备 → 已授权执行 → 默认前台/明确后台 → 独立复审 → 必要返工 → 有证据的验收结论。仅启动、状态查询、暂停与明确延后复审分别验证不越界。
+- 上下文隔离：前台仅读取关键证据，后台启动后交还控制权；均不回灌完整 provider 输出。
 - 宿主/provider 分离：覆盖 Codex 宿主 + Antigravity provider、Claude 宿主 + Codex provider；检查原生运行标识、查询句柄、主会话可交互及按能力汇报。另查快速结束、锁冲突、句柄丢失和原生能力缺失时不会误报运行或重复启动。
-- 故障注入：Ralph `done` 后不自动启动验收；用户要求验收时，若代码故意不满足 SC，Main Agent 输出标明范围的 `rework-required` 并与用户沟通返工。
+- 故障注入：done 但实际产物不满足 SC 时进入返工；假阳性断言、证据清理、预算跨重启与重复失败无新证据时按技能边界处置。
 - 并发保护：Ralph running 时阻止或明确拒绝 Main Agent 业务写入。
 - Handoff fixture：`SessionStart(source=compact)`、未信任/禁用退化、延后、授权和接手核验状态迁移。
 - Postmortem 演练：重复失败能形成 prevention check 并提炼到正确载体。

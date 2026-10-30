@@ -3,6 +3,7 @@
 - 状态：已确认。
 - 最近验证：2026-10-09，0.1.8 在 macOS 系统 Bash 3.2.57 下完整集成测试 **193 PASS / 0 FAIL**；包括 18 项新增发布回归和 6 组详情/紧凑 PTY、实际状态写入并发检查。Shell/jq 语法、静态规则、发布包完整比对与空白检查通过。真实 Codex 0.159.2、Claude Code 2.1.284、Antigravity 1.3.2 的合成 workspace 发布包烟测均通过。Antigravity 首次隔离 HOME 在认证阶段退出（0 模型轮次）；经用户授权沿用本机现有登录态后通过，无需重新登录。
 - 当前修复验证：2026-10-10，0.1.9 系统 Bash 3.2.57 下完整集成复验 **196 PASS / 0 FAIL**，包括 21 项发布回归、14 项详情/紧凑画面/状态回归，以及实际发布包部署。PTY 验证 80/120/180 列、1/4/8 行矮窗口、过大事件区、长中文/emoji/制表符、live → finished、跨帧健康灯、配置加载与十进制校验、并发读取一致性和 Ctrl-C 后终端恢复；实际 run -v 中断验证最终状态、锁释放与 provider 子进程清理。此前一轮 195 PASS / 1 FAIL 的键盘中断超时及处理记录保留在 PM-0008；最终复验全部通过。静态检查、发布包完整比对及空白检查通过，0.1.9 仅交付 Ralph skill。前期修复版曾通过隔离只读观察目录读取营销项目实际运行状态，Ctrl-C 后原 run 和锁保持；本次未重新调用三个真实模型，也未完成各宿主 skill 的交互端到端演练。
+- Ralph skill 回流验证：2026-10-30，按用户要求保持 0.1.9，系统 Bash 3.2.57 下完整集成测试 **198 PASS / 0 FAIL**。新增两项负例分别验证缺失 foreground/background reference 时发布校验失败；实际发布包两任务两轮部署 smoke 和原有 PTY 回归通过。静态检查、完整发布包比对、空白及技能 YAML/相对链接检查通过；三份英文技能文件与来源 worktree 一致。官方 `quick_validate.py` 因缺少 PyYAML 未运行成功，采用现有 Ruby YAML 解析器与文件核对补验。完成授权/模式/停止恢复/复审边界的文档走查，未重新调用真实 provider，也未验证全新 Main Agent 会话的完整协作行为。
 - 来源：`docs/features/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / REQ-054 / NFR-* 系列）、`docs/features/antigravity-cli/requirements.md`（REQ-048 ~ REQ-053）、`docs/architecture.md`（启动校验、退出原因、运行目录 schema）、`docs/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
 - 范围：本文承载 ralph-loop 项目的测试入口、基础设施约定、隔离规则、单一来源规则、运行平台和当前覆盖范围。本文不重复测试方法论（在 `.spec/rules/TESTING.md`），不写具体用例的验证计划；用户已建立对应任务时，计划写入 `.ralph/TASKS.md` 的“验证计划”段，其他工作在交付中报告。root `task.md` 已封版。
 - 变更条件：测试入口脚本变化、新增 fixture 或 mock 类型、隔离规则失效、新平台支持、测试覆盖目标变化。
@@ -13,7 +14,7 @@
 |---|---|---|
 | `bash scripts/check.sh` | 逐文件 Shell 语法、协议版本指纹、安装文档依赖基线、现行文档位置、发布包从源文件重建后的完整比对 | stdout 含 `ralph-loop check passed` |
 | `bash scripts/build-release.sh --verify` | 单独核对当前版本 release 的文件清单和全部生成内容，不修改现有发布包 | stdout 含 `release verified`；多文件、少文件或内容不同均失败 |
-| `bash scripts/integration-test.sh` | 端到端集成测试（mock workspace + 退出原因 + 启动校验 + adapter 各分支 + 发布包部署） | `PASS=N FAIL=0`，N 随阶段扩展（当前实测：196） |
+| `bash scripts/integration-test.sh` | 端到端集成测试（mock workspace + 退出原因 + 启动校验 + adapter 各分支 + 发布包部署） | `PASS=N FAIL=0`，N 随阶段扩展（当前实测：198） |
 | `git diff --check` | 空白错误检查 | 无输出 |
 
 完整验证 = `check.sh`、`integration-test.sh`、`git diff --check` 全过；`check.sh` 已调用发布包完整比对。文档/协作规则改动至少跑前两项；脚本/代码改动跑全套。
@@ -27,13 +28,19 @@
 1. 运行 `bash scripts/build-release.sh --verify`，确认当前包没有多余或缺失文件，生成内容逐项一致，CLI 入口保持可执行。
 2. 将 `release/<version>/.` 复制到仓库内的临时 Git workspace，确认 `CLAUDE.md` 软链、`ralph --version`，再用临时测试任务和 fake provider 跑到 `exit_reason=done`。不得使用本仓库真实 `.ralph/TASKS.md`。
 3. 逐项核对发布版 `AGENTS.md`、`.spec/README.md`、`.ralph/README.md` 和 `README.md` 中要求用户或 agent **立即读取**的本地文件：必须存在于包内，或明确写成首次会话按需创建、仅在项目已有时读取、或仅存在于开发仓库。示例路径与未来目标结构不按已交付文件处理。
-4. 检查包内无 `.ralph/runs/`、`status.json`、`lock`、真实 `.env`、本仓库任务状态，以及未交付的 Hook / Skills。0.1.9 仅交付 `.agents/skills/ralph/SKILL.md`；其他 skills 不进入包。
+4. 检查包内无 `.ralph/runs/`、`status.json`、`lock`、真实 `.env`、本仓库任务状态，以及未交付的 Hook / Skills。0.1.9 仅交付 Ralph skill：`SKILL.md`、`references/foreground.md` 与 `references/background.md`，三份文件及链接必须完整；其他 skills 不进入包。
 
 `scripts/integration-test.sh` 的「Release deployment: selected Bash compatibility」用例自动复制当前完整发布包到仓库内临时 Git workspace；通过统一的 `TEST_BASH` 解释器验证两任务两轮完成、任务勾选、result/status 的终态与计数、非 TTY watch、版本输出、CLI 可执行权限、`CLAUDE.md` 软链及只包含 Ralph skill。安装指引必须在复制命令前列出完整冲突清单（包括 `README.md` 与 `.agents/`）；发布 README 不能覆盖已有项目 README。
 
-发布回归还覆盖同秒 run ID 碰撞保留旧证据，校验器拒绝同字节外部 CLI 软链与额外 skill；PTY 覆盖极矮窗口、过大事件区、跨帧健康灯、并发状态读取与 `NO_COLOR`，并验证独立 watch 加载 `.env` UI 配置、进程值优先。UI 数值回归覆盖前导零、非法阈值、过大值与表达式输入；Ctrl-C 退出后核对终端输入标志、中断键和自动折行均恢复。 实际 `run -v` 中断回归还核对退出码 130、最终 result/status、锁释放和 fake provider 外部子进程清理；共享 renderer 的单次调用保留原生 SIGINT。并发写入下，TTY watch、非 TTY watch 与文本 status 均核对同一快照内的轮次与任务进度。部署回归证明包的实际 CLI 行为及静态入口可读，不证明各宿主已完成 skill 交互端到端验证；Claude 主会话原生通知和宿主关闭/恢复仍需单独演练。
+发布回归还覆盖同秒 run ID 碰撞保留旧证据，校验器拒绝同字节外部 CLI 软链、额外 skill 及任一缺失的 Ralph 模式 reference；PTY 覆盖极矮窗口、过大事件区、跨帧健康灯、并发状态读取与 `NO_COLOR`，并验证独立 watch 加载 `.env` UI 配置、进程值优先。UI 数值回归覆盖前导零、非法阈值、过大值与表达式输入；Ctrl-C 退出后核对终端输入标志、中断键和自动折行均恢复。 实际 `run -v` 中断回归还核对退出码 130、最终 result/status、锁释放和 fake provider 外部子进程清理；共享 renderer 的单次调用保留原生 SIGINT。并发写入下，TTY watch、非 TTY watch 与文本 status 均核对同一快照内的轮次与任务进度。部署回归证明包的实际 CLI 行为及静态入口可读，不证明各宿主已完成 skill 交互端到端验证；Claude 主会话原生通知和宿主关闭/恢复仍需单独演练。
 
 真实 Claude/Codex/Antigravity provider smoke 与上述 fake 部署验证分开报告；fake 通过不表示真实 provider 已验证。
+
+## Ralph skill 协作规则验证
+
+以 `docs/features/vibecoding-collaboration/requirements.md` 的 SC-035-1 ~ SC-039-1 为口径，检查默认前台、明确后台、仅启动/状态查询、完整执行中追加条件、明确暂停、句柄丢失、done 但产物不达标、范围内返工及预算不足等场景。核对技能、项目入口、TASKS/Review 规范和发布模板是否给出一致决定；oneshot 的追加规则不能被误用来禁止已授权的 Main Agent 监督调整。
+
+格式与链接、发布包字节一致、fake provider smoke 只能证明结构和 CLI 行为。真实协作验证还需在新会话中观察模式选择、停止全部写入后调整任务、承接已有进度与累计预算、独立复审及必要返工；后台通知与宿主恢复按当前实际能力单独验证。未做这些演练时，不宣称协作规则已在所有宿主稳定复现。
 
 ## 测试基础设施
 

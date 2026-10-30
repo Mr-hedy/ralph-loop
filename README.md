@@ -1,6 +1,6 @@
 # ralph-loop
 
-`ralph-loop` 正在建设为面向 Codex Main Agent 的 vibecoding 协作脚手架：Main Agent 负责需求、方案、任务和最终产物验收，Ralph 作为独立后台执行引擎，用 provider CLI 的 fresh oneshot 能力驱动长任务。当前已发布实现仍以 Ralph shell-first CLI harness 为核心。
+`ralph-loop` 正在建设为面向 Codex Main Agent 的 vibecoding 协作脚手架：Main Agent 负责需求、方案、任务和最终产物验收，Ralph 作为独立执行引擎，用 provider CLI 的 fresh oneshot 能力驱动长任务。当前已发布实现仍以 Ralph shell-first CLI harness 为核心。
 
 ![ralph-loop 运行演示：两轮任务执行、Provider 事件流和最终完成状态](./ralph-loop-demo.gif)
 
@@ -9,7 +9,7 @@
 ## 定位
 
 - 做什么：提供 `ralph run`、`ralph status`、`ralph watch` 等 CLI 能力，围绕使用者 workspace 的 `.ralph/TASKS.md` 组织多轮 agent oneshot 执行。
-- 建设方向：以 `.spec/` 作为自然语言协作 harness，串联后台 Ralph、最终产物验收、handoff、checkpoint 和 postmortem；目标需求与技术架构见 `docs/features/vibecoding-collaboration/requirements.md` 和 `docs/features/vibecoding-collaboration/solution.md`。
+- 建设方向：以 `.spec/` 作为自然语言协作 harness，串联 Ralph 前台/后台协作、独立产物验收、handoff、checkpoint 和 postmortem；目标需求与技术架构见 `docs/features/vibecoding-collaboration/requirements.md` 和 `docs/features/vibecoding-collaboration/solution.md`。
 - 不做什么：不实现自有 agent 推理、任务规划或代码生成能力；不把 provider session 当作任务完成事实源；不默认 resume provider session；运行时不提供 `ralph init`。版本化部署模板由仓库构建脚本生成，而不是由运行中的 Ralph 隐式写入。
 - 谁在用：维护者和 agent 协作者，用于在真实 workspace 中执行长期或多步骤开发任务。
 
@@ -41,7 +41,7 @@
 cp -R <ralph-loop-repo>/release/0.1.9/. <your-workspace>/
 ```
 
-部署包同时带入 `README.md`、`.ralph/`、`.spec/`、Ralph skill、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md` 文档地图模板。已有同名文件时先人工合并，不要静默覆盖。
+部署包同时带入 `README.md`、`.ralph/`、`.spec/`、Ralph skill 及前台/后台 references、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md` 文档地图模板。已有同名文件时先人工合并，不要静默覆盖。
 
 ### 2. 配置 workspace
 
@@ -62,6 +62,8 @@ RALPH_PROVIDER=claude                         # claude / codex / antigravity
                                          # 该目录必须已包含对应 provider 登录态 / 配置
                                          # 只改变凭据/配置来源，不改变权限或沙箱模式
 ```
+
+通过 Main Agent 执行工作包时，按 [Ralph skill](.agents/skills/ralph/SKILL.md) 默认前台协作；用户指定或执行与验证路径已有可靠依据时可后台托管。完整执行包含范围内的任务调整、独立复审和必要返工，较窄请求优先。
 
 首次项目会话先根据用户目标和项目事实补齐 `AGENTS.md` 与 `docs/README.md`；用户决定生成任务清单后再填写 `.ralph/TASKS.md`，用户要求执行且清单准备好后才运行 Ralph。`.ralph/.gitignore` 已随 release 提供，负责忽略运行态文件和私有配置。
 

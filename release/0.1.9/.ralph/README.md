@@ -6,7 +6,7 @@ oneshot 协议和任务模板。部署到自己的 git workspace 后，可以让
 
 > 当前正式支持的 provider 包含 Claude Code、Codex CLI 和 Antigravity CLI（测试另可用 `fake`）。
 
-由 Main Agent 启动、查看或排障时，先按 [Ralph workflow](../.agents/skills/ralph/SKILL.md) 执行；宿主的后台任务管理方式与 oneshot provider 的选择相互独立。下文提供直接使用 CLI 的配置和操作说明。
+由 Main Agent 执行、查看或排障时，先按 [Ralph skill](../.agents/skills/ralph/SKILL.md) 识别请求范围、选择前台或后台模式，并按需读取对应流程；动态任务调整和独立复审也由该入口约定。模式描述宿主的托管与参与方式，与 oneshot provider 的选择相互独立，不增加 CLI 模式参数。下文提供直接使用 CLI 的配置和操作说明。
 
 安装后最短路径：
 
@@ -561,7 +561,7 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 
 | exit_reason | exit code | 意思 | 你下一步做什么 |
 |---|---:|---|---|
-| `done` | 0 | 全部任务执行结束，不表示需求已验收 | 看工作树变更、验证记录与已获授权的提交；等待用户提出验收诉求，再由 Main Agent 按约定范围审查 |
+| `done` | 0 | 全部任务执行结束，不表示需求已验收 | 看工作树变更、验证记录与已获授权的提交；由 Main Agent 按已有工作包授权或用户验收诉求独立复审；仅启动/状态查询时说明未验收 |
 | `provider_failed` | 2 | provider CLI 报错或认证失败 | 看 `provider.stdout.log` 和 `exit-message.txt`，修 provider 环境后重跑 |
 | `timeout` | 3 | 单个 round 超过 `--round-timeout` | 放大 timeout、拆小任务，或人工处理当前任务 |
 | `locked` | 6 | 已经有一个 `ralph run` 在跑 | 用 `status` / `watch` 看现有 run，不要并发启动 |

@@ -3640,13 +3640,15 @@ watch_out="$("$release_bash" "$ws/.ralph/bin/ralph" watch)"
 if [[ "$rc" -eq 0 && "$version_out" == "ralph $release_version ("* \
    && -x "$ws/.ralph/bin/ralph" && -L "$ws/CLAUDE.md" \
    && "$(readlink "$ws/CLAUDE.md")" == AGENTS.md \
-   && "$(find "$ws/.agents/skills" -type f | wc -l | tr -d ' ')" -eq 1 \
+   && "$(find "$ws/.agents/skills" -type f | wc -l | tr -d ' ')" -eq 3 \
    && -f "$ws/.agents/skills/ralph/SKILL.md" \
+   && -f "$ws/.agents/skills/ralph/references/foreground.md" \
+   && -f "$ws/.agents/skills/ralph/references/background.md" \
    && "$(grep -c '^- \[x\]' "$ws/.ralph/TASKS.md")" -eq 2 \
    && "$watch_out" == *"round 2 "* && "$watch_out" == *" 2/2 tasks"* \
    && "$watch_out" == *"state: finished "* && "$watch_out" == *"exit_reason: done "* \
    && ! -s "$ws/stdout.log" ]] \
-   && cmp -s "$REPO_ROOT/.agents/skills/ralph/SKILL.md" "$ws/.agents/skills/ralph/SKILL.md" \
+   && diff -rq "$REPO_ROOT/.agents/skills/ralph" "$ws/.agents/skills/ralph" >/dev/null \
    && jq -e '.exit_reason == "done" and .rounds == 2 and .tasks_checked_end == 2 and .tasks_total == 2' "$run_dir/result.json" >/dev/null \
    && printf '%s\n' "$status_out" | jq -e '.state == "finished" and .exit_reason == "done" and .tasks_checked == 2 and .tasks_total == 2' >/dev/null; then
   _pass "release deployment: $release_bash, two tasks done, result/status/watch/version, symlink and only Ralph skill verified"

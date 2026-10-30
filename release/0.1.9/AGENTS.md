@@ -66,8 +66,10 @@
 ## Spec / Ralph 集成
 
 本项目使用 `.spec/` 作为协作规范和质量门；需要判断任务类型和适用规则时，先阅读
-`.spec/README.md`。主 Agent 需要启动、托管、查看状态或排障 Ralph 时，先阅读
-`.agents/skills/ralph/SKILL.md`；配置和 CLI 细节见 `.ralph/README.md`。
+`.spec/README.md`。主 Agent 需要执行、托管、查看状态或排障 Ralph 时，先阅读
+`.agents/skills/ralph/SKILL.md`，按需读取前台或后台流程；模式选择、任务调整、恢复与
+独立复审在该入口维护。完整工作包执行默认包含范围内的调整、独立复审与必要返工，
+用户较窄指令优先；变更任务前须确认执行与写入已停止。配置和 CLI 细节见 `.ralph/README.md`。
 Ralph 的 oneshot 协议和任务调度由 `.ralph/` 自身管理，本文件不复制其内部逻辑。
 宿主工作台与 oneshot provider 分开选择；oneshot 不重复启动外层 Ralph。
 
