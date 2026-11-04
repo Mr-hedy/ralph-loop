@@ -169,6 +169,28 @@ _check_first_task() {
 }
 
 case "$scenario" in
+  checked_network_error)
+    _emit_init
+    _check_first_task
+    _emit_result_error "connection reset by peer" network
+    exit 1
+    ;;
+  sticky_progress)
+    _emit_init
+    for piece in 'Pinned ' $'reply\nfrom ' 'three fragments'; do
+      jq -nc --arg text "$piece" '{event:"step_update",step_update:{step_type:"agent_response",step_index:83,text_delta:$text}}'
+    done
+    _check_first_task
+    for tool in A B C D E F G H; do _emit_step_tool "tool-$tool" inspect; done
+    # 给发布包 PTY 检查留出可观察的收尾阶段，测试端读取两个画面后放行。
+    for ((i=0; i<300; i++)); do
+      [[ -f "${RALPH_MOCK_STICKY_GATE:?}" ]] && break
+      sleep 0.05
+    done
+    [[ -f "$RALPH_MOCK_STICKY_GATE" ]] || exit 2
+    _write_native_transcript "$conversation_id" >/dev/null
+    printf '%s' '{"event":"result","result":{"status":"SUCCESS","response":"FINAL-WITHOUT-LF"}}'
+    ;;
   happy)
     _emit_init
     _emit_step_text "Starting task..."

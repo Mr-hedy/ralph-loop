@@ -263,6 +263,7 @@ agy --print "$prompt" \
 - 从 `provider.stdout.log` 的 `init` 事件中提取 `conversation_id`。
 - 按上述目录优先级检查本轮会话的原生 transcript；只有非空普通文件通过会话目录和文件物理路径校验且复制成功时，才写入 `session.antigravity.jsonl` 和 `capture_status=ok`，否则写入 `capture_status=warning` 与原因。
 - 从 `provider.stdout.log` 派生 `session.history.log`：解析 `init` 会话 ID、`step_update` 中的 assistant 文本增量、工具名与输出、子 agent 摘要，并记录 `[result] status=<status>`；未出现在原始事件中的 thinking 不补造。
+- 紧凑 `watch` 和 `run -v` 按 `conversation_id` 和 `step_index` 拼接文字增量，工具状态独立滚动显示。当前执行日志里的最后一条回复可在打开 `watch` 时恢复。
 - 实时观察用 `watch --details`：兼容嵌套 `step_update` 与旧的顶层字段，区分工具 ACTIVE/DONE/ERROR；`tool_info.error` 优先于 DONE 状态判断失败，保留同时提供的输出，并展示终态 `result.response` 中的最终回复。此入口不读取 provider 原生目录。
 - 2026-10-09 核对本机 `agy 1.3.2 --help` 与[官方 headless 协议](https://www.antigravity.google/docs/cli/headless/)：未发现公开的思考正文输出开关或流式 thinking 字段；`usage.thinking_tokens` 只是计数。现场流没有思考正文，而采集的原生 transcript 有 thinking，故不能承诺此版本实时显示思考。若事件实际提供 thinking/thinking_delta，显示层会展示；缺失时仍可观察回复、工具过程及结果。
 

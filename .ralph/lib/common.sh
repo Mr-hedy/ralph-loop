@@ -35,8 +35,11 @@ ralph_workspace_root() {
 load_env() {
   local env_file="$1"
   [[ -f "$env_file" ]] || return 0
-  local line key raw_val val
+  local line key raw_val val bom=$'\xef\xbb\xbf'
   while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -n "$bom" && "$line" == "$bom"* ]]; then line="${line#"$bom"}"; fi
+    bom=''
+    if [[ "${line: -1}" == $'\r' ]]; then line="${line:0:${#line}-1}"; fi
     # 跳过注释和空行
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
     [[ "$line" =~ ^[[:space:]]*$ ]] && continue

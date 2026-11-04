@@ -3223,20 +3223,15 @@ EOF
 {"event":"result","result":{"status":"SUCCESS","error":{"type":"api","message":""}}}
 {"event":"result","result":{"status":"PENDING"}}
 {"event":"result","result":{"status":"ERROR"}}'
-	run_filter_out="$(printf '%s\n' "$agy_terminal_events" | "$TEST_BASH" -c 'source "$1"; _ralph_filter_verbose' _ "$REPO_ROOT/.ralph/lib/run.sh")" || run_filter_out=""
-	watch_filter_out="$(printf '%s\n' "$agy_terminal_events" | "$TEST_BASH" -c 'source "$1"; _ralph_watch_filter_events' _ "$REPO_ROOT/.ralph/lib/watch.sh")" || watch_filter_out=""
-	agy_filters_ok=1
-	for filtered in "$run_filter_out" "$watch_filter_out"; do
-	  [[ "$(printf '%s\n' "$filtered" | grep -c '✓ result')" -eq 1 \
-	     && "$filtered" == *"❌ error: backend failed"* \
-	     && "$filtered" == *"❌ error: error type: api"* \
-	     && "$filtered" == *"⚠ unknown result status: PENDING"* \
-	     && "$filtered" == *"❌ error: provider result status ERROR"* ]] || agy_filters_ok=0
-	done
-	if [[ "$agy_filters_ok" -eq 1 ]]; then
-	  _pass "antigravity terminal display: run -v and watch distinguish success, error and unknown status"
+	filtered="$(printf '%s\n' "$agy_terminal_events" | "$TEST_BASH" -c 'source "$1"; ralph_filter_events sticky' _ "$REPO_ROOT/.ralph/lib/events.sh")" || filtered=""
+	if [[ "$(printf '%s\n' "$filtered" | grep -c '✓ result')" -eq 1 \
+	   && "$filtered" == *"❌ error: backend failed"* \
+	   && "$filtered" == *"❌ error: error type: api"* \
+	   && "$filtered" == *"⚠ unknown result status: PENDING"* \
+	   && "$filtered" == *"❌ error: provider result status ERROR"* ]]; then
+	  _pass "antigravity terminal display: shared sticky filter distinguishes success, error and unknown status"
 	else
-	  _fail "antigravity terminal display: run=[$run_filter_out] watch=[$watch_filter_out]"
+	  _fail "antigravity terminal display: $filtered"
 	fi
 
 	# ── Sticky UI (I5 QA-1) ───────────────────────────────────────────────────
@@ -3247,7 +3242,7 @@ EOF
 	_sticky_unit() {
 	  local code="$1"
 	  (
-	    unset NO_COLOR
+	    unset NO_COLOR RALPH_UI_STICKY_REPLY_LINES RALPH_UI_STICKY_EVENT_LINES
 	    source "$REPO_ROOT/.ralph/lib/sticky.sh"
 	    _srefresh_size() { _SCOLS=100; _SROWS=30; }
 	    ralph_sticky_enter() {
@@ -3259,7 +3254,7 @@ EOF
 	    _RALPH_STICKY_RUN_START_TS="$(date +%s)"
 	    _RALPH_STICKY_ROUND=3
 	    _RALPH_STICKY_ROUND_START_TS="$(date +%s)"
-	    _RALPH_STICKY_TASKS_DONE=2
+	    _RALPH_STICKY_TASK_INDEX=2
 	    _RALPH_STICKY_TASKS_TOTAL=5
 	    _RALPH_STICKY_CURRENT_TASK="Test task"
 	    _RALPH_STICKY_TASK_TRY=1
@@ -3274,15 +3269,15 @@ EOF
 	  ) 2>/dev/null
 	}
 
-	# ── 1. First frame: live mode = 11 lines (top + hr + 6 events + hr + bottom + hint)
-	# Frozen mode 仍是 10 行（hint 走底栏后缀，不占独立行）。
+	# ── 1. First frame: live mode = 11 lines (top + hr + 2 reply + 4 events + hr + bottom + hint)
+	# Frozen mode 为 10 行（hint 走底栏后缀，不占独立行）。
 	echo ""
 	echo "-- Sticky: first frame line count (live)"
 	out="$(_sticky_unit 'ralph_sticky_enter; ralph_sticky_render_frame')"
 	# 最后一行可能有结尾控制序列：先剥离，再按记录计数，不能额外补换行。
 	line_count=$(printf '%s' "$out" | _strip_ansi | awk 'END { print NR }')
 	if [[ "$line_count" -eq 11 ]]; then
-	  _pass "sticky frame (live): 11 lines (top+hr+6ev+hr+bottom+hint)"
+	  _pass "sticky frame (live): 11 lines (top+hr+2reply+4ev+hr+bottom+hint)"
 	else
 	  _fail "sticky frame (live): expected 11 lines, got $line_count"
 	fi
@@ -3348,12 +3343,12 @@ EOF
 
 	# ── 2. cursor_up on second frame ────────────────────────────────────────
 	echo ""
-	echo "-- Sticky: cursor_up on redraw (live = 11 lines)"
+	echo "-- Sticky: cursor_up matches the previous frame height"
 	out2="$(_sticky_unit 'ralph_sticky_enter; ralph_sticky_render_frame; ralph_sticky_render_frame')"
-	if printf '%s' "$out2" | grep -q $'\033\[11A'; then
-	  _pass "sticky redraw: cursor_up 11 lines on second frame"
+	if [[ "$out2" == *$'\033['"${line_count}A"* ]]; then
+	  _pass "sticky redraw: cursor_up $line_count lines on second frame"
 	else
-	  _fail "sticky redraw: cursor_up sequence not found in output"
+	  _fail "sticky redraw: expected cursor_up $line_count lines on second frame"
 	fi
 
 	# ── 3. Health light: green (≤60s idle) ──────────────────────────────────
@@ -3394,9 +3389,9 @@ EOF
 	  _fail "sticky health: red ANSI not found for 400s idle"
 	fi
 
-	# ── 4. Event area 6-line FIFO ───────────────────────────────────────────
+	# ── 4. Event area 4-line FIFO ───────────────────────────────────────────
 	echo ""
-	echo "-- Sticky: event area 6-line FIFO eviction"
+	echo "-- Sticky: event area 4-line FIFO eviction"
 	out_ev="$(_sticky_unit '
 	  ralph_sticky_enter
 	  for n in AA BB CC DD EE FF GG HH II JJ; do
@@ -3407,11 +3402,11 @@ EOF
 	clean_ev=$(printf '%s' "$out_ev" | _strip_ansi)
 	ev_ok=1
 	echo "$clean_ev" | grep -q "JJ" || ev_ok=0
-	echo "$clean_ev" | grep -q "EE" || ev_ok=0
+	echo "$clean_ev" | grep -q "GG" || ev_ok=0
 	echo "$clean_ev" | grep -q "AA" && ev_ok=0
-	echo "$clean_ev" | grep -q "DD" && ev_ok=0
+	echo "$clean_ev" | grep -q "FF" && ev_ok=0
 	if [[ "$ev_ok" -eq 1 ]]; then
-	  _pass "sticky events: 6-line FIFO, EE..JJ visible, AA..DD evicted"
+	  _pass "sticky events: 4-line FIFO, GG..JJ visible, AA..FF evicted"
 	else
 	  _fail "sticky events: FIFO eviction not working"
 	fi
@@ -3467,7 +3462,7 @@ result_file="$result_file"
 _RALPH_STICKY_RUN_START_TS=\$(date +%s)
 _RALPH_STICKY_ROUND=1
 _RALPH_STICKY_ROUND_START_TS=\$(date +%s)
-_RALPH_STICKY_TASKS_DONE=0
+_RALPH_STICKY_TASK_INDEX=1
 _RALPH_STICKY_TASKS_TOTAL=1
 _RALPH_STICKY_CURRENT_TASK="Test"
 _RALPH_STICKY_TASK_TRY=1
@@ -3518,7 +3513,7 @@ result_file="$result_file"
 _RALPH_STICKY_RUN_START_TS=\$(date +%s)
 _RALPH_STICKY_ROUND=1
 _RALPH_STICKY_ROUND_START_TS=\$(date +%s)
-_RALPH_STICKY_TASKS_DONE=0
+_RALPH_STICKY_TASK_INDEX=1
 _RALPH_STICKY_TASKS_TOTAL=1
 _RALPH_STICKY_CURRENT_TASK="Test"
 _RALPH_STICKY_TASK_TRY=1
@@ -3573,11 +3568,11 @@ EXPEOF
 	  RALPH_FAKE_SCENARIO=slow RALPH_FAKE_SLEEP=1 expect -f "$ws/run-sticky.exp" > "$stderr_file" 2>/dev/null || true
 
 	  # sticky 顶栏字段间夹 ANSI 序列（如 tasks\033[0m \033[0m0/1），原始字节 grep
-	  # 匹配不到 "tasks 0/1" / "oneshots 1"，先 strip ANSI 再断言。
+	  # 匹配不到 "tasks 1/1" / "oneshots 1"，先 strip ANSI 再断言。
 	  stripped="$(_strip_ansi < "$stderr_file")"
 	  sticky_ok=0
 	  if grep -q "────────────────────────────────" <<< "$stripped" \
-	     && grep -q "tasks 0/1" <<< "$stripped" \
+	     && grep -q "tasks 1/1" <<< "$stripped" \
 	     && grep -q "oneshots 1" <<< "$stripped"; then
 	    sticky_ok=1
 	  fi

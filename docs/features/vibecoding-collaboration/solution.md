@@ -308,7 +308,7 @@ release/<version>/
 
 首期选定项目级 `.codex/hooks.json`，因为它能随 release 自包含部署，且当前平台明确为 macOS。用户首次使用或 Hook 内容变化后必须在 Codex 中审查并信任；未信任时核心开发流程仍可继续，只失去自动 handoff 评估。独立插件保留为能力稳定后的可选分发方式，不与首期入口并存。
 
-当前 0.1.9 交付 `.agents/skills/ralph/SKILL.md` 与 `references/foreground.md`、`references/background.md`，发布入口显式路由。2026-10-30 按用户要求在同版本同步此次技能升级；已部署 workspace 仍需人工合并升级内容，单看版本号不能区分此次修订。handoff、checkpoint、postmortem skills 与 `.codex/` 会话治理仍待完善，不随本版交付；上面的目录树是目标结构。
+自 0.1.9 起交付 `.agents/skills/ralph/SKILL.md` 与 `references/foreground.md`、`references/background.md`，发布入口显式路由。2026-10-30 按用户要求在同版本同步此次技能升级；已部署 workspace 仍需人工合并升级内容，单看版本号不能区分此次修订。handoff、checkpoint、postmortem skills 与 `.codex/` 会话治理仍待完善，不随本版交付；上面的目录树是目标结构。
 
 ## 9. 兼容与迁移
 

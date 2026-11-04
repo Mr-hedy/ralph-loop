@@ -109,7 +109,7 @@ ralph help    # 帮助
 
 `ralph watch` 默认采用 sticky TUI 渲染（TTY 模式）；非 TTY 输出一次 one-line watch bar 后退出。`--details` 切换为可滚动的执行过程，先回放当前轮，再跟随实时事件与换轮，run 结束后退出；非 TTY 只输出当前轮快照。不支持 `-v` / `--verbose` flag。详细状态字段由 `ralph status` 提供。
 
-紧凑 renderer 在绘制一帧时关闭终端自动折行，结束绘制及退出时恢复；事件按保守显示列宽截断并将换行、回车、制表符转为空格。事件区高度按实际窗口压缩并保留光标行，5 行及以下只显示顶栏，1 行时不输出换行；收缩清理不通过额外换行滚屏。健康灯的日志活动状态保留在渲染进程，日志替换也更新活动时间。TTY watch 的同一帧字段取自同一份状态快照，避免原子替换期间混合前后版本。完整内容仍由 `watch --details` 提供。
+紧凑 renderer 在绘制一帧时关闭终端自动折行，结束绘制及退出时恢复；事件按保守显示列宽截断并将换行、回车、制表符转为空格。从输出终端读取行列数。无法读到终端尺寸时，回退值按十进制校验在 1 到 65535 之间。事件区高度按实际窗口压缩并保留光标行，5 行及以下只显示顶栏，1 行时不输出换行；尺寸稳定时原位重绘，收尾减少提示行时只清理残留。终端缩放可能重排已有历史，先合并连续的变动，再用普通换行保留光标之前的输出，从空白视口重画。这样缩放前的画面可留在滚动历史中，当前可见区只有一份。健康灯的日志活动状态保留在渲染进程，日志替换也更新活动时间。TTY watch 的同一帧字段取自同一份状态快照，避免原子替换期间混合前后版本。完整内容仍由 `watch --details` 提供。
 
 ## 运行目录
 
@@ -143,7 +143,7 @@ ralph help    # 帮助
     lock                            # 运行期产物
 ```
 
-部署使用完整 `release/<version>/`。0.1.9 交付 `.agents/skills/ralph/SKILL.md` 及前台/后台两份 references，由项目 `AGENTS.md` 和兼容 `CLAUDE.md` 入口路由；执行模式独立于 provider。其他 skills 与会话 Hook 不进入本版发布包。
+部署使用完整 `release/<version>/`。自 0.1.9 起交付 `.agents/skills/ralph/SKILL.md` 及前台/后台两份 references，由项目 `AGENTS.md` 和兼容 `CLAUDE.md` 入口路由；执行模式独立于 provider。其他 skills 与会话 Hook 不进入本版发布包。
 
 ### Run 目录
 
@@ -194,6 +194,7 @@ CLI 固定协议的 SHA-1/SHA-256 Git blob 指纹；启动时拒绝不匹配的 
   "task_started_at": "2026-04-24T10:03:40Z",
   "updated_at": "2026-04-24T10:05:12Z",
   "round": 3,
+  "round_task": {"index": 5, "total": 10, "title": "DEV-5: 实现当前任务"},
   "state": "running",
   "tasks_total": 10,
   "tasks_checked": 4,
@@ -201,6 +202,8 @@ CLI 固定协议的 SHA-1/SHA-256 Git blob 指纹；启动时拒绝不匹配的 
   "last_error": null
 }
 ```
+
+`round_task` 是 0.1.10 增加的派发快照。序号从 1 开始，标题和任务总数取自本次派发前的清单。还未派发时为 null。观察旧状态文件若缺少该字段，紧凑顶栏显示 `tasks -/N`，完成态显示 `N/N`。完成度沿用 `tasks_checked` 和 `tasks_total`。
 
 `task_started_at` 标记当前第一个未勾任务首次成为活跃任务的时刻（task 切换时重写，跨 round 累计）；底栏 spinner 持续时间 = 当前时间 − `task_started_at`。run 结束时 `state` 变更为 `finished`，`exit_reason` 填入。
 
@@ -288,6 +291,7 @@ RALPH_LOOP_ROUND_TIMEOUT=
 RALPH_LOOP_STALL_LIMIT=
 
 # UI 渲染 (可选)
+RALPH_UI_STICKY_REPLY_LINES=
 RALPH_UI_STICKY_EVENT_LINES=
 RALPH_UI_HEALTH_GREEN_SEC=
 RALPH_UI_HEALTH_RED_SEC=
@@ -297,7 +301,7 @@ RALPH_UI_HEALTH_RED_SEC=
 
 - 路径写死：ralph 脚本按 `${BASH_SOURCE[0]}` 解析 `.ralph/bin/ralph` → `.ralph/.env`
 - 只 export 以 `RALPH_` 开头的 key
-- 注释 `#`、空行忽略
+- 配置文件支持 LF、CRLF 和开头的 UTF-8 BOM。忽略空行及以 `#` 开头的注释。
 - 不执行任何 shell 语句（不 `source`，用逐行解析）——避免 `.env` 变成任意代码执行点
 
 ## PROMPT.md 协议模板
@@ -347,7 +351,7 @@ Ralph 只解析顶层 checklist（REQ-002 FR-004）：
 - 不限缩进（深层缩进的 `- [ ]` 也视为顶层任务；这是 trantor parseTasks 的既有行为，沿用）
 - 子项语义由 agent 自由使用；Ralph 不解析
 
-全部勾选 → `done` 退出。TASKS.md 空或无 checklist → 视为完成，`done` 退出不产生 round。
+每次派发从同一份清单读取总数、已勾数、待办序号和标题。全部勾选或清单为空时以 `done` 退出，不再派发新轮。运行中任务文件不可读时以 `provider_failed` 退出，诊断写入 `last_error`。按清单序号及标题区分同名任务。网络或限流重试只重派原任务，任务勾选或替换后保留失败轮和原始诊断。
 
 ## Adapter 契约
 
@@ -406,7 +410,7 @@ provider_diagnose <round_dir>
 | exit_reason | 退出码 | 说明 | result.json | run 目录 |
 |---|---|---|---|---|
 | `done` | 0 | 所有顶层 checklist 完成 | 有 | 有 |
-| `provider_failed` | 2 | provider CLI 退出码非 0 | 有 | 有 |
+| `provider_failed` | 2 | provider 执行失败，或派发前任务清单已不可读 | 有 | 有 |
 | `timeout` | 3 | 单 round 执行超时 | 有 | 有 |
 | `locked` | 6 | 已有 run 运行中 | **无** | **无** |
 | `blocked_by_human` | 7 | 第一个未勾选任务前缀是 `HUMAN-` 或触发 per-task 熔断 (I5) | 有 | 有 |
@@ -568,7 +572,7 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
                    │
                    └──→ ralph watch ──→ TTY sticky TUI / 非 TTY one-line bar
                           │
-                          └──→ tail 当前活跃 round log ──→ 事件区
+                          └──→ 回读并跟随当前 round log ──→ 回复区和事件区
 ```
 
 - `status`：单次读取 status.json，渲染 plain text（`run_id` / `run_dir` / `workspace` / `provider` / `model` / `effort` / `started_at` / `updated_at` / `round` / `state` / `tasks_total` / `tasks_checked` / `exit_reason` / `last_error`），任务进度渲染为 `<checked> / <total> checked`。status.json 不存在时输出提示文案，exit 0；内容不可解析时 exit 1，不输出伪状态。
@@ -577,25 +581,26 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 ### Sticky TUI 布局 (I5)
 
 ```text
-[HH:MM:SS] ralph 0.2 · tasks N/M · oneshots 12 · provider claude · elapsed H:MM:SS
+ralph 0.1.10 · tasks N/M · oneshots 12 · provider claude · elapsed H:MM:SS
 ─────────────────────────────────────────────────────────────────────────────────
+[HH:MM:SS] 💬 最近一条模型回复，正文空白合并，按列宽折行
+              续行与正文对齐，默认两行
 [ts] event 1
-[ts] event 2
-... (up to 6 lines of events)
+... (4 rows of tool and other events by default)
 ─────────────────────────────────────────────────────────────────────────────────
 ● round 2/∞ · stall 1/5 · ⠹ HH:MM:SS · → DEV-1 任务名截断...
 ```
 
 - **健康灯** (底栏首位)：🟢 (≤60s) / 🟡 (60~300s) / 🔴 (>300s) 监测 stdout 字节增长。退出时显示 ✓ / ✗ / ⏸。
 - **Per-task 状态**：底栏显示当前 task 的 round 数 and stall 数。
-- **事件区**：通过 tail `provider.stdout.log` 并过滤 marker 得到，滚动显示最近 6 条摘要。Antigravity 的工具 ACTIVE/DONE/ERROR 分别呈现开始、完成和失败，完成/失败显示结果或错误摘要；`run -v` 使用相同语义。
+- **事件区**：上方置顶当前轮最近的公开模型文字，行数由 `RALPH_UI_STICKY_REPLY_LINES` 控制，默认 2 行，首行显示观察进程首次收到该回复的本地时间，回读历史时使用回读时间。Antigravity 按会话与步骤编号拼接增量，忽略已被新回复取代的旧步骤片段。缺少有效步骤编号时独立显示该条更新。Codex 整条更新，Claude 合并单个消息中的文本块。下方滚动显示工具、结果、思考等事件，`RALPH_UI_STICKY_EVENT_LINES` 默认 4 行。两个行数独立生效。紧凑回复保留前 131072 个码点，另读一个码点判断是否省略。事件按配置保存在环形缓冲区，最多 65535 条，对应终端可报告的最大行数。空间不足时先压缩事件区，内容区容得下两行时给两个区域各保留至少一行。Antigravity 的工具 ACTIVE/DONE/ERROR 分别呈现开始、完成和失败，完成/失败显示结果或错误摘要；`run -v` 使用相同语义。
 - **退出行为**：`run -v` 结束后退出；`watch` 结束后不退出，最后一帧保留等 Ctrl-C。 sticky 模式将 Ctrl-C 保留为输入，由渲染进程在 builtin 边界触发既有 INT trap；清理时恢复原终端设置。
 
 ### Watch 行为规则
 
 - **详情入口**：`watch --details` 读取当前轮 `provider.stdout.log` 的完整行并按字节偏移继续读取；文字、工具参数和结果不做摘要截断，终端控制字符会被清理。半行保留到后续刷新，换轮前读完上一轮尾部，随后从头读取新轮；TTY 下持续观察直到 run 结束或 Ctrl-C，非 TTY 输出当前轮快照后退出。不写运行产物，不启动 provider，也不改任务清单。
 
-每次 provider 派发在同一 round 内原子替换为空日志，再启动 provider；详情入口通过 inode 变化重置偏移，紧凑入口用 `tail -F` 跟随路径替换，避免更长的重试日志被当成旧日志续写。详情观察持有当前文件描述符以避免旧 inode 被重用；该描述符不写日志。当前日志仍只保存最新尝试，暂停观察期间错过的重试不作为完整历史承诺。未知 JSON 事件和无法解析的原始行在详情入口保留可读内容。
+每次 provider 派发在同一 round 内原子替换为空日志，再启动 provider；详情入口通过 inode 变化重置偏移，两个紧凑入口也持有本轮日志描述符，从头回读后按字节位置消费完整行，识别文件替换并重置两块显示，避免更长的重试日志被当成旧日志续写。详情观察持有当前文件描述符以避免旧 inode 被重用；该描述符不写日志。紧凑模式按批消费完整记录，截取工具摘要，批次之间可以响应 Ctrl+C。两种观察模式按原始字节数移动游标，混入二进制诊断也能继续读取。当前日志仍只保存最新尝试，暂停观察期间错过的重试不作为完整历史承诺。未知 JSON 事件和无法解析的原始行在详情入口保留可读内容。
 
 Codex 命令结果读取官方 `aggregated_output`，兼容旧字段并显示退出码；同时展示实时流提供的 reasoning 摘要、文件变更、MCP 操作和搜索，不能把命令失败显示成普通成功。
 - **思考边界**：只显示实时事件明确提供的 thinking/thinking_delta，不从工具调用推断思考；Antigravity 的原生 transcript 仍由 adapter 在轮次结束后 best-effort 采集，详情入口不额外轮询原生目录。没有 AI 文字的轮次仍可通过工具操作、结果和错误观察执行过程。

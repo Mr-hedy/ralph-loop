@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RALPH_VERSION="0.1.9"
+RALPH_VERSION="0.1.10"
 # 安装文档由构建脚本读取此支持基线；不据此新增启动拦截。
 RALPH_BASH_MIN_VERSION="3.2"
 # 通用协议的 Git blob 指纹；支持使用者仓库的 SHA-1 / SHA-256 对象格式。
@@ -72,7 +72,7 @@ Options:
   --retry-schedule <"s1 s2 ...">
                            Backoff schedule in seconds (env: RALPH_LOOP_RETRY_SCHEDULE).
                            Default: "60 120 300"
-  --verbose, -v            Live-tail provider events to stderr (env: RALPH_VERBOSE=1)
+  --verbose, -v            Show a sticky terminal view (env: RALPH_VERBOSE=1)
   --help                   Show this help and exit.
 
 Default progress output goes to stderr. While a provider oneshot is still
@@ -146,8 +146,10 @@ Options:
   --help           Show this help and exit.
 
 Output:
-  TTY:    Three-section sticky display (top bar + event area + bottom bar),
-          sourced from status.json and provider stdout log.
+  TTY:    tasks shows the dispatched task position. By default the latest
+          model reply occupies two rows above four rows of scrolling events.
+          Set RALPH_UI_STICKY_REPLY_LINES and RALPH_UI_STICKY_EVENT_LINES
+          independently. Opening watch during a run reads the current round.
           When the run finishes, the final frame stays on screen until Ctrl-C.
   Non-TTY: One-line status bar snapshot, then exit 0.
           Use `ralph status` for detailed status fields.

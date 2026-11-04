@@ -12,36 +12,19 @@ _RALPH_LOCK_ACQUIRED=0
 _RALPH_RUN_DIR=""
 _RALPH_WORKSPACE=""
 _RALPH_START_TIME=0
-_RALPH_TAIL_PID=""
-_RALPH_TAIL_FILTER_PID=""
-_RALPH_TAIL_FIFO=""
 _RALPH_HEARTBEAT_PID=""
 _RALPH_PROVIDER_PID=""
+_RALPH_PROMPT_FILE=""
 _RALPH_ROUND=0
 _RALPH_PROTOCOL_ERROR=""
-_RALPH_CURRENT_TASK_ID=""
 _RALPH_CURRENT_TASK_TRY=0
 _RALPH_STICKY_MODE=0
-_RALPH_STICKY_TAIL_PID=""
-_RALPH_STICKY_FILTER_PID=""
-_RALPH_STICKY_EVENT_FILE=""
-_RALPH_STICKY_LAST_POS=0
+_RALPH_ROUND_TASK_JSON=null
+_RALPH_TASK_INDEX=""
+_RALPH_TASK_TITLE=""
+_RALPH_DISPATCH_TOTAL=0
 
 # ── 退出辅助函数 ─────────────────────────────────────────────────────────────
-_ralph_stop_verbose_tail() {
-  local pid
-  for pid in "${_RALPH_TAIL_PID:-}" "${_RALPH_TAIL_FILTER_PID:-}"; do
-    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
-  done
-  for pid in "${_RALPH_TAIL_PID:-}" "${_RALPH_TAIL_FILTER_PID:-}"; do
-    [[ -n "$pid" ]] && wait "$pid" 2>/dev/null || true
-  done
-  [[ -n "${_RALPH_TAIL_FIFO:-}" ]] && rm -f "$_RALPH_TAIL_FIFO" 2>/dev/null || true
-  _RALPH_TAIL_PID=""
-  _RALPH_TAIL_FILTER_PID=""
-  _RALPH_TAIL_FIFO=""
-}
-
 _ralph_stop_provider_heartbeat() {
   local pid="${_RALPH_HEARTBEAT_PID:-}"
   if [[ -n "$pid" ]]; then
@@ -51,31 +34,13 @@ _ralph_stop_provider_heartbeat() {
   _RALPH_HEARTBEAT_PID=""
 }
 
-_ralph_stop_sticky_tail() {
-  local pid
-  for pid in "${_RALPH_STICKY_TAIL_PID:-}" "${_RALPH_STICKY_FILTER_PID:-}"; do
-    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
-  done
-  for pid in "${_RALPH_STICKY_TAIL_PID:-}" "${_RALPH_STICKY_FILTER_PID:-}"; do
-    [[ -n "$pid" ]] && wait "$pid" 2>/dev/null || true
-  done
-  [[ -n "${_RALPH_STICKY_EVENT_FILE:-}" ]] && rm -f "$_RALPH_STICKY_EVENT_FILE" 2>/dev/null || true
-  _RALPH_STICKY_TAIL_PID=""
-  _RALPH_STICKY_FILTER_PID=""
-  _RALPH_STICKY_EVENT_FILE=""
-  _RALPH_STICKY_LAST_POS=0
-}
-
 # 更新 sticky renderer 需要的变量（每次 render_frame 前调用）
 _ralph_sticky_update_vars() {
   _RALPH_STICKY_RUN_START_TS="${_RALPH_START_TIME:-$(date +%s)}"
   _RALPH_STICKY_ROUND="${_RALPH_ROUND:-0}"
-  _RALPH_STICKY_TASKS_DONE="${_RALPH_TASKS_CHECKED_END:-0}"
-  _RALPH_STICKY_TASKS_TOTAL="${_RALPH_TASKS_TOTAL:-0}"
-  _RALPH_STICKY_CURRENT_TASK=""
-  if declare -f first_unchecked_task >/dev/null 2>&1; then
-    _RALPH_STICKY_CURRENT_TASK="$(first_unchecked_task "${_RALPH_WORKSPACE:-.}/.ralph/TASKS.md" 2>/dev/null)" || _RALPH_STICKY_CURRENT_TASK=""
-  fi
+  _RALPH_STICKY_TASK_INDEX="$_RALPH_TASK_INDEX"
+  _RALPH_STICKY_TASKS_TOTAL="$_RALPH_DISPATCH_TOTAL"
+  _RALPH_STICKY_CURRENT_TASK="$_RALPH_TASK_TITLE"
   _RALPH_STICKY_TASK_TRY="${_RALPH_CURRENT_TASK_TRY:-1}"
   _RALPH_STICKY_MAX_ROUND="${RALPH_LOOP_MAX_ROUND:-0}"
   _RALPH_STICKY_PROVIDER="${_RALPH_PROVIDER:-unknown}"
@@ -205,6 +170,7 @@ _ralph_print_summary() {
   local tasks_md="$_RALPH_WORKSPACE/.ralph/TASKS.md"
   if [[ -f "$tasks_md" ]] && declare -f first_unchecked_task >/dev/null 2>&1; then
     first_unchecked="$(first_unchecked_task "$tasks_md")"
+    first_unchecked="${first_unchecked//[[:cntrl:]]/ }"
   fi
 
   local sep="────────────────────────────────────────────────"
@@ -254,7 +220,7 @@ _ralph_print_summary() {
       ;;
     provider_failed)
       lines+=("")
-      lines+=("Provider CLI 退出非 0。")
+      lines+=("本轮执行失败，详情见 last_error。")
       lines+=("Next step:")
       lines+=("  查看 .ralph/runs/$run_id/result.json 的 last_error 字段诊断。")
       ;;
@@ -294,21 +260,27 @@ _ralph_finish() {
   local started_at="${7:-}"
   local last_error="${8:-null}"
 
-  _ralph_stop_verbose_tail
-  _ralph_stop_sticky_tail
   _ralph_stop_provider_heartbeat
+  if [[ -n "$_RALPH_PROMPT_FILE" ]]; then
+    rm -f "$_RALPH_PROMPT_FILE"
+    _RALPH_PROMPT_FILE=""
+  fi
 
   # sticky 最终帧（显示退出状态 ✓/✗/⏸）后清理终端
   if [[ "${_RALPH_STICKY_MODE:-0}" -eq 1 ]]; then
     _RALPH_EXIT_REASON="$exit_reason"
-    _RALPH_STICKY_EXIT_REASON="$exit_reason"
-    _RALPH_STICKY_TASKS_DONE="$tasks_checked_end"
-    _RALPH_STICKY_TASKS_TOTAL="$tasks_total"
-    _RALPH_STICKY_ROUND="${_RALPH_ROUND:-$rounds}"
+    _ralph_sticky_update_vars
+    if [[ "$exit_reason" == done || -z "$_RALPH_TASK_INDEX" ]]; then
+      _RALPH_STICKY_TASKS_TOTAL="$tasks_total"
+    fi
+    _RALPH_STICKY_ROUND="$rounds"
+    if [[ "$exit_reason" != interrupted && "$exit_reason" != timeout ]]; then
+      ralph_sticky_drain_log "${_RALPH_CURRENT_LOG_PATH:-}"
+    fi
     # 最终帧走 frozen 视觉（顶栏 "finished 0s ago · duration"，底栏 "all tasks done"
     # 或 frozen 后缀），与 ralph watch attach 已 finished run 的画面一致。
     _RALPH_STICKY_FROZEN_NOW="$(date +%s)"
-    ralph_sticky_render_frame
+    ralph_sticky_render_frame final
     ralph_sticky_cleanup
   fi
 
@@ -378,6 +350,7 @@ _ralph_write_status() {
   "updated_at": "$(ralph_json_escape "$(ralph_timestamp)")",
   "round": ${round},
   "task_try": ${task_try},
+  "round_task": ${_RALPH_ROUND_TASK_JSON},
   "state": "$(ralph_json_escape "$state")",
   "tasks_total": ${tasks_total},
   "tasks_checked": ${tasks_checked},
@@ -439,8 +412,8 @@ _ralph_check_protocol() {
 }
 
 _ralph_protocol_abort() {
-  local rounds="$1" total checked round_dir
-  if [[ "${_RALPH_ROUND:-0}" -gt 0 ]]; then
+  local rounds="$1" annotate="${2:-1}" total checked round_dir
+  if (( annotate && _RALPH_ROUND > 0 )); then
     round_dir="$_RALPH_RUN_DIR/rounds/$(printf 'round-%03d' "$_RALPH_ROUND")"
     if [[ -d "$round_dir" ]]; then
       [[ -f "$round_dir/meta.json" ]] || init_meta "$round_dir" "$_RALPH_ROUND" "$_RALPH_PROVIDER" 0 0
@@ -667,57 +640,44 @@ EOF
   while true; do
     # 检查先于 done/HUMAN 判定和 retry；变化不能被任务勾选掩盖。
     _ralph_check_protocol "$workspace" "$protocol_snapshot" || _ralph_protocol_abort "$round"
-    if [[ "$retry_count" -eq 0 ]]; then
-      round=$(( round + 1 ))
-    fi
-    _RALPH_ROUND="$round"
-
-    # per-task round tracking：仅在非 retry 时更新（retry 是同一 round 内重试，
-    # 不构成新一次 task try；同时 round 也只在 retry_count==0 时递增，二者同源）
-    if [[ "$retry_count" -eq 0 ]]; then
-      local _first_task_text=""
-      _first_task_text="$(first_unchecked_task "$tasks_md" 2>/dev/null)" || _first_task_text=""
-      if [[ "$_first_task_text" != "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
-        _RALPH_CURRENT_TASK_ID="$_first_task_text"
-        _RALPH_CURRENT_TASK_TRY=1
-        _RALPH_TASK_START_TS="$(date -u +%s)"
-        _RALPH_TASK_STARTED_AT="$(ralph_timestamp)"
-        stall_count=0
-      else
-        _RALPH_CURRENT_TASK_TRY=$(( _RALPH_CURRENT_TASK_TRY + 1 ))
-      fi
-    fi
-
     # 全部完成判定（在 max_round 检查前）
-    local checked_before
-    checked_before="$(count_checked "$tasks_md")"
-    local total_now
-    total_now="$(count_total "$tasks_md")"
-    tasks_total="$total_now"
+    local checked_before snapshot selected_entry="" selected_title previous_entry
+    if ! snapshot="$(task_dispatch_snapshot "$tasks_md")"; then
+      local source_error='{"type":"unknown","message":"Could not read .ralph/TASKS.md before dispatch"}'
+      if (( retry_count > 0 )); then source_error="$last_error_json"; fi
+      _ralph_finish "provider_failed" 2 "$round" "$tasks_total" \
+        "$tasks_checked_start" "$_RALPH_TASKS_CHECKED_END" "$started_at" "$source_error"
+    fi
+    read -r tasks_total checked_before <<< "$snapshot"
     _RALPH_TASKS_TOTAL="$tasks_total"
+    if [[ "$snapshot" == *$'\n'* ]]; then selected_entry="${snapshot#*$'\n'}"; fi
+    selected_title="${selected_entry#* }"
+    previous_entry="$_RALPH_TASK_INDEX $_RALPH_TASK_TITLE"
 
-    if [[ "$checked_before" -ge "$total_now" && "$total_now" -gt 0 ]]; then
+    # 重试只能重派原任务。失败后清单已经推进（含退避期间变化）时，
+    # 保留失败轮和诊断，避免用下一项或已勾选状态掩盖 provider 错误。
+    if (( retry_count > 0 )) && [[ "$selected_entry" != "$previous_entry" ]]; then
+      _ralph_finish "provider_failed" 2 "$round" "$tasks_total" \
+        "$tasks_checked_start" "$checked_before" "$started_at" "$last_error_json"
+    fi
+    if [[ -z "$selected_entry" ]]; then
       _RALPH_TASKS_CHECKED_END="$checked_before"
-      _ralph_finish "done" 0 "$(( round - 1 ))" "$tasks_total" \
+      _ralph_finish "done" 0 "$round" "$tasks_total" \
+        "$tasks_checked_start" "$checked_before" "$started_at" "null"
+    fi
+    if [[ "$selected_title" =~ ^HUMAN-[0-9]+ ]]; then
+      _RALPH_TASKS_CHECKED_END="$checked_before"
+      _ralph_finish "blocked_by_human" 7 "$round" "$tasks_total" \
         "$tasks_checked_start" "$checked_before" "$started_at" "null"
     fi
 
-    # blocked_by_human 检查（done 之后，max_round 之前）：第一个未勾选任务前缀是 HUMAN- → 不调 provider，exit 7
-    if is_blocked_by_human "$tasks_md"; then
-      _RALPH_TASKS_CHECKED_END="$checked_before"
-      _ralph_finish "blocked_by_human" 7 "$(( round - 1 ))" "$tasks_total" \
-        "$tasks_checked_start" "$checked_before" "$started_at" "null"
-    fi
+    if (( retry_count == 0 )); then round=$((round + 1)); fi
 
     # 准备 round 目录
     local round_label
     round_label="$(printf 'round-%03d' "$round")"
     local round_dir="$run_dir/rounds/$round_label"
-    mkdir -p "$round_dir"
     local log_path="$round_dir/provider.stdout.log"
-    touch "$log_path"
-    local round_start_ts
-    round_start_ts=$(( $(date -u +%s) * 1000 ))
     _RALPH_TASKS_CHECKED_END="$checked_before"
 
     # 捕获本轮开始时的 worktree 状态（方案 B：in-memory hash，不写 .git/refs）
@@ -726,25 +686,25 @@ EOF
     before_round_head="$(git rev-parse HEAD 2>/dev/null)" || before_round_head=""
 
     # 准备 prompt（run 级协议快照 + runtime 块）；临时输入不进入 round 目录。
-    local prompt_file
-    prompt_file="$(mktemp -t "ralph-prompt-${round_label}.XXXXXX")"
+    _RALPH_PROMPT_FILE="$(mktemp -t "ralph-prompt-${round_label}.XXXXXX")"
     local runtime_block
     printf -v runtime_block 'run_id: %s\nround: %d\nstart_sha: %s\nworkspace: %s' \
       "$run_id" "$round" "$start_sha" "$workspace"
     # 检查实际读入的静态协议；读取失败不能被 set -e 提前带出收尾路径。
-    if ! cat "$protocol_snapshot" > "$prompt_file" || ! _ralph_protocol_matches "$prompt_file"; then
+    if ! cat "$protocol_snapshot" > "$_RALPH_PROMPT_FILE" || ! _ralph_protocol_matches "$_RALPH_PROMPT_FILE"; then
       _RALPH_PROTOCOL_ERROR="$(jq -cn --arg path "$protocol_snapshot" \
         '{type:"protocol_changed", message:"could not read matching execution protocol snapshot", path:$path}')"
-      rm -f "$prompt_file"
-      _ralph_protocol_abort "$(( round - (retry_count == 0) ))"
+      _ralph_protocol_abort "$_RALPH_ROUND" 0
     fi
     if ! _ralph_check_protocol "$workspace" "$protocol_snapshot"; then
-      rm -f "$prompt_file"
       # 重试仍属于已经派发过的 round；首次派发前失败不计入执行轮数。
-      _ralph_protocol_abort "$(( round - (retry_count == 0) ))"
+      _ralph_protocol_abort "$_RALPH_ROUND" 0
     fi
-    printf '\n\n<ralph-runtime>\n%s\n</ralph-runtime>\n' "$runtime_block" >> "$prompt_file"
+    printf '\n\n<ralph-runtime>\n%s\n</ralph-runtime>\n' "$runtime_block" >> "$_RALPH_PROMPT_FILE"
 
+    # 先响应准备期间的中断，真正派发时才更新计数、计时和日志。
+    if (( _RALPH_STICKY_MODE )); then _sticky_poll_input; fi
+    mkdir -p "$round_dir"
     # 每次派发使用新的日志 inode，即使同轮重试的新内容更长，watch 也能识别切换。
     local log_tmp
     log_tmp="$(mktemp "$round_dir/.provider-log.XXXXXX")"
@@ -754,80 +714,72 @@ EOF
     init_meta "$round_dir" "$round" "$provider" 0 0
     update_meta_jq "$round_dir" '.runtime_block = $rb' --arg rb "$runtime_block"
 
+    if (( retry_count == 0 )); then
+      if [[ "$selected_entry" != "$previous_entry" ]]; then
+        _RALPH_CURRENT_TASK_TRY=1
+        _RALPH_TASK_START_TS="$(date -u +%s)"
+        _RALPH_TASK_STARTED_AT="$(ralph_timestamp)"
+        stall_count=0
+      else
+        _RALPH_CURRENT_TASK_TRY=$(( _RALPH_CURRENT_TASK_TRY + 1 ))
+      fi
+    fi
+    _RALPH_ROUND="$round"
+
+    # 这次派发的目标固定到下一次派发。provider 先勾选清单也不会改变当前任务。
+    _RALPH_TASK_INDEX="${selected_entry%% *}"
+    _RALPH_TASK_TITLE="$selected_title"
+    _RALPH_DISPATCH_TOTAL="$tasks_total"
+    _RALPH_ROUND_TASK_JSON="$(printf '%s' "$selected_title" | jq -Rsc \
+      --argjson index "${_RALPH_TASK_INDEX:-null}" --argjson total "$tasks_total" \
+      'if $index == null then null else {$index,$total,title:.} end')"
     # status 必须在 provider_oneshot 前指向当前 round；watch 依赖它定位
     # 当前正在写入的 provider.stdout.log。
     _ralph_update_status "running" "" "$round" "$tasks_total" "$checked_before" "null" "$retry_count"
 
-
     # 进度 marker：round 启动
     local _max_round_disp="∞"
     [[ "$max_round" -gt 0 ]] && _max_round_disp="$max_round"
-    local _first_task=""
-    if declare -f first_unchecked_task >/dev/null 2>&1; then
-      _first_task="$(first_unchecked_task "$tasks_md" 2>/dev/null)" || _first_task=""
-    fi
+    local _first_task="$selected_title"
     _RALPH_CURRENT_LOG_PATH="$log_path"
     if [[ "$_RALPH_STICKY_MODE" -ne 1 ]]; then
       local _now_local
       _now_local="$(date +"%H:%M:%S")"
       local _start_marker="[$_now_local] round $round/$_max_round_disp"
       if [[ -n "$_first_task" ]]; then
-        _start_marker+=" → ${_first_task:0:80}"
+        _first_task="${_first_task:0:80}"
+        _start_marker+=" → ${_first_task//[[:cntrl:]]/ }"
       fi
       printf '%s\n' "$_start_marker" >&2
     fi
 
-    # 进度输出：sticky → event filter + render loop / plain → heartbeat
-    if [[ "$_RALPH_STICKY_MODE" -eq 1 ]]; then
-      # sticky 模式：后台 tail → filter → event 文件；主进程 render 循环
-      _ralph_stop_sticky_tail
-      touch "$log_path"
-      _RALPH_STICKY_EVENT_FILE="$(mktemp -t ralph-sticky-events.XXXXXX)"
-      _RALPH_STICKY_LAST_POS=0
-      local _sticky_fifo
-      _sticky_fifo="$(mktemp -t ralph-sticky-tail.XXXXXX)"
-      rm -f "$_sticky_fifo"
-      mkfifo "$_sticky_fifo"
-      tail -f "$log_path" > "$_sticky_fifo" 2>/dev/null &
-      _RALPH_STICKY_TAIL_PID=$!
-      _ralph_filter_verbose < "$_sticky_fifo" >> "$_RALPH_STICKY_EVENT_FILE" 2>/dev/null &
-      _RALPH_STICKY_FILTER_PID=$!
-    else
-      # plain 模式：60s heartbeat
-      _ralph_start_provider_heartbeat "$log_path" "$round" "$_max_round_disp"
-    fi
-
     # provider_oneshot（带 timeout / interrupt 清理支持）
-    local rc=0
-    RALPH_WORKSPACE="$workspace" provider_oneshot "$prompt_file" "$log_path" "$round_dir" &
+    local rc=0 round_start_ts
+    round_start_ts=$(( $(date -u +%s) * 1000 ))
+    RALPH_WORKSPACE="$workspace" provider_oneshot "$_RALPH_PROMPT_FILE" "$log_path" "$round_dir" &
     local pid=$!
     _RALPH_PROVIDER_PID="$pid"
+
+    if [[ "$_RALPH_STICKY_MODE" -eq 1 ]]; then
+      _sticky_reset_log
+      _ralph_sticky_update_vars
+      ralph_sticky_render_frame
+    else
+      _ralph_start_provider_heartbeat "$log_path" "$round" "$_max_round_disp"
+    fi
 
     if [[ "$_RALPH_STICKY_MODE" -eq 1 ]]; then
       # sticky 模式：polling loop → 读事件 + render frame + 超时检测
       _RALPH_STICKY_TASK_START_TS="${_RALPH_TASK_START_TS:-$(( round_start_ts / 1000 ))}"
       while kill -0 "$pid" 2>/dev/null; do
         sleep 0.1
-        # 读取新事件
-        if [[ -f "$_RALPH_STICKY_EVENT_FILE" ]]; then
-          local _ev_size=0
-          _ev_size="$(wc -c < "$_RALPH_STICKY_EVENT_FILE" 2>/dev/null | tr -d '[:space:]')" || _ev_size=0
-          if [[ "$_ev_size" -gt "$_RALPH_STICKY_LAST_POS" ]]; then
-            local _new_events
-            _new_events="$(tail -c "+$(( _RALPH_STICKY_LAST_POS + 1 ))" "$_RALPH_STICKY_EVENT_FILE" 2>/dev/null)" || _new_events=""
-            _RALPH_STICKY_LAST_POS="$_ev_size"
-            local _ev_line
-            while IFS= read -r _ev_line; do
-              [[ -n "$_ev_line" ]] && ralph_sticky_append_event "$_ev_line"
-            done <<< "$_new_events"
-          fi
-        fi
+        ralph_sticky_read_log "$log_path"
         _ralph_sticky_update_vars
         ralph_sticky_render_frame
         # 超时检测
         if [[ "$timeout_sec" -gt 0 ]]; then
           local _elapsed_ms=$(( $(date -u +%s) * 1000 - round_start_ts ))
-          if [[ "$(( _elapsed_ms / 1000 ))" -ge "$timeout_sec" ]]; then
+          if [[ "$(( _elapsed_ms / 1000 ))" -ge "$timeout_sec" ]] && kill -0 "$pid" 2>/dev/null; then
             _ralph_terminate_process_tree "$pid"
             local timeout_pid_rc=0
             wait "$pid" 2>/dev/null || timeout_pid_rc=$?
@@ -844,7 +796,6 @@ EOF
             tasks_total="$total_after_timeout"
             _RALPH_TASKS_TOTAL="$tasks_total"
             _RALPH_TASKS_CHECKED_END="$checked_after_timeout"
-            _ralph_stop_sticky_tail
             _ralph_finish "timeout" 3 "$round" "$tasks_total" \
               "$tasks_checked_start" "$checked_after_timeout" "$started_at" "null"
           fi
@@ -857,7 +808,7 @@ EOF
       while kill -0 "$pid" 2>/dev/null; do
         sleep 1
         elapsed=$(( elapsed + 1 ))
-        if [[ "$elapsed" -ge "$timeout_sec" ]]; then
+        if [[ "$elapsed" -ge "$timeout_sec" ]] && kill -0 "$pid" 2>/dev/null; then
           _ralph_terminate_process_tree "$pid"
           local timeout_pid_rc=0
           wait "$pid" 2>/dev/null || timeout_pid_rc=$?
@@ -884,13 +835,13 @@ EOF
     fi
     _RALPH_PROVIDER_PID=""
 
-    # 停 tail / heartbeat / sticky
-    _ralph_stop_verbose_tail
-    _ralph_stop_sticky_tail
+    # 回收普通模式的心跳；紧凑模式读完退出前的最后一条记录。
+    if [[ "$_RALPH_STICKY_MODE" -eq 1 ]]; then ralph_sticky_drain_log "$log_path"; fi
     _ralph_stop_provider_heartbeat
 
     # 清理 prompt 临时文件（provider 已经读完）
-    rm -f "$prompt_file"
+    rm -f "$_RALPH_PROMPT_FILE"
+    _RALPH_PROMPT_FILE=""
 
     local round_end_ts duration_ms
     round_end_ts=$(( $(date -u +%s) * 1000 ))
@@ -929,12 +880,13 @@ EOF
       fi
 
       # 重试判定：transient 错误 && 未超限
-      if [[ "$retry_count" -lt "$max_retry" ]] && [[ "$error_type" == "rate_limit" || "$error_type" == "network" ]]; then
+      if [[ "$retry_count" -lt "$max_retry" ]] && [[ "$error_type" == "rate_limit" || "$error_type" == "network" ]] \
+        && [[ "$(first_unchecked_task "$tasks_md" --indexed)" == "$selected_entry" ]]; then
         retry_count=$(( retry_count + 1 ))
         _RALPH_STICKY_RETRY_COUNT="$retry_count"
 
         # 计算 backoff
-        local wait_sec
+        local wait_sec retry_second
         wait_sec="$(echo "$retry_schedule" | awk -v i="$retry_count" '{print $i}')"
         [[ -z "$wait_sec" ]] && wait_sec="$(echo "$retry_schedule" | awk '{print $NF}')"
         [[ ! "$wait_sec" =~ ^[0-9]+$ ]] && wait_sec=60
@@ -953,7 +905,17 @@ EOF
             "$round" "$retry_count" "$max_retry" "$wait_sec" "$error_type" >&2
         fi
 
-        sleep "$wait_sec"
+        if (( _RALPH_STICKY_MODE )); then
+          # sticky 使用键盘轮询接收 Ctrl+C，退避期间也要让观察和中断继续生效。
+          for (( retry_second=0; retry_second<wait_sec; retry_second++ )); do
+            _ralph_sticky_update_vars
+            ralph_sticky_render_frame
+            sleep 1
+          done
+          _sticky_poll_input
+        else
+          sleep "$wait_sec"
+        fi
         continue
       fi
 
@@ -1005,7 +967,7 @@ EOF
     fi
 
     # 更新 meta.json
-    local tasks_before_json="{\"total\":${total_now},\"checked\":${checked_before}}"
+    local tasks_before_json="{\"total\":${_RALPH_DISPATCH_TOTAL},\"checked\":${checked_before}}"
     local tasks_after_json="{\"total\":${total_after},\"checked\":${checked_after}}"
     sed -i.bak \
       -e "s|\"tasks_before\": null|\"tasks_before\": ${tasks_before_json}|" \
@@ -1053,10 +1015,10 @@ EOF
 
     # ── per-task 防死循环检查 ────────────────────────────────────────────────
     local _task_prefix=""
-    if [[ -n "${_RALPH_CURRENT_TASK_ID:-}" && "${_RALPH_CURRENT_TASK_ID}" =~ ^([A-Z]+-[0-9]+) ]]; then
+    if [[ -n "${_RALPH_TASK_TITLE:-}" && "${_RALPH_TASK_TITLE}" =~ ^([A-Z]+-[0-9]+) ]]; then
       _task_prefix="${BASH_REMATCH[1]}"
-    elif [[ -n "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
-      _task_prefix="${_RALPH_CURRENT_TASK_ID:0:40}"
+    elif [[ -n "${_RALPH_TASK_TITLE:-}" ]]; then
+      _task_prefix="${_RALPH_TASK_TITLE:0:40}"
     fi
     local _run_elapsed=""
     if [[ -n "${_RALPH_START_TIME:-}" ]]; then
@@ -1064,11 +1026,11 @@ EOF
     fi
     # 仅在当前 task 仍为 first_unchecked 时触发（已完成的不触发）
     local _still_first=""
-    _still_first="$(first_unchecked_task "$tasks_md" 2>/dev/null)" || _still_first=""
+    _still_first="$(first_unchecked_task "$tasks_md" --indexed 2>/dev/null)" || _still_first=""
 
     # per-task max_round 触发
     if [[ "$max_round" -gt 0 && "${_RALPH_CURRENT_TASK_TRY:-0}" -ge "$max_round" \
-          && "$_still_first" == "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
+          && "$_still_first" == "$selected_entry" ]]; then
       local _human_n _task_lineno
       _human_n="$(next_human_number "$tasks_md")"
       _task_lineno="$(find_first_unchecked_lineno "$tasks_md")"
@@ -1081,7 +1043,7 @@ EOF
 
     # per-task stall 触发
     if [[ "$stall_count" -ge "$stall_limit" \
-          && "$_still_first" == "${_RALPH_CURRENT_TASK_ID:-}" ]]; then
+          && "$_still_first" == "$selected_entry" ]]; then
       local _human_n _task_lineno
       _human_n="$(next_human_number "$tasks_md")"
       _task_lineno="$(find_first_unchecked_lineno "$tasks_md")"
@@ -1091,135 +1053,5 @@ EOF
       _ralph_finish "blocked_by_human" 7 "$round" "$tasks_total" \
         "$tasks_checked_start" "$checked_after" "$started_at" "null"
     fi
-  done
-}
-
-# ── _ralph_filter_verbose ────────────────────────────────────────────────────
-# stream-json events 流过滤器：在 -v 模式下把 events 转成简短人话行（stderr）
-# 输入：每行一个 JSON event（来自 provider.stdout.log）
-# 输出：精简事件标记（[user] / [assistant] / [tool-use] 等）
-_ralph_filter_verbose() {
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    # 仅处理 JSON 行
-    [[ "$line" =~ ^\{ ]] || continue
-    # 对每个事件按 type 简化输出（jq 失败则跳过）
-    printf '%s\n' "$line" | jq -r '
-      def safe: tostring | gsub("[\u0000-\u0008\u000b-\u001f\u007f]"; "");
-      def flat: safe | gsub("\\s+"; " ");
-      def trunc($n): flat | if length > $n then .[0:$n] else . end;
-      def agy_error: (.result.error // .error // null);
-      def agy_has_error:
-        agy_error as $e |
-        if $e == null then false
-        elif ($e | type) == "string" or ($e | type) == "object" then ($e | length) > 0
-        else false end;
-      def agy_error_text:
-        agy_error as $e |
-        if ($e | type) == "object" then
-          if (($e.message // "") | length) > 0 then ($e.message | tostring)
-          elif (($e.type // "") | length) > 0 then "error type: " + ($e.type | tostring)
-          else ($e | tostring) end
-        elif ($e | type) == "string" then $e
-        else "provider result status ERROR" end;
-      if .type == "system" and .subtype == "init" then
-        "  ⚙ session " + ((.session_id // "") | .[0:8])
-      elif .type == "assistant" then
-        ((.message.content // []) | if type == "array" then . else [] end | .[]
-          | if .type == "thinking" then "  💭 " + ((.thinking // "") | trunc(120))
-            elif .type == "text"   then "  💬 " + ((.text // "") | trunc(120))
-            elif .type == "tool_use" then "  🔧 " + (.name // "?") + " " + ((.input // {}) | trunc(80))
-            else empty end)
-      elif .type == "user" then
-        ((.message.content // []) | if type == "array" then . else [] end | .[]
-          | select(.type == "tool_result")
-          | (if .is_error then "  ❌ error: " else "  ⏎ result " end) + ((.content // "") | trunc(80)))
-      elif .type == "result" then
-        if .is_error then "  ❌ error: " + ((.result // .text // "") | trunc(120))
-        elif has("text") then "  ✓ result " + ((.text // "") | trunc(120))
-        elif .result != null then "  ✓ result " + ((.result // "") | trunc(120))
-        elif .stats != null then
-          "  ✓ result tokens=" + ((.stats.total_tokens // 0) | tostring)
-          + " tools=" + ((.stats.tool_calls // 0) | tostring)
-          + " dur=" + (((.stats.duration_ms // 0) / 1000 | floor) | tostring) + "s"
-        else "  ✓ result" end
-      elif .type == "thread.started" then
-        "  ⚙ session " + ((.thread_id // "") | .[0:12])
-      elif .type == "item.completed" and (.item.type // "") == "agent_message" then
-        "  💬 " + ((.item.text // "") | trunc(120))
-      elif .type == "item.completed" and (.item.type // "") == "reasoning" then
-        "  💭 " + ((.item.text // "") | trunc(120))
-      elif .type == "item.started" and (.item.type // "") == "command_execution" then
-        "  🔧 " + ((.item.command // "?") | trunc(80))
-      elif .type == "item.completed" and (.item.type // "") == "command_execution" then
-        (if .item.status == "failed" or .item.status == "declined" or ((.item.exit_code // 0) != 0)
-          then "  ❌ command" else "  ⏎ command" end)
-        + " exit=" + ((.item.exit_code // "unknown") | tostring)
-        + " " + ((.item.aggregated_output // .item.output // .item.stdout // "") | trunc(80))
-      elif .type == "item.completed" and (.item.type // "") == "file_change" then
-        (if .item.status == "failed" then "  ❌ files " else "  ✓ files " end)
-        + ((.item.changes // []) | trunc(120))
-      elif (.type == "item.started" or .type == "item.completed") and (.item.type // "") == "mcp_tool_call" then
-        (if .item.status == "failed" or .item.error != null then "  ❌ MCP "
-          elif .type == "item.started" then "  🔧 MCP " else "  ⏎ MCP " end)
-        + (.item.server // "?") + "/" + (.item.tool // "?") + " "
-        + ((if .type == "item.started" then .item.arguments else .item.error // .item.result end) | trunc(120))
-      elif .type == "item.completed" and (.item.type // "") == "web_search" then
-        "  🔎 " + ((.item.query // "") | trunc(120))
-      elif .type == "item.completed" and (.item.type // "") == "error" then
-        "  ❌ error: " + ((.item.message // "") | trunc(120))
-      elif .type == "turn.completed" then
-        "  ✓ result"
-      elif .type == "turn.failed" then
-        "  ❌ error: " + ((.error.message // .message // "") | trunc(120))
-      elif .type == "init" then
-        "  ⚙ session " + ((.session_id // "") | .[0:12])
-      elif .type == "message" and (.role // "") == "assistant" then
-        "  💬 " + ((.content // .text // "") | trunc(120))
-      elif .type == "tool_use" then
-        "  🔧 " + ((.tool_name // .name // "?") | trunc(40)) + " " + (((.parameters // .input // {}) | tostring) | trunc(60))
-      elif .type == "tool_result" then
-        "  ⏎ result " + ((.output // .content // "") | tostring | trunc(80))
-      elif .type == "text" then
-        "  💬 " + ((.text // "") | trunc(120))
-      elif .type == "complete" then
-        "  ✓ result " + ((.text // "") | trunc(120))
-      elif .type == "error" then
-        "  ❌ error: " + ((.error.message // .message // "") | trunc(120))
-      elif .event == "init" then
-        "  ⚙ session " + ((.conversation_id // .init.conversation_id // "") | .[0:12])
-      elif .event == "step_update" then
-        (.step_update // .) as $s |
-        ($s.agent_response // .agent_response // {}) as $a |
-        ($a.thinking_delta // $s.thinking_delta // $a.thinking // $s.thinking // "") as $thinking |
-        ($a.text_delta // $s.text_delta // "") as $text |
-        ($s.tool_name // "") as $tool |
-        ($s.tool_info // {}) as $info |
-        (($s.state // "") | tostring | ascii_upcase) as $state |
-        (if ($thinking | length) > 0 then "  💭 " + ($thinking | trunc(120)) else empty end),
-        (if ($text | length) > 0 then "  💬 " + ($text | trunc(120)) else empty end),
-        (if ($tool | length) > 0 then
-          if $state == "ERROR" or $state == "FAILED" or ($info | agy_has_error) then
-            "  ❌ 失败 " + $tool + " → " + (($info.error // $info.output // "未提供错误详情") | trunc(120)) +
-            (if $info.error != null and $info.output != null then " → 输出：" + ($info.output | trunc(120)) else "" end)
-          elif $state == "DONE" then
-            "  ✓ 完成 " + $tool +
-            (if $info.output != null then " → " + ($info.output | trunc(120)) else "" end)
-          else
-            "  🔧 " + (if $state == "ACTIVE" or $state == "RUNNING" then "开始 "
-              elif $state != "" then "[" + $state + "] " else "" end) + $tool + " " +
-            (($info.command // $info.parameters // $info) | trunc(80))
-          end
-        elif $s.subagent_info != null then "  ⚙ subagent " + ($s.subagent_info | trunc(80))
-        else empty end)
-      elif .event == "result" then
-        ((.result.response // .response // "") as $response |
-          if ($response | length) > 0 then "  💬 最终回复：" + ($response | trunc(120)) else empty end),
-        (if ((((.result.denied_actions // .denied_actions // []) | length)) > 0) then "  ❌ denied tools: " + (((.result.denied_actions // .denied_actions) | tostring) | trunc(100))
-        elif agy_has_error then "  ❌ error: " + (agy_error_text | trunc(120))
-        elif ((.result.status // .status // "") == "SUCCESS") then "  ✓ result"
-        elif ((.result.status // .status // "") == "ERROR") then "  ❌ error: provider result status ERROR"
-        else "  ⚠ unknown result status: " + ((.result.status // .status // "missing") | tostring | trunc(80)) end)
-      else empty end | safe
-    ' 2>/dev/null
   done
 }

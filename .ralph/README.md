@@ -103,7 +103,7 @@ git status
 没有同名文件时，从 ralph-loop release 目录复制完整版本包：
 
 ```bash
-cp -R /path/to/ralph-loop/release/0.1.9/. ./
+cp -R /path/to/ralph-loop/release/0.1.10/. ./
 ```
 
 不要从 ralph-loop 开发工程直接复制 `.ralph/`；那是本仓库的 dogfood 工作区。
@@ -415,6 +415,8 @@ provider 临时失败时最多重试 5 次：
 ./.ralph/bin/ralph run --provider claude --max-retry 5
 ```
 
+重试继续处理同一项任务。若临时错误发生后任务已被勾选，或等待期间首个待办已变化，Ralph 保留原失败轮并以 `provider_failed` 退出。
+
 自定义重试等待时间，单位是秒：
 
 ```bash
@@ -463,7 +465,9 @@ provider 临时失败时最多重试 5 次：
 
 注意：
 
-- `watch` 在 TTY 里是 sticky 界面。
+- `watch` 与 `run -v` 在终端中显示相同的紧凑布局。顶栏 `tasks 2/3` 表示本次派发的是清单第 2 项，共 3 项。`oneshots` 累计本次运行的执行轮次，底栏 `round` 统计当前任务的轮次。同轮网络重试保留这两个计数。全部完成时显示总数和 `all tasks done`。
+- 最新模型回复默认占 2 行，首个文字片段带观察时的本地时间。正文合并空白后按窗口宽度折行，超过回复区高度以 `...` 收尾。下方默认滚动显示 4 行工具及其他事件。中途打开会回读当前轮，换轮或同轮重试的新日志会清空旧回复。
+- 两个行数独立配置，可写在 `.ralph/.env` 或进程环境中，取正整数。未设置或无效的项使用各自默认值。例如只设 `RALPH_UI_STICKY_REPLY_LINES=3` 时，内容区为 3 行回复加 4 行事件。窗口较矮时按实际高度压缩。终端改变尺寸后，旧画面可在滚动历史中回看，新画面在可见区重新定位。紧凑回复最多保留 131072 个 Unicode 码点，完整文字可用 `watch --details` 查看。
 - `watch --details` 提供可滚动的执行过程：先回放当前轮已有内容，再显示 AI 说明、工具开始/完成/失败和结果；不做紧凑摘要截断。TTY 下跟随换轮，run 结束后退出；接入管道时只输出当前轮快照。
 - 思考只展示 provider 在实时事件中提供的内容。Antigravity 原生会话可能含有实时流没有提供的 thinking，详情模式不补造；本轮结束后可检查采集成功的 `session.antigravity.jsonl`。
 - `watch` 没有 `-v` 参数。
@@ -504,11 +508,12 @@ provider 临时失败时最多重试 5 次：
 |---|---|---|
 | `RALPH_PROVIDER_CONFIG_DIR` | 无 | 隔离 provider 配置目录；Claude → `CLAUDE_CONFIG_DIR`，Codex → `CODEX_HOME`。只改变凭据/配置来源，**不改变权限或沙箱模式**。注意：Antigravity 暂无独立配置目录覆盖参数，显式设置会在启动校验失败（exit 1） |
 | `RALPH_PROGRESS_HEARTBEAT_SEC` | `60` | 普通文本模式下，同一轮仍在执行时每 60 秒打印进度提示；不重启 provider，设成 `0` 关闭 |
-| `RALPH_UI_STICKY_EVENT_LINES` | `6` | sticky 事件区行数 |
+| `RALPH_UI_STICKY_REPLY_LINES` | `2` | 紧凑视图中最新模型回复的行数 |
+| `RALPH_UI_STICKY_EVENT_LINES` | `4` | 紧凑视图中工具及其他事件的行数 |
 | `RALPH_UI_HEALTH_GREEN_SEC` | `60` | provider 日志静默超过该秒数后健康灯变黄 |
 | `RALPH_UI_HEALTH_RED_SEC` | `300` | provider 日志静默超过该秒数后健康灯变红 |
 
-上述三项 UI 数值按十进制解析（可带前导零，最多 9 位）；事件行数须大于 0，健康灯阈值须非负且红阈值大于绿阈值。非法单值使用内置默认值，阈值顺序无效时整体恢复为 60/300 秒，不把配置值当作 Shell 算术表达式执行。
+这四项 UI 配置均按十进制解析，可带前导零，最多 9 位。回复区和事件区行数须大于 0。健康灯阈值须非负，红阈值须大于绿阈值。非法单值使用各自默认值，阈值顺序无效时恢复为 60/300 秒。
 
 第一次运行通常只需选 `RALPH_PROVIDER`，其余配置保持默认。需要调整时按目的选择：
 
@@ -562,7 +567,7 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 | exit_reason | exit code | 意思 | 你下一步做什么 |
 |---|---:|---|---|
 | `done` | 0 | 全部任务执行结束，不表示需求已验收 | 看工作树变更、验证记录与已获授权的提交；由 Main Agent 按已有工作包授权或用户验收诉求独立复审；仅启动/状态查询时说明未验收 |
-| `provider_failed` | 2 | provider CLI 报错或认证失败 | 看 `provider.stdout.log` 和 `exit-message.txt`，修 provider 环境后重跑 |
+| `provider_failed` | 2 | provider 执行失败或运行中无法读取任务清单 | 查 `result.json` 的 `last_error` 和本轮日志，核对任务状态后重跑 |
 | `timeout` | 3 | 单个 round 超过 `--round-timeout` | 放大 timeout、拆小任务，或人工处理当前任务 |
 | `locked` | 6 | 已经有一个 `ralph run` 在跑 | 用 `status` / `watch` 看现有 run，不要并发启动 |
 | `blocked_by_human` | 7 | 遇到 `HUMAN-N` 或防死循环触发 | 人类回答问题、更新任务、勾掉 HUMAN 任务后重跑 |

@@ -1,7 +1,8 @@
 # Testing
 
 - 状态：已确认。
-- 最近验证：2026-10-09，0.1.8 在 macOS 系统 Bash 3.2.57 下完整集成测试 **193 PASS / 0 FAIL**；包括 18 项新增发布回归和 6 组详情/紧凑 PTY、实际状态写入并发检查。Shell/jq 语法、静态规则、发布包完整比对与空白检查通过。真实 Codex 0.159.2、Claude Code 2.1.284、Antigravity 1.3.2 的合成 workspace 发布包烟测均通过。Antigravity 首次隔离 HOME 在认证阶段退出（0 模型轮次）；经用户授权沿用本机现有登录态后通过，无需重新登录。
+- 最近验证（2026-11-04）：0.1.10 对抗审查修复后，macOS 26.7 系统 Bash 3.2.57 完整集成测试 **198 PASS / 0 FAIL**，其中发布包的终端及状态子检查 24 组全部通过，覆盖真实 GNU Screen 缩放后顶栏唯一、启动前的 shell 输出可回看、字节 locale 的中文输出、超大配置与大回复。实测默认内容区为 2 行回复加 4 行事件。单项配置使用另一项的默认值，进程环境可以分别覆盖文件配置，矮窗口能同时保留最新回复与工具事件。静态检查和完整发布包比对通过。实际发布 CLI 在三个任务、四次执行中显示任务序号 1、1、2、3，当前任务轮数 1、2、1、1。紧凑 watch 离线回放 Codex 15 条、Claude 665 条和 Antigravity 76 条真实历史事件，默认 2+4 和自定义 3+2 布局下的最终回复均与日志一致。此前也用发布版 watch 回放过现场同一回复的九个片段。本轮验证未调用在线模型。
+- 2026-10-09，0.1.8 在 macOS 系统 Bash 3.2.57 下完整集成测试 **193 PASS / 0 FAIL**；包括 18 项新增发布回归和 6 组详情/紧凑 PTY、实际状态写入并发检查。Shell/jq 语法、静态规则、发布包完整比对与空白检查通过。真实 Codex 0.159.2、Claude Code 2.1.284、Antigravity 1.3.2 的合成 workspace 发布包烟测均通过。Antigravity 首次隔离 HOME 在认证阶段退出（0 模型轮次）；经用户授权沿用本机现有登录态后通过，无需重新登录。
 - 当前修复验证：2026-10-10，0.1.9 系统 Bash 3.2.57 下完整集成复验 **196 PASS / 0 FAIL**，包括 21 项发布回归、14 项详情/紧凑画面/状态回归，以及实际发布包部署。PTY 验证 80/120/180 列、1/4/8 行矮窗口、过大事件区、长中文/emoji/制表符、live → finished、跨帧健康灯、配置加载与十进制校验、并发读取一致性和 Ctrl-C 后终端恢复；实际 run -v 中断验证最终状态、锁释放与 provider 子进程清理。此前一轮 195 PASS / 1 FAIL 的键盘中断超时及处理记录保留在 PM-0008；最终复验全部通过。静态检查、发布包完整比对及空白检查通过，0.1.9 仅交付 Ralph skill。前期修复版曾通过隔离只读观察目录读取营销项目实际运行状态，Ctrl-C 后原 run 和锁保持；本次未重新调用三个真实模型，也未完成各宿主 skill 的交互端到端演练。
 - Ralph skill 回流验证：2026-10-30，按用户要求保持 0.1.9，系统 Bash 3.2.57 下完整集成测试 **198 PASS / 0 FAIL**。新增两项负例分别验证缺失 foreground/background reference 时发布校验失败；实际发布包两任务两轮部署 smoke 和原有 PTY 回归通过。静态检查、完整发布包比对、空白及技能 YAML/相对链接检查通过；三份英文技能文件与来源 worktree 一致。官方 `quick_validate.py` 因缺少 PyYAML 未运行成功，采用现有 Ruby YAML 解析器与文件核对补验。完成授权/模式/停止恢复/复审边界的文档走查，未重新调用真实 provider，也未验证全新 Main Agent 会话的完整协作行为。
 - 来源：`docs/features/ralph-loop/requirements.md`（REQ-006 / REQ-011 / REQ-012 / REQ-054 / NFR-* 系列）、`docs/features/antigravity-cli/requirements.md`（REQ-048 ~ REQ-053）、`docs/architecture.md`（启动校验、退出原因、运行目录 schema）、`docs/integrations.md`（provider 集成约束）、`docs/postmortems/pm-shell-macos-compat.md`（PM-0001）、`docs/postmortems/pm-cross-task-decision-sedimentation.md`（PM-0002）。
@@ -28,7 +29,7 @@
 1. 运行 `bash scripts/build-release.sh --verify`，确认当前包没有多余或缺失文件，生成内容逐项一致，CLI 入口保持可执行。
 2. 将 `release/<version>/.` 复制到仓库内的临时 Git workspace，确认 `CLAUDE.md` 软链、`ralph --version`，再用临时测试任务和 fake provider 跑到 `exit_reason=done`。不得使用本仓库真实 `.ralph/TASKS.md`。
 3. 逐项核对发布版 `AGENTS.md`、`.spec/README.md`、`.ralph/README.md` 和 `README.md` 中要求用户或 agent **立即读取**的本地文件：必须存在于包内，或明确写成首次会话按需创建、仅在项目已有时读取、或仅存在于开发仓库。示例路径与未来目标结构不按已交付文件处理。
-4. 检查包内无 `.ralph/runs/`、`status.json`、`lock`、真实 `.env`、本仓库任务状态，以及未交付的 Hook / Skills。0.1.9 仅交付 Ralph skill：`SKILL.md`、`references/foreground.md` 与 `references/background.md`，三份文件及链接必须完整；其他 skills 不进入包。
+4. 检查包内无 `.ralph/runs/`、`status.json`、`lock`、真实 `.env`、本仓库任务状态，以及未交付的 Hook / Skills。当前包仅交付 Ralph skill：`SKILL.md`、`references/foreground.md` 与 `references/background.md`，三份文件及链接必须完整；其他 skills 不进入包。
 
 `scripts/integration-test.sh` 的「Release deployment: selected Bash compatibility」用例自动复制当前完整发布包到仓库内临时 Git workspace；通过统一的 `TEST_BASH` 解释器验证两任务两轮完成、任务勾选、result/status 的终态与计数、非 TTY watch、版本输出、CLI 可执行权限、`CLAUDE.md` 软链及只包含 Ralph skill。安装指引必须在复制命令前列出完整冲突清单（包括 `README.md` 与 `.agents/`）；发布 README 不能覆盖已有项目 README。
 
@@ -109,7 +110,10 @@ tests/
 - 协议保护：启动拒绝改写协议；源文件/快照修改、删除、不可读 × provider 成功/网络错误的 12 种组合均以 exit 8 优先于 done/retry，只有一次派发，保留业务成果及损坏现场，写入 result/status/meta 并释放锁；读取瞬间删除、实际读入内容损坏时不派发且正常收尾；SHA-1/SHA-256 仓库输入与快照匹配，runtime 块存在。
 - 详情入口：发布包的非 TTY 完整回放、真实 Codex aggregated_output 与错误状态、reasoning、MCP/文件变更、Antigravity DONE 带错误和输出、最终回复、未知/非法事件回退、控制字符清理；TTY 状态短暂损坏恢复与持续损坏有限退出、半行补全、同轮短/等长/长日志替换、换轮与补读中间轮、run 切换、末行无换行和结束退出全部通过。
 - Ctrl-C：针对仍运行的真实 Ralph + fake oneshot 验证，详情退出后 run 进程、running 状态和锁保持；默认紧凑 watch 在日志 inode 替换后仍显示新内容。
-- 紧凑画面：PTY 输出交给独立终端解释器处理光标回移、清行、宽字符和自动折行，检查屏幕与滚屏历史只出现一个头部，而非只数换行或匹配 ANSI。覆盖长中文结果、emoji/制表符、80/120/180 列、运行到结束及 Ctrl-C 后自动折行恢复。
+- 0.1.10 紧凑回复用发布包的两个实际入口验证。模拟 provider 在收尾前勾选清单中间的任务，中途接入的 watch 和 run -v 必须保留派发序号。回放覆盖 Antigravity 增量、Claude 文本块、Codex 整条消息、固定时间、按宽折行、独立配置的回复区与事件区、未写完的 UTF-8、同轮换日志以及退出前没有换行的最终回复。
+- 对抗回归直接驱动发布包。分别核对同名任务的轮数、末项勾选后报错的退出码及落盘证据、重试中任务变化和 Ctrl+C、清单缺失和空清单、超时检查时已结束的 provider。终端用例覆盖交错回复、带 NUL 的 stderr、伪造游标、长工具输出、稀疏轮次与损坏的状态字段。
+- 紧凑画面：PTY 输出交给独立终端解释器处理光标回移、清行、宽字符和自动折行，检查固定尺寸下屏幕与滚屏历史只出现一个头部，而非只数换行或匹配 ANSI。覆盖长中文结果、emoji/制表符、80/120/180 列、运行到结束及 Ctrl-C 后自动折行恢复。
+- 布局压力回归在实际发布包上检查含 UTF-8 BOM 的 CRLF 配置、独立输出 PTY 的真实几何尺寸与非法回退值、`LC_ALL=C` 下运行中缩放窗口、超大行数配合 512 KiB 模型回复，以及 1 MiB 连续空白。核对回复及工具均可见、终端输出为合法 UTF-8、详情保留全文，并检查 `run -v` 大回复后的中断收尾。装有 GNU Screen 时，用隔离会话缩小再放大窗口，读取整个可见屏幕及其滚动历史，分别核对单一顶栏和启动前的 shell 输出。
 - 状态原子写入：直接使用发布包 `_ralph_write_status` 连续写入 30 次，另一进程并发读取；样本均为完整 JSON 且 round/tasks_checked 一致。样本数输出在当次日志中，不作为固定基准。
 
 这些验证覆盖当前机器与合成事件；并发压力、其他平台和未来 provider 协议变化没有被外推为已验证。真实授权遵守由下方三个 provider 的“不提交”烟测覆盖。

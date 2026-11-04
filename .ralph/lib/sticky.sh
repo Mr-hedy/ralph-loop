@@ -3,7 +3,7 @@
 #
 # 公共 API:
 #   ralph_sticky_enter          — 进入 sticky 模式（保存 stty，hide cursor）
-#   ralph_sticky_render_frame   — 渲染一帧（顶栏 + 横线 + 事件区 + 横线 + 底栏）
+#   ralph_sticky_render_frame [final] — 渲染一帧（顶栏 + 横线 + 事件区 + 横线 + 底栏）
 #   ralph_sticky_cleanup        — 退出 sticky 模式（还原 stty，show cursor）
 #   ralph_sticky_append_event   — 追加事件到事件区
 #   ralph_sticky_install_traps  — 安装 INT/TERM/EXIT trap（自动还原终端）
@@ -12,7 +12,7 @@
 #   _RALPH_STICKY_RUN_START_TS   — run 启动 unix timestamp
 #   _RALPH_STICKY_ROUND          — 本次 run 累计 oneshot 数（顶栏 oneshots N）
 #   _RALPH_STICKY_TASK_START_TS  — 当前 task 首次出现 unix timestamp（底栏 spinner 用）
-#   _RALPH_STICKY_TASKS_DONE     — 已勾选任务数
+#   _RALPH_STICKY_TASK_INDEX     — 派发时的任务序号（未知时为空）
 #   _RALPH_STICKY_TASKS_TOTAL    — 任务总数
 #   _RALPH_STICKY_CURRENT_TASK   — 第一个未勾选任务文本
 #   _RALPH_STICKY_TASK_TRY       — per-task round 尝试次数
@@ -28,11 +28,13 @@
 #                                  用途：watch attach 已 finished 的 run 时定格画面。
 #
 # 环境变量:
-#   RALPH_UI_STICKY_EVENT_LINES  — 事件区行数（默认 6）
+#   RALPH_UI_STICKY_REPLY_LINES  — 最新回复行数（默认 2）
+#   RALPH_UI_STICKY_EVENT_LINES  — 滚动事件行数（默认 4）
 #   RALPH_UI_HEALTH_GREEN_SEC    — 健康灯绿色阈值秒（默认 60）
 #   RALPH_UI_HEALTH_RED_SEC      — 健康灯红色阈值秒（默认 300）
 
 set -u
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/events.sh"
 
 # ── ANSI constants ────────────────────────────────────────────────────────────
 _SCSI=$'\033['
@@ -60,15 +62,17 @@ fi
 # ── Layout config ─────────────────────────────────────────────────────────────
 # 限定十进制数值，防止前导零被按八进制解释或非法值进入 shell 算术。
 _sconfig_number() {
-  if [[ "$1" =~ ^[0-9]{1,9}$ ]]; then
+  if [[ "$1" =~ ^[0-9]{1,9}$ ]] && (( 10#$1 >= ${3:-0} && 10#$1 <= ${4:-999999999} )); then
     printf '%s' "$(( 10#$1 ))"
   else
     printf '%s' "$2"
   fi
 }
-_SEVENT_WINDOW="$(_sconfig_number "${RALPH_UI_STICKY_EVENT_LINES:-6}" 6)"
-(( _SEVENT_WINDOW > 0 )) || _SEVENT_WINDOW=6
-_STICKY_LINES=$(( _SEVENT_WINDOW + 4 ))
+_SREPLY_ROWS="$(_sconfig_number "${RALPH_UI_STICKY_REPLY_LINES:-}" 2 1)"
+_SEVENT_WINDOW="$(_sconfig_number "${RALPH_UI_STICKY_EVENT_LINES:-}" 4 1)"
+# 缓存上限与请求的行数分开。多保留一个码点用于区分刚好填满与确实截断。
+_SREPLY_LIMIT=131072
+if (( _SEVENT_WINDOW > 65535 )); then _SEVENT_WINDOW=65535; fi  # winsize 的行数上限
 _SHEALTH_GREEN="$(_sconfig_number "${RALPH_UI_HEALTH_GREEN_SEC:-60}" 60)"
 _SHEALTH_RED="$(_sconfig_number "${RALPH_UI_HEALTH_RED_SEC:-300}" 300)"
 if (( _SHEALTH_RED <= _SHEALTH_GREEN )); then
@@ -87,30 +91,43 @@ _SCOLS=80
 _SROWS=24
 _SEV_TIMES=()
 _SEV_MSGS=()
+_SEV_NEXT=0
 _SSPIN_FRAMES=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧")
 _SSPIN_IDX=0
 _SLOG_LAST_SIZE=0
 _SLOG_LAST_ID=""
 _SLAST_ACTIVITY_TS=0
 _STICKY_LINES_LAST=""   # last frame's rendered height (for live↔frozen size transitions)
+_SFRAME_COLS=0 _SFRAME_ROWS=0
+_SRESIZE_PENDING=''
 
 # ── Terminal size ─────────────────────────────────────────────────────────────
 _srefresh_size() {
   local size
-  if size="$(stty size < /dev/tty 2>/dev/null)" && [[ "$size" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
+  # 保存实际的输出 fd，避免命令替换中的 stdout 管道遮住目标 PTY。
+  if { size="$(stty size <&9 2>/dev/null)"; } 9>&1 && [[ "$size" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
     _SROWS="${BASH_REMATCH[1]}"
     _SCOLS="${BASH_REMATCH[2]}"
+    [[ "$_SCOLS" != 0 ]] || _SCOLS=80
+    [[ "$_SROWS" != 0 ]] || _SROWS=24
   else
-    _SCOLS="${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}"
-    _SROWS="${LINES:-$(tput lines 2>/dev/null || echo 24)}"
+    _SCOLS="$(_sconfig_number "${COLUMNS:-$(tput cols 2>/dev/null || true)}" 80 1 65535)"
+    _SROWS="$(_sconfig_number "${LINES:-$(tput lines 2>/dev/null || true)}" 24 1 65535)"
   fi
-  [[ "$_SCOLS" =~ ^[0-9]+$ ]] || _SCOLS=80
-  [[ "$_SROWS" =~ ^[0-9]+$ ]] || _SROWS=24
-  [[ $_SCOLS -gt 0 ]] || _SCOLS=80
-  [[ $_SROWS -gt 0 ]] || _SROWS=24
 }
 
 # ── Utility ───────────────────────────────────────────────────────────────────
+# Bash 按 locale 切字符串。只在文字处理函数内使用 UTF-8，不改 provider 的环境。
+_sticky_text_locale() {
+  local probe='中' candidate LC_ALL="${LC_ALL:-${LC_CTYPE:-${LANG:-C}}}"
+  for candidate in "$LC_ALL" C.UTF-8 en_US.UTF-8 UTF-8; do
+    LC_ALL="$candidate"
+    if (( ${#probe} == 1 )); then printf '%s' "$LC_ALL"; return; fi
+  done
+  printf 'C'
+}
+_STEXT_LOCALE="$(_sticky_text_locale 2>/dev/null)"
+
 _sfmt_elapsed() {
   local s=${1:-0} h m
   h=$(( s / 3600 ))
@@ -140,6 +157,7 @@ _schar_width() {
 
 # Truncate string to fit max display columns (CJK-aware), append "..." if truncated
 _struncate_cols() {
+  local LC_ALL="$_STEXT_LOCALE"
   local txt="$1" max="$2"
   local suffix="..." suffix_w=3 out="" used=0 i ch w limit total=0
 
@@ -150,6 +168,7 @@ _struncate_cols() {
     _schar_width "$ch"
     w="$_SCHAR_WIDTH"
     total=$(( total + w ))
+    if (( total > max )); then break; fi
   done
   if (( total <= max )); then
     printf '%s' "$txt"
@@ -157,7 +176,7 @@ _struncate_cols() {
   fi
 
   if (( max <= suffix_w )); then
-    printf '%s' "${txt:0:max}"
+    printf '%s' "${suffix:0:max}"
     return
   fi
 
@@ -257,13 +276,14 @@ _sdraw_top() {
   fi
   local start_ts="${_RALPH_STICKY_RUN_START_TS:-$now}"
 
-  local done="${_RALPH_STICKY_TASKS_DONE:-0}"
+  local task_index="${_RALPH_STICKY_TASK_INDEX:--}"
   local total="${_RALPH_STICKY_TASKS_TOTAL:-0}"
   local oneshots="${_RALPH_STICKY_ROUND:-0}"
   local provider="${_RALPH_STICKY_PROVIDER:-unknown}"
   local ver="${RALPH_VERSION:-0.2}"
 
-  if (( done >= total && total > 0 )); then
+  if [[ "${_RALPH_STICKY_EXIT_REASON:-}" == done ]]; then
+    task_index="$total"
     tasks_color="$_SGREEN"
   else
     tasks_color="$_SRESET"
@@ -282,9 +302,9 @@ _sdraw_top() {
     local ran_disp ago_disp
     ran_disp=$(_sfmt_elapsed "$ran_sec")
     ago_disp=$(_sfmt_ago "$ago_sec")
-    line=$(printf '%sralph %s%s %s· tasks%s %s%d/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· finished%s %s%s ago%s %s· duration%s %s' \
+    line=$(printf '%sralph %s%s %s· tasks%s %s%s/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· finished%s %s%s ago%s %s· duration%s %s' \
       "$_SCYAN" "$ver" "$_SRESET" \
-      "$_SGRAY" "$_SRESET" "$tasks_color" "$done" "$total" "$_SRESET" \
+      "$_SGRAY" "$_SRESET" "$tasks_color" "$task_index" "$total" "$_SRESET" \
       "$_SGRAY" "$_SRESET" "$_SBOLD" "$oneshots" "$_SRESET" \
       "$_SGRAY" "$_SRESET" "$provider" \
       "$_SGRAY" "$_SRESET" "$_SDIM" "$ago_disp" "$_SRESET" \
@@ -292,9 +312,9 @@ _sdraw_top() {
   else
     local elapsed
     elapsed=$(_sfmt_elapsed $(( now - start_ts )))
-    line=$(printf '%sralph %s%s %s· tasks%s %s%d/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· elapsed%s %s' \
+    line=$(printf '%sralph %s%s %s· tasks%s %s%s/%d%s %s· oneshots%s %s%d%s %s· provider%s %s %s· elapsed%s %s' \
       "$_SCYAN" "$ver" "$_SRESET" \
-      "$_SGRAY" "$_SRESET" "$tasks_color" "$done" "$total" "$_SRESET" \
+      "$_SGRAY" "$_SRESET" "$tasks_color" "$task_index" "$total" "$_SRESET" \
       "$_SGRAY" "$_SRESET" "$_SBOLD" "$oneshots" "$_SRESET" \
       "$_SGRAY" "$_SRESET" "$provider" \
       "$_SGRAY" "$_SRESET" "$elapsed")
@@ -302,12 +322,161 @@ _sdraw_top() {
   printf '%s%s\n' "$_SEL" "$line"
 }
 
-# ── Draw: event area (6-line window) ─────────────────────────────────────────
+# 当前观察进程独占的游标和显示状态。持有 fd 8，避免两次刷新之间旧 inode 被复用。
+_SREAD_PATH='' _SREAD_ID='' _SREAD_POS=0 _SREAD_SIZE=0 _SREAD_WAIT_SIZE=-1
+_SREPLY_ID='' _SREPLY_TEXT='' _SREPLY_TIME=''
+
+_SREPLY_SESSIONS=() _SREPLY_STEPS=()
+
+_sticky_clear_events() {
+  _SREPLY_ID='' _SREPLY_TEXT='' _SREPLY_TIME=''
+  _SEV_TIMES=() _SEV_MSGS=() _SEV_NEXT=0
+  _SREPLY_SESSIONS=() _SREPLY_STEPS=()
+  _SREAD_POS=0 _SREAD_SIZE=0 _SREAD_WAIT_SIZE=-1
+}
+
+_sticky_reset_log() {
+  exec 8<&-
+  _SREAD_PATH='' _SREAD_ID=''
+  _sticky_clear_events
+}
+
+# 每个会话只保存已出现的最新步骤编号；退回旧步骤的迟到片段不能覆盖新回复。
+_sticky_new_step() {
+  local session="${1%/*}" step="${1##*/}" i
+  for ((i=0; i<${#_SREPLY_SESSIONS[@]}; i++)); do
+    if [[ "${_SREPLY_SESSIONS[i]}" == "$session" ]]; then
+      (( step > _SREPLY_STEPS[i] )) || return 1
+      _SREPLY_STEPS[i]="$step"
+      return 0
+    fi
+  done
+  _SREPLY_SESSIONS+=("$session")
+  _SREPLY_STEPS+=("$step")
+}
+
+_sticky_reply() {
+  local LC_ALL="$_STEXT_LOCALE"
+  local op="$1" id="$2" text="$3" stamp="$4"
+  if [[ "$op" == append && "$id" == "$_SREPLY_ID" ]]; then
+    # 每个片段已经折叠空白；拼接时只消除边界上重复的空格。
+    local remaining=$(( _SREPLY_LIMIT + 1 - ${#_SREPLY_TEXT} ))
+    (( remaining > 0 )) || return 0
+    if [[ "${_SREPLY_TEXT: -1}" == ' ' && "${text:0:1}" == ' ' ]]; then text="${text:1}"; fi
+    _SREPLY_TEXT+="${text:0:remaining}"
+    return 0
+  fi
+  if [[ "${text:0:1}" == ' ' ]]; then text="${text:1}"; fi
+  text="${text:0:_SREPLY_LIMIT+1}"
+  [[ -n "$text" ]] || return 0
+  if [[ "$op" == append ]]; then _sticky_new_step "$id" || return 0; fi
+  if [[ "$op" == final ]] && [[ "$text" == "$_SREPLY_TEXT" || "$text " == "$_SREPLY_TEXT" || "$text" == "$_SREPLY_TEXT " ]]; then
+    return 0
+  fi
+  if [[ "$id" == null || "$id" != "$_SREPLY_ID" ]]; then _SREPLY_TIME="$stamp"; fi
+  _SREPLY_ID="$id"
+  _SREPLY_TEXT="$text"
+}
+
+ralph_sticky_read_log() {
+  local path="$1" flush="${2:-0}" attrs id size stamp op key text
+  if [[ "$path" != "$_SREAD_PATH" ]]; then _sticky_reset_log; fi
+  [[ -f "$path" ]] || return 0
+  if ! { exec 8< "$path"; } 2>/dev/null; then return 0; fi
+  attrs="$(stat -Lf '%d:%i %z' /dev/fd/8 2>/dev/null)" ||
+    attrs="$(stat -Lc '%d:%i %s' /dev/fd/8 2>/dev/null)" || return 0
+  read -r id size <<< "$attrs"
+  [[ "$size" =~ ^[0-9]+$ ]] || return 0
+  if [[ "$id" != "$_SREAD_ID" ]] || (( size < _SREAD_SIZE )); then
+    _sticky_clear_events
+  fi
+  _SREAD_PATH="$path" _SREAD_ID="$id" _SREAD_SIZE="$size"
+  (( size > _SREAD_POS && (flush || size != _SREAD_WAIT_SIZE) )) || return 0
+  local before="$_SREAD_POS"
+  stamp="$(date +%H:%M:%S)"
+  # 只读同一 fd 在取样时已经写完的记录。awk 在 C locale 数原始字节，
+  # 只转交以 { 开头的 provider 行；最后一行数字是本批真正消费到的位置。
+  # 未收齐的行留到下帧，结束时允许最后一行没有换行符。
+  # tr 等长替换 NUL 以保留 BSD awk 的字节计数；分批结束时它的 EPIPE 不进入画面。
+  while IFS=$'\t' read -r op key text; do
+    case "$op" in
+      event) ralph_sticky_append_event "$key" "$stamp" ;;
+      cursor) _SREAD_POS="$key" ;;
+      set|append|final) _sticky_reply "$op" "$key" "$text" "$stamp" ;;
+    esac
+  done < <(tail -c "+$(( _SREAD_POS + 1 ))" /dev/fd/8 2>/dev/null |
+    LC_ALL=C tr '\000' '\001' 2>/dev/null |
+    LC_ALL=C awk -v pos="$_SREAD_POS" -v endpos="$size" -v flush="$flush" '
+      BEGIN {start=pos}
+      {
+        nextpos=pos+length($0)+1
+        if (nextpos>endpos && !(flush && nextpos==endpos+1)) exit
+        if (substr($0,1,1)=="{") print
+        pos=(nextpos>endpos ? endpos : nextpos)
+        if (pos==endpos || NR>=128 || pos-start>=262144) exit
+      }
+      END {printf "%.0f\n",pos}
+    ' | ralph_filter_events sticky "$(( _SREPLY_LIMIT + 2 ))")
+  if (( _SREAD_POS == before )); then _SREAD_WAIT_SIZE="$size"; fi
+}
+
+# 正常结束时收齐最后一批记录；每批之间轮询键盘，取消路径直接保留已有画面。
+ralph_sticky_drain_log() {
+  local path="$1" before previous_id
+  while true; do
+    _sticky_poll_input
+    before="$_SREAD_POS" previous_id="$_SREAD_ID"
+    ralph_sticky_read_log "$path" 1
+    (( _SREAD_POS < _SREAD_SIZE )) || break
+    [[ "$_SREAD_ID" != "$previous_id" || "$_SREAD_POS" != "$before" ]] || break
+  done
+}
+
+_sdraw_reply() {
+  local rows="$1" stamp='' pad indent width
+  (( rows > 0 )) || return 0
+  if [[ -n "$_SREPLY_TIME" ]]; then stamp="[$_SREPLY_TIME] "; fi
+  indent=$(( ${#stamp} + 3 ))  # 时间、两列气泡和一个空格
+  width=$(( _SCOLS > indent ? _SCOLS - indent : 0 ))
+  printf -v pad '%*s' "$indent" ''
+
+  # 一次按 UTF-8 码点排出可见行；非 ASCII 保守占两列。逐字从长字符串
+  # 取子串会反复扫描前缀，在较高的回复区阻塞重绘及键盘轮询。
+  printf '%s' "$_SREPLY_TEXT" | jq -Rrs --argjson rows "$rows" --argjson width "$width" \
+    --argjson cap "$_SREPLY_LIMIT" --arg first "$_SEL$_SGRAY$stamp${_SRESET}💬 " --arg rest "$_SEL$pad" '
+    def cells: if . < 128 then 1 else 2 end;
+    def wrap:
+      foreach (.[], null) as $c ({row:[], used:0};
+        del(.out) |
+        if $c == null then .out = .row
+        elif $c == 32 and .used == 0 then .
+        else (if ($c|cells) > $width then 46 else $c end) as $ch | ($ch|cells) as $w |
+          if .used+$w <= $width then .row += [$ch] | .used += $w
+          else .out = .row |
+            if $ch == 32 then .row=[] | .used=0 else .row=[$ch] | .used=$w end
+          end
+        end; .out // empty);
+    def ellipsis:
+      if $width <= 3 then "." * $width else
+        ([foreach .[] as $c (0; .+($c|cells); if . <= $width-3 then $c else empty end)] | implode) + "..."
+      end;
+    (if $width == 0 then [] else
+       (if length > $cap then .[:$cap]+"..." else rtrimstr(" ") end) |
+       (if length == 0 then "本轮暂未收到模型文字。" else . end) |
+       .[:($rows*($width+1)+1)] | explode | [limit($rows+1; wrap)]
+     end) as $lines |
+    range($rows) as $i |
+    (if $i == 0 then $first else $rest end) +
+    (($lines[$i] // []) | if $i == $rows-1 and ($lines|length) > $rows then ellipsis else implode end)
+  '
+}
+
+# ── Draw: scrolling event area ───────────────────────────────────────────────
 _sdraw_events() {
-  local window="${1:-$_SEVENT_WINDOW}" first=0
+  local window="${1:-$_SEVENT_WINDOW}"
   local i count blank_count idx ts event max line
   count=${#_SEV_MSGS[@]}
-  if [[ $count -gt $window ]]; then first=$(( count - window )); count=$window; fi
+  if [[ $count -gt $window ]]; then count=$window; fi
   blank_count=$(( window - count ))
   max=$(( _SCOLS - 12 ))
   if [[ $max -lt 8 ]]; then max=8; fi
@@ -316,7 +485,7 @@ _sdraw_events() {
     if (( i < blank_count )); then
       line=""
     else
-      idx=$(( first + i - blank_count ))
+      idx=$(( (_SEV_NEXT - count + i - blank_count + _SEVENT_WINDOW) % _SEVENT_WINDOW ))
       ts="${_SEV_TIMES[$idx]:-}"
       event="${_SEV_MSGS[$idx]:-}"
       event="${event//$'\n'/ }"
@@ -382,7 +551,8 @@ _sdraw_bottom() {
   prefix_plain="● round ${task_try}/${max_round_disp} · stall ${stall_count}/${stall_limit} · X HH:MM:SS · → "
   task_max=$(( _SCOLS - ${#prefix_plain} - 1 - frozen_suffix_w ))
   if [[ $task_max -lt 8 ]]; then task_max=8; fi
-  task_short=$(_struncate_cols "${_RALPH_STICKY_CURRENT_TASK:-}" "$task_max")
+  local title="${_RALPH_STICKY_CURRENT_TASK:-}"
+  task_short=$(_struncate_cols "${title//[[:cntrl:]]/ }" "$task_max")
 
   # Stall color (AMBER approaching, RED at limit)
   local stall_color stall_warn
@@ -425,7 +595,7 @@ ralph_sticky_enter() {
 
   # Save + set terminal state
   if [[ -r /dev/tty ]]; then
-    _SSTTY_SAVED="$(stty -g < /dev/tty 2>/dev/null || true)"
+    _SSTTY_SAVED="$(stty -g 2>/dev/null < /dev/tty || true)"
     if [[ -n "$_SSTTY_SAVED" ]]; then
       if stty -echo -icanon min 0 time 0 < /dev/tty 2>/dev/null; then
         _SSTTY_ACTIVE=1
@@ -448,10 +618,9 @@ ralph_sticky_enter() {
   _SREDRAWING=0
   _SCLEANED=0
   _STICKY_LINES_LAST=""
+  _SRESIZE_PENDING=''
 
-  # Clear event buffer
-  _SEV_TIMES=()
-  _SEV_MSGS=()
+  _sticky_reset_log
   _SSPIN_IDX=0
 
   printf '%s' "$_SHIDE"
@@ -460,6 +629,7 @@ ralph_sticky_enter() {
 ralph_sticky_cleanup() {
   ((_SCLEANED)) && return 0
   _SCLEANED=1
+  exec 8<&-
   _SINPUT_POLL=0
 
   # Restore cursor position if mid-redraw
@@ -484,20 +654,14 @@ ralph_sticky_cleanup() {
 
 ralph_sticky_append_event() {
   local event="$1"
-  local ts
-  ts=$(date +%H:%M:%S)
+  local ts="${2:-$(date +%H:%M:%S)}"
 
-  _SEV_TIMES+=("$ts")
-  _SEV_MSGS+=("$event")
-
-  # Evict oldest events beyond window
-  while ((${#_SEV_MSGS[@]} > _SEVENT_WINDOW)); do
-    _SEV_TIMES=("${_SEV_TIMES[@]:1}")
-    _SEV_MSGS=("${_SEV_MSGS[@]:1}")
-  done
+  _SEV_TIMES[_SEV_NEXT]="$ts"
+  _SEV_MSGS[_SEV_NEXT]="$event"
+  _SEV_NEXT=$(( (_SEV_NEXT + 1) % _SEVENT_WINDOW ))
 }
 
-ralph_sticky_render_frame() {
+_sticky_poll_input() {
   if (( _SINPUT_POLL )); then
     # 已设置 min=0/time=0；普通 read 不阻塞，可能以 EOF 返回部分输入。
     # Bash 3.2 不支持 read -t 的小数，也不再让 -n/-s 临时改终端模式。
@@ -508,7 +672,21 @@ ralph_sticky_render_frame() {
       return 0
     fi
   fi
+}
+
+ralph_sticky_render_frame() {
+  _sticky_poll_input
   _srefresh_size
+  local resized=0 geometry="${_SCOLS}x${_SROWS}"
+  if (( _SRENDERED && (_SFRAME_COLS != _SCOLS || _SFRAME_ROWS != _SROWS) )); then
+    # 连续拖动窗口合并到尺寸稳定后的重绘；退出前的最后一帧立即绘制。
+    if [[ "${1:-}" != final && "$_SRESIZE_PENDING" != "$geometry" ]]; then
+      _SRESIZE_PENDING="$geometry"
+      return 0
+    fi
+    resized=1
+  fi
+  _SRESIZE_PENDING=''
 
   # Advance spinner (frozen in finished/replay mode)
   if [[ -z "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
@@ -516,7 +694,7 @@ ralph_sticky_render_frame() {
   fi
 
   # 保留一行给绘制后的光标，避免最后一个换行把头部滚入历史。
-  local overhead=5 event_lines="$_SEVENT_WINDOW" target_size
+  local overhead=5 reply_lines=0 event_lines=0 available target_size
   if [[ -n "${_RALPH_STICKY_FROZEN_NOW:-}" ]]; then
     overhead=4
   fi
@@ -524,10 +702,13 @@ ralph_sticky_render_frame() {
     target_size=1
     (( _SROWS > 1 )) || target_size=0
   else
-    if (( event_lines > _SROWS - overhead - 1 )); then
-      event_lines=$(( _SROWS - overhead - 1 ))
-    fi
-    target_size=$(( event_lines + overhead ))
+    available=$(( _SROWS - overhead - 1 ))
+    reply_lines=$(( available < _SREPLY_ROWS ? available : _SREPLY_ROWS ))
+    # 至少容得下两行时，较大的回复区配置也要给最新工具事件留一行。
+    if (( available > 1 && reply_lines == available )); then reply_lines=$(( available - 1 )); fi
+    event_lines=$(( available - reply_lines ))
+    if (( event_lines > _SEVENT_WINDOW )); then event_lines=$_SEVENT_WINDOW; fi
+    target_size=$(( reply_lines + event_lines + overhead ))
   fi
   local last_size="${_STICKY_LINES_LAST:-$target_size}"
 
@@ -536,7 +717,14 @@ ralph_sticky_render_frame() {
   printf '%s' "$_SWRAP_OFF"
 
   printf '\r'
-  if (( _SRENDERED && last_size > 0 )); then
+  if (( resized )); then
+    # 尺寸变化可能把旧帧从历史带回视口。保留光标之前的内容，用普通
+    # 换行把它送入滚动历史，从空页重新定位；无需猜测旧顶栏坐标。
+    printf '%sJ' "$_SCSI"
+    printf '%*s' "$_SROWS" '' | tr ' ' '\n'
+    if (( _SROWS > 1 )); then _scursor_up "$(( _SROWS - 1 ))"; fi
+    printf '\r'
+  elif (( _SRENDERED && last_size > 0 )); then
     # Move cursor up by PREVIOUS frame's size（处理 live↔frozen 变高场景）
     _scursor_up "$last_size"
   fi
@@ -547,6 +735,7 @@ ralph_sticky_render_frame() {
   else
     _sdraw_top
     _sdraw_hr
+    _sdraw_reply "$reply_lines"
     _sdraw_events "$event_lines"
     _sdraw_hr
     _sdraw_bottom
@@ -555,7 +744,7 @@ ralph_sticky_render_frame() {
     fi
   fi
 
-  # 收缩场景（live 11 → frozen 10）：清掉残留的下一行，再把 cursor 拉回到
+  # 收缩场景（如结束后少一行提示）：清掉残留的下一行，再把 cursor 拉回到
   # 当前帧底部，保证下一帧 cursor_up "$target_size" 能精确回到顶部。
   if (( target_size < last_size )); then
     # 清除光标以下的旧内容，不额外换行；窗口收缩时额外换行会再次滚屏。
@@ -564,6 +753,7 @@ ralph_sticky_render_frame() {
 
   _SRENDERED=1
   _STICKY_LINES_LAST="$target_size"
+  _SFRAME_COLS="$_SCOLS" _SFRAME_ROWS="$_SROWS"
   printf '%s' "$_SWRAP_ON"
 }
 

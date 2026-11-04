@@ -136,9 +136,9 @@ cat > "$out/.ralph/.env.example" <<'EOF'
 # 需要更频繁提示时调低；不需要提示时设为 0。run -v 的 sticky 界面不用此心跳。
 # RALPH_PROGRESS_HEARTBEAT_SEC=60
 
-# 默认 6 行：sticky/watch 事件区长度；通常保持默认。
-# 终端空间较小或想同时看到更多事件时才调整。
-# RALPH_UI_STICKY_EVENT_LINES=6
+# 紧凑视图默认显示 2 行最新回复和 4 行工具等事件。两项可单独设置为正整数。
+# RALPH_UI_STICKY_REPLY_LINES=2
+# RALPH_UI_STICKY_EVENT_LINES=4
 
 # 默认静默 60 秒变黄、300 秒变红；只是界面提示，不会停止 provider。
 # 只有 provider 正常输出间隔明显更长/更短、导致提示频繁误判时才调整。

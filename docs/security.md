@@ -89,6 +89,7 @@ Ralph 工具本身不对 session 文件做脱敏，因为 provider 的 transcrip
 | 面 | 风险 | 缓解 |
 |---|---|---|
 | `.ralph/.env` | 注入 shell 代码 | 逐行解析 + `RALPH_` 前缀白名单（TC-STK-003） |
+| `watch` 的日志与状态输入 | 控制字符改写终端画面，损坏的计数进入 shell 算术 | 过滤显示文本，校验快照和运行元数据的整数范围，原始日志保留在运行目录 |
 | `.ralph/PROMPT.md` | 工作包约束污染通用协议，影响后续任务 | 版本指纹启动校验 + run 快照 + 派发/返回检查；不是同用户权限下的写隔离 |
 | provider CLI | 升级改变 flag 或 session 路径 | adapter 版本锚点 + session 采集降级为 warning（REQ-006） |
 | session 文件泄露 | 提交到公共仓库 | `.ralph/.gitignore` 建议 + 本条文档显式声明不入仓 |

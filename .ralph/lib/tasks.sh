@@ -29,17 +29,27 @@ count_checked() {
   echo "${out:-0}"
 }
 
-# first_unchecked_task <tasks_file>
-# 输出第一个未勾选任务的标题（不含 "- [ ] " 前缀）
-# 如无未勾选任务则输出空
+# 派发只打开清单一次。首行是总数和已勾数，次行（如有）是首个待办的序号和标题。
+task_dispatch_snapshot() {
+  [[ -f "$1" ]] || return 1
+  parse_tasks /dev/stdin < "$1" | LC_ALL=C awk '
+    /^1 / {checked++; next}
+    !selected {selected=NR " " substr($0,3)}
+    END {print NR, checked+0; if (selected) print selected}'
+}
+
+# 可选 --indexed 返回「清单序号 标题」，同一次扫描取得派发时的两项信息。
 first_unchecked_task() {
-  local tasks_file="$1"
+  local tasks_file="$1" line number=0
   [[ -f "$tasks_file" ]] || return 0
-  local line
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]+\[[[:space:]]\][[:space:]]+(.*) ]]; then
-      printf '%s\n' "${BASH_REMATCH[1]}"
-      return 0
+    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]+\[([[:space:]xX])\][[:space:]]+(.*) ]]; then
+      number=$((number + 1))
+      if [[ "${BASH_REMATCH[1]}" != [xX] ]]; then
+        if [[ "${2:-}" == --indexed ]]; then printf '%d ' "$number"; fi
+        printf '%s\n' "${BASH_REMATCH[2]}"
+        return 0
+      fi
     fi
   done < "$tasks_file"
 }

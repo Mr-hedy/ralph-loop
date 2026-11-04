@@ -15,7 +15,7 @@
 
 ## 快速开始
 
-面向部署使用者的完整功能说明、操作步骤、升级方法和版本更新记录见 [`release/0.1.9/README.md`](release/0.1.9/README.md)。
+面向部署使用者的完整功能说明、操作步骤、升级方法和版本更新记录见 [`release/0.1.10/README.md`](release/0.1.10/README.md)。
 
 ### 前置依赖
 
@@ -38,14 +38,14 @@
 目标已有 `README.md`、`AGENTS.md`、`CLAUDE.md`、`.ralph/`、`.spec/`、`.agents/` 或 `docs/` 时，先复制到临时目录再逐项人工合并，保留项目事实和任务；下面的整包复制命令仅用于不存在这些同名文件的目标目录。
 
 ```bash
-cp -R <ralph-loop-repo>/release/0.1.9/. <your-workspace>/
+cp -R <ralph-loop-repo>/release/0.1.10/. <your-workspace>/
 ```
 
 部署包同时带入 `README.md`、`.ralph/`、`.spec/`、Ralph skill 及前台/后台 references、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md` 文档地图模板。已有同名文件时先人工合并，不要静默覆盖。
 
 ### 2. 配置 workspace
 
-按 `release/0.1.9/.ralph/.env.example` 在 workspace 创建 `.ralph/.env`（最小配置）：
+按 `release/0.1.10/.ralph/.env.example` 在 workspace 创建 `.ralph/.env`（最小配置）：
 
 ```bash
 RALPH_PROVIDER=claude                         # claude / codex / antigravity
@@ -84,6 +84,8 @@ cd <your-workspace>
 ./.ralph/bin/ralph run -v                  # TTY 下显示 sticky TUI；非 TTY 自动降级 plain
 ```
 
+紧凑界面的英文 `tasks` 显示当前任务在清单中的序号。默认内容区为两行最新模型回复和四行工具等事件，可分别调整行数。
+
 无 `-v` 的 `ralph run` 默认仍保持 stdout silent；stderr 会打印 round 启停 marker。长 provider oneshot 未返回时，每 60 秒打印 heartbeat，包含 elapsed、当前 `provider.stdout.log` 大小和可直接 `tail -f` 的路径。
 
 `ralph watch` 通过 `.ralph/status.json` 的当前 `run_id` / `round` tail 对应 `provider.stdout.log`；run 会在 provider oneshot 启动前更新 status 到当前 round，避免 watch 盯到上一轮日志。
@@ -118,7 +120,7 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 
 ## 当前状态
 
-- 项目版本：v0.1.9
+- 项目版本：v0.1.10
 - 当前开发任务：`.ralph/TASKS.md`（dogfood 模式，root `task.md` 已封版）
 - 续接状态：`handoff.md`
 - 工具入口：`.ralph/bin/ralph`
@@ -149,7 +151,7 @@ cat .ralph/runs/<run_id>/rounds/round-001/meta.json
 
 - 本仓库是 ralph-loop 工具的**开发工程**。**v0.1 后切换为 dogfood 模式** — 自用 ralph 驱动后续开发；`.ralph/TASKS.md` 是当前任务源。
 - 对外部署只使用 `release/<version>/`；开发工程中的 `.ralph/` 是 dogfood 工作区，不直接复制到其他项目。
-- 当前 v0.1.9 release 包含 `.ralph/`、`.spec/`、`.agents/skills/ralph/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md`；其他 skills 与必要的 `.codex/` 会话治理配置后续完善再交付，实施状态以对应需求与架构文档为准。运行时产物不得进入 release。
+- 当前 v0.1.10 release 包含 `.ralph/`、`.spec/`、`.agents/skills/ralph/`、项目级 `AGENTS.md` 模板、`CLAUDE.md` 软链接和 `docs/README.md`；其他 skills 与必要的 `.codex/` 会话治理配置后续完善再交付，实施状态以对应需求与架构文档为准。运行时产物不得进入 release。
 - Ralph 需求沉淀在 `docs/requirements.md`（项目级）和 `docs/features/ralph-loop/requirements.md`（模块级）；架构和外部集成分别见 `docs/architecture.md` 与 `docs/integrations.md`。
 - 历史设计方案放 `docs/features/ralph-loop/history/I<N>-design.md`；历史任务归档放 `I<N>-FINAL-TASK.md`。
 - 项目过程事实写入 `docs/`，并从 `docs/README.md` 保持可发现；根 README 只在项目自身入口内容变化时更新。

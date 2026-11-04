@@ -65,7 +65,8 @@ printf '\nRALPH_PROVIDER=antigravity\n' >> .ralph/.env
 | `RALPH_LOOP_MAX_RETRY` | `3` 次暂态错误重试 | 要让 rate limit / network 错误立即暴露时设 `0`；网络不稳时按预算调高 |
 | `RALPH_LOOP_RETRY_SCHEDULE` | 仅在 `rate_limit` / `network` 失败后，第一次等 `60` 秒再试、第二次等 `120` 秒、第三次等 `300` 秒 | 需要匹配 provider 限流窗口或调整恢复速度时；重试次数由 `MAX_RETRY` 控制 |
 | `RALPH_PROGRESS_HEARTBEAT_SEC` | 普通文本模式中，同一轮超过 `60` 秒仍未结束，就每 `60` 秒打印“仍在运行”、耗时和日志路径；不重启 provider | 想更频繁看到提示时调低；不需要提示时设 `0`；`run -v` 不使用此心跳 |
-| `RALPH_UI_STICKY_EVENT_LINES` | sticky/watch 事件区显示 `6` 行 | 终端空间有限或想看更多事件时 |
+| `RALPH_UI_STICKY_REPLY_LINES` | 最新模型回复显示 `2` 行 | 调整置顶回复的高度时 |
+| `RALPH_UI_STICKY_EVENT_LINES` | 工具等事件滚动显示 `4` 行 | 调整工具记录的可见条数时 |
 | `RALPH_UI_HEALTH_GREEN_SEC`、`RALPH_UI_HEALTH_RED_SEC` | 日志静默 `60` 秒变黄、`300` 秒变红 | provider 正常输出间隔导致健康提示误判时；这两个值只影响显示 |
 | `RALPH_PROVIDER_CONFIG_DIR` | 使用 provider 默认配置和登录态 | Claude/Codex 需要隔离账号时指向已准备的目录；Antigravity 不支持非空值，使用 `agy` 默认登录态 |
 
@@ -104,6 +105,8 @@ Claude 和 Codex 会把配置目录分别传给 `CLAUDE_CONFIG_DIR` 与 `CODEX_H
 ./.ralph/bin/ralph watch
 ./.ralph/bin/ralph watch --details
 ```
+
+顶栏 `tasks 2/3` 表示正在执行第 2 项，共 3 项。`oneshots` 统计本次运行的轮数，底栏 `round` 统计当前任务的轮数。最新模型回复按消息边界合并，首行显示本地观察时间。默认内容区共 6 行，上方 2 行回复，下方 4 行滚动事件。两项可分别设置为正整数。例如只设 `RALPH_UI_STICKY_EVENT_LINES=6` 时，回复仍占 2 行，内容区共 8 行。
 
 在另一个终端运行 `watch` 可实时观察；`Ctrl+C` 只退出观察界面。终端内需要 provider 事件时可使用 `./.ralph/bin/ralph run -v`。
 
@@ -145,7 +148,8 @@ Claude 和 Codex 会把配置目录分别传给 `CLAUDE_CONFIG_DIR` 与 `CODEX_H
 
 | 版本 | 主要变化 |
 |---|---|
-| **__VERSION__** | 修复紧凑 watch / run -v 宽字符折行、窗口过矮或事件区过大导致头部堆积；修复健康灯活动状态丢失、status/watch 混读状态和 watch 未加载项目 UI 配置，避免同秒快速重跑覆盖 run 证据；交付项目级 Ralph skill，与 provider 独立。2026-10-30 同版本更新：默认前台、支持后台，两份 references 按需读取；范围内动态调整任务、独立复审与必要返工，保留单写入者、累计预算和较窄授权边界。 |
+| **__VERSION__** | 紧凑 `watch` 和 `run -v` 顶栏显示派发任务的序号，回复区和事件区可独立配置，默认分别占 2 行和 4 行。Antigravity 文字按步骤合并，迟到片段和长工具输出不会替换最新回复。换轮及重试清除旧回复。同名清单项分别计轮，重试前任务已变化时保留原失败记录。 |
+| **0.1.9** | 修复紧凑 watch / run -v 宽字符折行、窗口过矮或事件区过大导致头部堆积；修复健康灯活动状态丢失、status/watch 混读状态和 watch 未加载项目 UI 配置，避免同秒快速重跑覆盖 run 证据；交付项目级 Ralph skill，与 provider 独立。2026-10-30 同版本更新：默认前台、支持后台，两份 references 按需读取；范围内动态调整任务、独立复审与必要返工，保留单写入者、累计预算和较窄授权边界。 |
 | **0.1.8** | 修正安装依赖与覆盖说明；支持 Git worktree 启动；Claude 路径解析不再依赖 `realpath`；统一 Bash 支持基线；新增 `watch --details` 执行过程入口，区分工具状态并显示结果；保护通用协议，增加版本指纹、run 快照和变化停止机制，提交服从用户授权；修复协议读取失败收尾、状态原子更新与重试日志跟随，补齐 Codex 真实命令输出和执行事件。 |
 | **0.1.6** | 移除旧的 Gemini CLI adapter 与测试替身，统一当前 provider 入口；完善配置默认值与设置时机、发布包使用指南和版本记录。 |
 | **0.1.5** | 接入 Antigravity CLI；采集运行事件与原生 transcript，完善错误判定、会话路径校验和真实端到端验证。 |
