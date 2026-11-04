@@ -64,6 +64,8 @@ Report these separately:
 - **Execution result**: Native exit code, `result.json`/terminal summary for the same `run_id`, and task progress. Mark missing evidence as unconfirmed; do not substitute another run's result.
 - **Acceptance result**: Specific grounds for passing, requiring changes, or being blocked; behavior actually verified, unverified scope, and remaining budget. Do not declare completion while blocking issues remain open.
 
+At a work-package handoff, flag completed tasks that still occupy the active task source. Follow the project's archival rules and existing authorization; do not silently archive. After authorized rotation, keep history as links and retain only current constraints/tasks in the active source. Do not reread completed archives during routine monitoring.
+
 ## Inspection and tool boundaries
 
 ```bash
@@ -71,6 +73,14 @@ Report these separately:
 ./.ralph/bin/ralph watch --details
 ```
 
-`watch` is an observation interface; Ctrl+C only exits observation. Read tool steps, errors, and validation output as needed. Do not replay entire provider logs, reasoning text, full process arguments, or credentials.
+`watch` is an observation interface; Ctrl+C only exits observation. Start with the native handle and compact run/status metadata. Inspect provider events only when they inform progress, intervention, or acceptance; foreground does not require replaying the provider conversation.
+
+### Bounded inspection output
+
+- Parse and filter locally before returning tool output to the Main Agent. Allow only relevant run/task identity, state transitions, tool action summaries, exit/error types, test summaries, and evidence locations. Exclude reasoning, prompts, full process arguments, environment contents, credentials, and raw terminal redraws. A locally scanned log's byte size is not the amount that must enter model context.
+- Keep routine monitoring concise; **about 2,000 characters** is a reference budget, not a hard limit. Do not impose a fixed event count or a per-event character ceiling. Combine repetitive events into counts; prioritize failures, permission or budget issues, potentially out-of-scope actions, and terminal transitions. When nothing changed, return only compact unchanged/running metadata, not the previous event list.
+- For a specific unresolved question, read a named event or focused log range; **about 6,000 characters** is a starting budget. State what that read will resolve, and expand within the authorized scope when needed to preserve a complete error chain, critical action, or acceptance evidence. Do not fragment necessary evidence merely to meet a character target. These text budgets do not limit review depth or relax authorization, model-call, or spending limits.
+- Filter and summarize before emitting output, and set a tool response budget that preserves the selected evidence. Do not return an unfiltered result object or rely on host truncation to remove an oversized transcript/TUI. Identify what was omitted or remains unread, including a count and continuation position where available; retain deferred relevant events for follow-up. Neither a reference budget nor a host output limit may silently discard failures or turn unseen data into a success claim.
+- Keep the cursor and de-duplication state described in the selected mode reference. If event parsing or cursor recovery is uncertain, disclose the coverage gap and inspect a bounded window. Never fall back to dumping the entire provider log. Preserve original evidence for targeted inspection and final review.
 
 `.ralph/PROMPT.md`, `.ralph/bin/`, and `.ralph/lib/` are versioned control files. This skill does not authorize modifying them or `.env`. Tool upgrades require separate explicit authorization and a stopped run. Put stable project conventions in the project entrypoint, and work-package constraints in the sole task source and its source-of-truth documents. Do not create another execution loop or parallel task board.

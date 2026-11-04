@@ -5,7 +5,7 @@
 | 主题 | 文档 | 状态 | 说明 |
 |---|---|---|---|
 | 项目入口 | `../README.md` | 已确认 | 项目定位、入口地图和项目边界 |
-| Ralph 动作 workflow | `../.agents/skills/ralph/SKILL.md` | 已确认 | 默认前台、按需后台的托管、任务调整与独立复审；自 0.1.9 起交付入口及两份模式 references，其他 skills 后续完善 |
+| Ralph 动作 workflow | `../.agents/skills/ralph/SKILL.md` | 已确认 | 前台增量监督、后台按需查证、任务调整与独立复审；自 0.1.9 起交付入口及两份模式 references，其他 skills 后续完善 |
 | 协作规范 | `../.spec/README.md` | 已确认 | 协作模型、阶段和事实源边界 |
 | 当前开发任务 | `../.ralph/TASKS.md` | 执行中 | 本仓库 dogfood 的唯一任务事实源；release 构建另生成空模板，不复制这里的任务状态 |
 | v0.1 历史任务 | `../task.md` | 已封版 | T0–T6 历史任务史 + 22 条决策追溯（v0.1.0 发布于 2026-04-28） |

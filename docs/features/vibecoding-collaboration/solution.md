@@ -147,7 +147,7 @@ Task Readiness Gate 必须确认：
 
 ### 4.2 执行模式与动态任务调整
 
-具体操作唯一入口为 [Ralph skill](../../../.agents/skills/ralph/SKILL.md)。该入口定义请求范围、模式选择、启动身份、停止/恢复与复审共同边界；[前台流程](../../../.agents/skills/ralph/references/foreground.md) 和 [后台流程](../../../.agents/skills/ralph/references/background.md) 按选定模式读取。宿主负责托管，provider 负责 oneshot，两者独立；不新增 runtime 模式字段或 CLI 参数。
+具体操作唯一入口为 [Ralph skill](../../../.agents/skills/ralph/SKILL.md)。该入口定义请求范围、模式选择、启动身份、停止/恢复与复审的共同边界。两种模式共用[监控输出与证据读取规则](../../../.agents/skills/ralph/SKILL.md#bounded-inspection-output)。[前台流程](../../../.agents/skills/ralph/references/foreground.md) 和 [后台流程](../../../.agents/skills/ralph/references/background.md) 按选定模式读取。宿主负责托管，provider 负责 oneshot，两者独立；不新增 runtime 模式字段或 CLI 参数。
 
 ```text
 用户授权工作包执行

@@ -581,7 +581,7 @@ provider 特定字段、优先级和关键字匹配见 [`integrations.md#错误�
 ### Sticky TUI 布局 (I5)
 
 ```text
-ralph 0.1.10 · tasks N/M · oneshots 12 · provider claude · elapsed H:MM:SS
+ralph 0.1.11 · tasks N/M · oneshots 12 · provider claude · elapsed H:MM:SS
 ─────────────────────────────────────────────────────────────────────────────────
 [HH:MM:SS] 💬 最近一条模型回复，正文空白合并，按列宽折行
               续行与正文对齐，默认两行

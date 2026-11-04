@@ -103,7 +103,7 @@ git status
 没有同名文件时，从 ralph-loop release 目录复制完整版本包：
 
 ```bash
-cp -R /path/to/ralph-loop/release/0.1.10/. ./
+cp -R /path/to/ralph-loop/release/0.1.11/. ./
 ```
 
 不要从 ralph-loop 开发工程直接复制 `.ralph/`；那是本仓库的 dogfood 工作区。

@@ -14,7 +14,11 @@ Return control after startup checks. Do not continuously poll, watch, or wait fo
 
 Ralph implements, checks its work, and handles normal problems under the project's task protocol. While it is running in the background, the Main Agent must not concurrently edit tasks, specifications, or code, or start another build that affects its artifacts.
 
-When the user returns with a question, inspect the existing execution through its original handle and run_id first. A request to check progress does not itself authorize task edits, a restart, or a mode switch. If the user requests task adjustments, or an observed boundary violation requires immediate protective action, follow the entrypoint's rules to stop and confirm termination before proceeding. Background mode does not override a user's stop instruction.
+When the user returns with a question, inspect the existing execution through its original handle and run_id first.
+
+Apply the shared [bounded inspection output](../SKILL.md#bounded-inspection-output) rules: start with status and terminal metadata, and read only needed new events using the retained run/log cursor and event ID/state version. On cursor loss, use a bounded recent window and state any coverage gap; do not replay the entire log. Use the shared character budgets as guidance, expanding focused evidence when needed and retaining a continuation position for any relevant material deferred from the summary. This inspection does not create a continuous foreground monitoring loop.
+
+A request to check progress does not itself authorize task edits, a restart, or a mode switch. If the user requests task adjustments, or an observed boundary violation requires immediate protective action, follow the entrypoint's rules to stop and confirm termination before proceeding. Background mode does not override a user's stop instruction.
 
 If new circumstances require ongoing judgment, explain the evidence and recommend foreground. Do not change a user-selected background mode without consent. Background execution does not guarantee early detection of acceptance gaps that Ralph itself has not identified.
 
