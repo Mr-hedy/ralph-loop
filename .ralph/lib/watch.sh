@@ -343,7 +343,7 @@ ralph_watch() {
   local _w_prev_task_started_at=""
   local _w_task_start_ts
   _w_task_start_ts="$(date +%s)"
-  local _w_finished=0
+  local _w_finished=0 log_mode=attach
 
   # Main polling loop
   while true; do
@@ -387,6 +387,8 @@ ralph_watch() {
       _w_finished=0
       _RALPH_STICKY_FROZEN_NOW=""
       _sticky_reset_log
+      # 第一次看到另一个运行就已结束，只能回放；运行中切换则继续跟看。
+      if [[ "$state" == finished ]]; then log_mode=history; else log_mode=live; fi
       # Refresh run start ts from new started_at (elapsed restarts on each run)
       started_at="$(_w_snapshot_val "$status_json" "started_at")"
       _RALPH_STICKY_RUN_START_TS=""
@@ -422,9 +424,18 @@ ralph_watch() {
       log_path="$workspace/.ralph/runs/$run_id/rounds/round-$zero_padded/provider.stdout.log"
     fi
 
-    local flush=0
-    [[ "$state" != finished ]] || flush=1
-    ralph_sticky_read_log "$log_path" "$flush"
+    local flush=0 mode="$log_mode"
+    if [[ "$state" == finished ]]; then
+      flush=1
+      [[ "$mode" != attach ]] || mode=history
+    fi
+    ralph_sticky_read_log "$log_path" "$flush" "$mode"
+    if (( flush )); then
+      # 同一运行可能在两帧之间换轮或重试并结束。读到最终日志后才结束跟看。
+      if [[ "$log_mode" != history && -n "$_SREAD_ID" && -f "$log_path" ]]; then log_mode=history; fi
+    elif [[ -n "$_SREAD_ID" || ! -e "$log_path" ]]; then
+      log_mode=live
+    fi
 
     # Try to read stall_count from latest meta.json
     local stall_count=0

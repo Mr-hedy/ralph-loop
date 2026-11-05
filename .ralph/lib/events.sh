@@ -2,7 +2,8 @@
 # 两种 TUI 共用 provider 事件映射。sticky 输出带类型的单行记录，
 # 保留文字片段边界；details 输出完整、可滚动的人话记录。
 ralph_filter_events() {
-  jq -Rr --arg mode "${1:?expected sticky or details}" --argjson reply_limit "${2:-131072}" '
+  jq -Rr --arg mode "${1:?expected sticky or details}" --argjson reply_limit "${2:-131072}" \
+    --arg fallback_clock "${3:-历史}" '
       def printable: . >= 32 and (. < 127 or . > 159);
       def safe: tostring | if test("[\u0000-\u0008\u000b-\u001f\u007f-\u009f]") then
           explode | map(select(. == 9 or . == 10 or printable)) | implode else . end;
@@ -20,6 +21,16 @@ ralph_filter_events() {
                if .emit then $c else empty end))] | implode
         end;
       def trunc($n): if $mode == "details" then safe else compact($n) end;
+      # 只取事件本身含时区的时间戳。先换算成 UTC 秒，再按事件当天的本地时区显示。
+      def event_clock:
+        .timestamp | strings | select(length <= 64) |
+        capture("\\A(?<wall>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:[.,][0-9]+)?(?:Z|(?<sign>[+-])(?<hh>[01][0-9]|2[0-3])(?::?(?<mm>[0-5][0-9]))?)\\z"; "i") |
+        (.wall | ascii_upcase + "Z") as $utc |
+        # 系统 mktime 也可能对合法的 epoch -1 报错，用回转比对区分它与非法日期。
+        (try ($utc | fromdateiso8601) catch -1) as $epoch |
+        select(($epoch | todateiso8601) == $utc) |
+        (((.hh // "0" | tonumber) * 60 + (.mm // "0" | tonumber)) * 60) as $offset |
+        (if .sign == "-" then $epoch + $offset else $epoch - $offset end) | strflocaltime("%H:%M:%S");
       def agy_error: (.result.error // .error // null);
       def agy_has_error:
         agy_error as $e |
@@ -156,16 +167,18 @@ ralph_filter_events() {
       else empty end;
       . as $raw |
       if startswith("{") then
-        try (fromjson | render |
+        try (fromjson |
+          (if $mode == "sticky" then (event_clock? // $fallback_clock) else null end) as $clock |
+          render |
           if type == "object" then
-            if $mode == "sticky" then .op + "\t" +
+            if $mode == "sticky" then .op + "\t" + $clock + "\t" +
               (if .op == "append" then (.id[1] | tojson) + "/" + (.id[2] | tostring)
                else (.id | tojson) end) + "\t" + (.text | compact($reply_limit))
             else "  💬 " + (.text | trunc(120)) end
-          elif $mode == "sticky" then "event\t" + compact(512)
+          elif $mode == "sticky" then "event\t" + $clock + "\t" + compact(512)
           else safe end)
         catch (if $mode == "details" then "[provider unparsed] " + ($raw | safe) else empty end)
-      elif $mode == "sticky" and test("^[0-9]+$") then "cursor\t" + .
+      elif $mode == "sticky" and test("^[0-9]+$") then "cursor\t-\t" + .
       elif $mode == "details" then "[provider] " + safe
       else empty end
   '

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RALPH_VERSION="0.1.11"
+RALPH_VERSION="0.1.12"
 # 安装文档由构建脚本读取此支持基线；不据此新增启动拦截。
 RALPH_BASH_MIN_VERSION="3.2"
 # 通用协议的 Git blob 指纹；支持使用者仓库的 SHA-1 / SHA-256 对象格式。

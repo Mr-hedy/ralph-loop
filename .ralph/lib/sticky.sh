@@ -324,6 +324,7 @@ _sdraw_top() {
 
 # 当前观察进程独占的游标和显示状态。持有 fd 8，避免两次刷新之间旧 inode 被复用。
 _SREAD_PATH='' _SREAD_ID='' _SREAD_POS=0 _SREAD_SIZE=0 _SREAD_WAIT_SIZE=-1
+_SREAD_HISTORY_END=0  # 接入前日志的字节数，-1 表示首次接入时已结束，整份日志均为历史。
 _SREPLY_ID='' _SREPLY_TEXT='' _SREPLY_TIME=''
 
 _SREPLY_SESSIONS=() _SREPLY_STEPS=()
@@ -332,7 +333,7 @@ _sticky_clear_events() {
   _SREPLY_ID='' _SREPLY_TEXT='' _SREPLY_TIME=''
   _SEV_TIMES=() _SEV_MSGS=() _SEV_NEXT=0
   _SREPLY_SESSIONS=() _SREPLY_STEPS=()
-  _SREAD_POS=0 _SREAD_SIZE=0 _SREAD_WAIT_SIZE=-1
+  _SREAD_POS=0 _SREAD_SIZE=0 _SREAD_WAIT_SIZE=-1 _SREAD_HISTORY_END=0
 }
 
 _sticky_reset_log() {
@@ -379,7 +380,7 @@ _sticky_reply() {
 }
 
 ralph_sticky_read_log() {
-  local path="$1" flush="${2:-0}" attrs id size stamp op key text
+  local path="$1" flush="${2:-0}" mode="${3:-live}" attrs id size stamp op key text fallback
   if [[ "$path" != "$_SREAD_PATH" ]]; then _sticky_reset_log; fi
   [[ -f "$path" ]] || return 0
   if ! { exec 8< "$path"; } 2>/dev/null; then return 0; fi
@@ -389,16 +390,24 @@ ralph_sticky_read_log() {
   [[ "$size" =~ ^[0-9]+$ ]] || return 0
   if [[ "$id" != "$_SREAD_ID" ]] || (( size < _SREAD_SIZE )); then
     _sticky_clear_events
+    case "$mode" in
+      history) _SREAD_HISTORY_END=-1 ;;
+      attach)  _SREAD_HISTORY_END="$size" ;;
+    esac
   fi
   _SREAD_PATH="$path" _SREAD_ID="$id" _SREAD_SIZE="$size"
   (( size > _SREAD_POS && (flush || size != _SREAD_WAIT_SIZE) )) || return 0
   local before="$_SREAD_POS"
-  stamp="$(date +%H:%M:%S)"
+  if (( _SREAD_HISTORY_END < 0 || _SREAD_POS < _SREAD_HISTORY_END )); then
+    fallback=历史
+  else
+    fallback="$(date +%H:%M:%S)"
+  fi
   # 只读同一 fd 在取样时已经写完的记录。awk 在 C locale 数原始字节，
   # 只转交以 { 开头的 provider 行；最后一行数字是本批真正消费到的位置。
   # 未收齐的行留到下帧，结束时允许最后一行没有换行符。
   # tr 等长替换 NUL 以保留 BSD awk 的字节计数；分批结束时它的 EPIPE 不进入画面。
-  while IFS=$'\t' read -r op key text; do
+  while IFS=$'\t' read -r op stamp key text; do
     case "$op" in
       event) ralph_sticky_append_event "$key" "$stamp" ;;
       cursor) _SREAD_POS="$key" ;;
@@ -406,17 +415,18 @@ ralph_sticky_read_log() {
     esac
   done < <(tail -c "+$(( _SREAD_POS + 1 ))" /dev/fd/8 2>/dev/null |
     LC_ALL=C tr '\000' '\001' 2>/dev/null |
-    LC_ALL=C awk -v pos="$_SREAD_POS" -v endpos="$size" -v flush="$flush" '
+    LC_ALL=C awk -v pos="$_SREAD_POS" -v endpos="$size" -v history="$_SREAD_HISTORY_END" -v flush="$flush" '
       BEGIN {start=pos}
       {
         nextpos=pos+length($0)+1
         if (nextpos>endpos && !(flush && nextpos==endpos+1)) exit
         if (substr($0,1,1)=="{") print
         pos=(nextpos>endpos ? endpos : nextpos)
-        if (pos==endpos || NR>=128 || pos-start>=262144) exit
+        # 刚打开时已写到一半的记录也属于回放。跨过边界后，下一批使用实时兜底。
+        if ((start<history && pos>=history) || pos==endpos || NR>=128 || pos-start>=262144) exit
       }
       END {printf "%.0f\n",pos}
-    ' | ralph_filter_events sticky "$(( _SREPLY_LIMIT + 2 ))")
+    ' | ralph_filter_events sticky "$(( _SREPLY_LIMIT + 2 ))" "$fallback")
   if (( _SREAD_POS == before )); then _SREAD_WAIT_SIZE="$size"; fi
 }
 
@@ -432,11 +442,22 @@ ralph_sticky_drain_log() {
   done
 }
 
+# 将时间栏写入调用方的局部变量。两种标签都占 11 列（含间隔），也适用于 C locale。
+_sticky_time_prefix() {
+  if [[ "$2" == 历史 ]]; then
+    printf -v "$1" '[历史]%5s' ''
+  else
+    printf -v "$1" '[%s] ' "$2"
+  fi
+}
+
 _sdraw_reply() {
-  local rows="$1" stamp='' pad indent width
+  local rows="$1" stamp='' pad indent=3 width
   (( rows > 0 )) || return 0
-  if [[ -n "$_SREPLY_TIME" ]]; then stamp="[$_SREPLY_TIME] "; fi
-  indent=$(( ${#stamp} + 3 ))  # 时间、两列气泡和一个空格
+  if [[ -n "$_SREPLY_TIME" ]]; then
+    _sticky_time_prefix stamp "$_SREPLY_TIME"
+    indent=14  # 时间栏、两列气泡、一个空格
+  fi
   width=$(( _SCOLS > indent ? _SCOLS - indent : 0 ))
   printf -v pad '%*s' "$indent" ''
 
@@ -486,12 +507,12 @@ _sdraw_events() {
       line=""
     else
       idx=$(( (_SEV_NEXT - count + i - blank_count + _SEVENT_WINDOW) % _SEVENT_WINDOW ))
-      ts="${_SEV_TIMES[$idx]:-}"
+      _sticky_time_prefix ts "${_SEV_TIMES[$idx]:-}"
       event="${_SEV_MSGS[$idx]:-}"
       event="${event//$'\n'/ }"
       event="${event//$'\r'/ }"
       event="${event//$'\t'/ }"
-      line=$(printf '%s[%s]%s %s' "$_SGRAY" "$ts" "$_SRESET" "$(_struncate_cols "$event" "$max")")
+      line=$(printf '%s%s%s%s' "$_SGRAY" "$ts" "$_SRESET" "$(_struncate_cols "$event" "$max")")
     fi
     printf '%s%s\n' "$_SEL" "$line"
   done

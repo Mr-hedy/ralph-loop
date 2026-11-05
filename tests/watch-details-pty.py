@@ -398,11 +398,8 @@ def compact_messages():
     try:
         lines = compact_frame(w, 'tool-8')
         assert 'tasks 2/3' in lines[0] and lines[8].startswith('──'), lines
-        assert re.fullmatch(r'\[\d\d:\d\d:\d\d\] 💬 First fragment second part', lines[2]), lines
-        stamp = lines[2][:10]
-        deadline = time.monotonic()+2
-        while time.strftime('[%H:%M:%S]') == stamp and time.monotonic()<deadline:
-            w.pump(.05)
+        prefix = '[历史]' + ' '*5 + '💬 '
+        assert lines[2] == prefix + 'First fragment second part', lines
         assert not lines[3] and all(f'tool-{n}' in line for n, line in enumerate(lines[4:8], 5)), lines
         assert log().read_text() == history
 
@@ -413,10 +410,10 @@ def compact_messages():
         w.pump(.4)
         with log().open('ab') as f: f.write(raw[cut:])
         lines = compact_frame(w, 'second part 世界')
-        assert lines[2].startswith(stamp)
+        assert lines[2].startswith(prefix)
         with log().open('a') as f:
             f.write(delta(84, 'New ') + delta(83, 'stale') + delta(84, 'reply'))
-        assert compact_frame(w, 'New reply')[2][11:] == '💬 New reply'
+        assert re.fullmatch(r'\[\d\d:\d\d:\d\d\] 💬 New reply', compact_frame(w, 'New reply')[2])
         with log().open('a') as f:
             f.write(delta(1, 'Other ', 'session/b') + delta(84, 'late') + delta(1, 'session', 'session/b'))
         assert compact_frame(w, 'Other session')[2].endswith('💬 Other session')
@@ -425,14 +422,15 @@ def compact_messages():
         retry = log().with_suffix('.retry')
         retry.write_text(encode(dict(type='error', message='retry started')))
         retry.replace(log())
-        assert '本轮暂未收到模型文字' in compact_frame(w, 'retry started')[2]
+        lines = compact_frame(w, 'retry started')
+        assert '本轮暂未收到模型文字' in lines[2] and re.match(r'\[\d\d:\d\d:\d\d\]', lines[7]), lines
         with log().open('a') as f: f.write(delta(84, 'Retry reply'))
         assert compact_frame(w, 'Retry reply')[2].endswith('💬 Retry reply')
 
         status(round=2, task_index=2)
         codex = encode(dict(type='item.completed', item=dict(id='a', type='agent_message', text='Codex full')))
         log(2).write_text(codex*2)
-        assert compact_frame(w, 'Codex full')[2].endswith('💬 Codex full')
+        assert re.fullmatch(r'\[\d\d:\d\d:\d\d\] 💬 Codex full', compact_frame(w, 'Codex full')[2])
         log(3).write_text(encode(dict(type='assistant', message=dict(id='m', content=[
             dict(type='text',text='Claude\nfirst'),dict(type='tool_use',name='Read'),
             dict(type='text',text='second')]))))
@@ -444,6 +442,7 @@ def compact_messages():
         status(round=3, state='finished', total=3, done=3)
         lines = compact_frame(w,'all tasks done')
         assert 'tasks 3/3' in lines[0] and '💬 FINAL ' in lines[2] and lines[3].endswith('...'),lines
+        assert re.match(r'\[\d\d:\d\d:\d\d\] 💬 FINAL ', lines[2]), lines
         assert 'HIDDEN-END' not in ''.join(lines)
         details = subprocess.check_output([bash, str(cli), 'watch','--details'],text=True)
         assert 'HIDDEN-END' in details
@@ -491,6 +490,110 @@ def compact_dispatch():
         gate.touch()
         if observer is not None: observer.close()
         run.close()
+
+
+def compact_event_times():
+    run = 'watch-event-times'
+    status(run=run, state='finished', provider='claude', done=4, total=4)
+    path = log(run=run)
+    events = [
+        dict(type='assistant', timestamp='2024-07-01t05:06:07.123z', message=dict(id='m', content=[
+            dict(type='text', text='Old reply'), dict(type='tool_use', name='OldTool')])),
+        dict(type='user', timestamp='2024-07-01T01:36:08,456789-0330', message=dict(content=[
+            dict(type='tool_result', content='Old result')])),
+        dict(type='tool_use', name='BadDate', timestamp='2024-02-30T05:06:09Z'),
+        dict(type='result', result='Old reply'),
+    ]
+    history = ''.join(json.dumps(e)+'\n' for e in events)
+    path.write_text(history)
+    original_status = status_file.read_bytes()
+    for zone, hour in [('Asia/Shanghai', '13'), ('Asia/Shanghai', '13'), ('America/New_York', '01')]:
+        w = Watch(details=False, no_color=True, env={'TZ':zone})
+        try:
+            lines = compact_frame(w, 'all tasks done')
+            assert lines[2] == f'[{hour}:06:07] 💬 Old reply', lines
+            assert lines[4].startswith(f'[{hour}:06:07]') and 'OldTool' in lines[4], lines
+            assert lines[5].startswith(f'[{hour}:06:08]') and 'Old result' in lines[5], lines
+            assert lines[6].startswith('[历史]') and 'BadDate' in lines[6], lines
+            assert lines[7].startswith('[历史]') and '✓ result' in lines[7], lines
+        finally:
+            w.close()
+    assert path.read_text() == history and status_file.read_bytes() == original_status
+
+    cases = [('1969-12-31T23:59:59Z', '23:59:59'), ('2024-07-01T13:06:07+08', '05:06:07'),
+             ('2024-07-01T10:36:08+05:30', '05:06:08'), ('2024-07-01T13:06:07+08:75', '历史')]
+    path.write_text(''.join(json.dumps(dict(type='tool_use', name=f'Clock{i}', timestamp=stamp))+'\n'
+                            for i,(stamp,_) in enumerate(cases)))
+    w = Watch(details=False, no_color=True, env={'TZ':'UTC0'})
+    try:
+        lines = compact_frame(w, 'all tasks done')
+        for i,(_,expected) in enumerate(cases):
+            assert lines[4+i].startswith(f'[{expected}]') and f'Clock{i}' in lines[4+i], lines
+    finally:
+        w.close()
+
+    # Append during bounded replay, completing an old partial line before a new live record.
+    path.write_text('diagnostic\n'*128 + '{"type":"tool_use","name":"old"}\n{"type":"tool_use","name":"part')
+    probe = r'''
+source .ralph/lib/sticky.sh
+date() { if [[ "$1" == '+%H:%M:%S' ]]; then echo '17:18:19'; else command date "$@"; fi; }
+ralph_sticky_read_log "$1" 0 attach
+printf '%s\n' 'ial"}' '{"type":"tool_use","name":"new"}' >> "$1"
+ralph_sticky_read_log "$1"
+ralph_sticky_read_log "$1"
+printf '%s\n' "${_SEV_TIMES[@]}"
+'''
+    clocks = subprocess.check_output([bash,'-c',probe,'_',str(path)], cwd=workspace, text=True, timeout=5)
+    assert clocks.splitlines() == ['历史','历史','17:18:19'], clocks
+
+
+def compact_finish_between_polls():
+    with tempfile.TemporaryDirectory(dir=workspace) as td:
+        hook = Path(td)/'clock.sh'
+        hook.write_text('''
+date() { if [[ "$1" == '+%H:%M:%S' ]]; then echo '17:18:19'; else command date "$@"; fi; }
+sleep() {
+  if [[ "$1" == 0.1 ]]; then while [[ ! -f "$CLOCK_GATE" ]]; do command sleep 0.02; done; fi
+  command sleep "$@"
+}
+''')
+        for case in ('next-round', 'retry', 'late-log', 'other-archive'):
+            first = 'follow-' + case
+            last = first if case != 'other-archive' else 'unseen-archive'
+            round_no = 1 if case == 'retry' else 2
+            expected = '[历史]' if case == 'other-archive' else '[17:18:19]'
+            gate = Path(td)/case
+            log(run=first).write_text(message('before'))
+            status(run=first)
+            w = Watch(details=False, no_color=True, env={'BASH_ENV':str(hook), 'CLOCK_GATE':str(gate)})
+            try:
+                assert compact_frame(w, 'before')[2].startswith('[历史]')
+                # Publish the new log and terminal status before the observer's next poll.
+                path = log(run=last, round=round_no)
+                tmp = path.with_suffix('.next')
+                tmp.write_text(message('final-reply')+json.dumps(dict(type='item.started',
+                    item=dict(type='command_execution', command='final-tool')))+'\n')
+                if case != 'late-log':
+                    tmp.replace(path)
+                status(run=last, round=round_no, state='finished', done=4)
+                gate.touch()
+                lines = compact_frame(w, 'all tasks done')
+                if case == 'late-log':
+                    assert 'final-reply' not in ''.join(lines)
+                    tmp.replace(path)
+                    lines = compact_frame(w, 'final-tool')
+                assert lines[2].startswith(expected) and lines[2].endswith('💬 final-reply'), (case, lines)
+                assert lines[7].startswith(expected) and 'final-tool' in lines[7], (case, lines)
+            finally:
+                gate.touch()
+                w.close()
+            cold = Watch(details=False, no_color=True)
+            try:
+                lines = compact_frame(cold, 'all tasks done')
+                assert lines[2].startswith('[历史]') and lines[2].endswith('💬 final-reply'), (case, lines)
+                assert lines[7].startswith('[历史]') and 'final-tool' in lines[7], (case, lines)
+            finally:
+                cold.close()
 
 
 def compact_no_header_drift():
@@ -1054,6 +1157,8 @@ checked('persistent corrupt status fails after bounded retries', corrupt_status)
 checked('details Ctrl-C leaves provider and running state intact', ctrl_c)
 checked('compact watch follows retry log inode replacement', compact_rotation)
 checked('compact replay: provider message boundaries, timestamp, partial UTF-8, retry, wrap and final flush', compact_messages)
+checked('compact event clocks survive reopening, timezone conversion and a growing replay backlog', compact_event_times)
+checked('compact clocks distinguish followed rounds and retries finishing between polls from an unseen archive', compact_finish_between_polls)
 checked('real run -v and late watch: dispatched ordinal, independent reply height, four tools and completion', compact_dispatch)
 checked('compact terminal screen has one header with long CJK/emoji/tab output at 80/120/180 columns, live and finished', compact_no_header_drift)
 checked('compact activity persists across frames, turns yellow/red on idle and recovers after log replacement', health_activity)
